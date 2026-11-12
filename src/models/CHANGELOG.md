@@ -26,6 +26,8 @@ User explicitly replaces the mandatory internal sale-order prerequisite with man
 
 `uoms` thêm `areaMm2` (Decimal128 dương, tùy chọn, mặc định null, bất biến): mm² của một đơn vị, M2 = 1000000. Dữ liệu cũ hợp lệ (null); `backfillConversions --apply` gán 1000000 cho UOM M2/M². Không thêm collection hay index. Quy tắc tự sinh quy đổi và làm tròn tới viên: [CONVERSIONS](../../git_doc/docs/08_api/CONVERSIONS.md).
 
+13/11/2026: `stocktake-header.schema.js` (header của `stocktakes`) thêm `selectedCounts[]` (`snapshotId`, `countId`), `lastReconciledBy`, `lastReconciledAt` để ghi kết quả đối chiếu BF-05; chốt UC-93 yêu cầu đã đối chiếu và `selectedCounts` khớp. Trường nhúng tùy chọn, không đổi collection/index, không cần migration; đợt cũ chưa đối chiếu phải đối chiếu lại trước khi chốt. Snapshot `origin: DISCOVERED` (đã có trong model) nay được tạo bởi lệnh đếm hàng phát hiện ngoài sổ. Chi tiết [vòng đời kiểm kê](../../git_doc/docs/08_api/STOCKTAKE_LIFECYCLE.md).
+
 ## 12/11/2026 — Mã chứng từ nối bằng dấu gạch ngang
 
 `DocumentIdentity` nhận mã mới nối bằng `-` liền, mã đã lưu có dấu cách quanh dấu nối và ObjectId lịch sử. Mỗi chứng từ đã lưu giữ nguyên giá trị định danh. [Hợp đồng định danh](../../git_doc/docs/08_api/DOCUMENT_IDENTITIES.md).
