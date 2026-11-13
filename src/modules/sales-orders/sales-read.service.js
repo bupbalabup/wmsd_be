@@ -1,5 +1,5 @@
 import { SalesOrder, WarehouseIssueRequest, DeliveryOrder, SalesGoodsIssue, FailedDeliveryReceipt,
-  StockReservation, StockTransaction, Attachment, ExternalReference, TransferOrder } from '../../models/runtime.js';
+  StockReservation, StockTransaction, DeliverySchedule, WarehouseLocation, TransferOrder } from '../../models/runtime.js';
 import { exact } from '../../models/model-utils.js';
 import { requirePermission, requireWarehouseAccess } from '../../shared/utils/access.js';
 import { currentRole } from '../../shared/utils/userRole.js';
@@ -7,7 +7,6 @@ import { notFoundError, validationError } from '../../shared/utils/ApiError.js';
 import { dto, transaction, page } from '../../shared/utils/persistence.js';
 import { same } from '../../shared/utils/document-command.js';
 import { escapeRegex } from '../../shared/utils/domain.js';
-import { cloudinary } from '../../config/cloudinary.js';
 
 export function redactPrices(value) {
   if(Array.isArray(value))return value.map(redactPrices);
@@ -125,22 +124,15 @@ export async function getSalesOrder(user,id){
       delete result.paymentConfirmations;delete result.evidenceIds;delete result.externalReferenceIds;
       return scopedSalesDto(user, result);
     }
-    const source=await ExternalReference.findById(order.header.externalReferenceId).session(session).lean();
-    const evidence=await Attachment.find({ownerDocumentType:'sales_orders',ownerDocumentId:id,status:'ATTACHED'}).select('_id mediaType originalName uploadedAt').session(session).lean();
+    const schedule=await DeliverySchedule.findOne({salesOrderId:id}).session(session).lean();
+    const places=schedule?await WarehouseLocation.find({_id:{$in:schedule.deliveries.flatMap(d=>d.lines.flatMap(l=>l.allocations.map(a=>a.locationId)))}}).select('code name').session(session).lean():[];
+    const deliverySchedule=schedule&&{...dto(schedule),deliveries:schedule.deliveries.map(d=>({...dto(d),lines:d.lines.map(l=>({...dto(l),allocations:l.allocations.map(a=>({...dto(a),locationCode:places.find(p=>same(p._id,a.locationId))?.code}))}))}))};
     const receipts=await FailedDeliveryReceipt.find({workflowStatus:'POSTED','demandReopenings.salesOrderLineId':{$in:order.items.map(i=>i._id)}}).session(session);
     const reopenedSources=receipts.flatMap(receipt=>(receipt.demandReopenings||[]).filter(r=>order.items.id(r.salesOrderLineId)).map(row=>{
       const cancelled=(order.cancellations||[]).filter(c=>same(c.reopeningReceiptLineId,row.receiptLineId)).reduce((n,c)=>n.plus(String(c.cancelledQtyBase)),exact('0'));
       const reused=(receipt.commitmentTransfers||[]).filter(c=>same(c.reopeningReceiptLineId,row.receiptLineId)).reduce((n,c)=>n.plus(String(c.quantityBase)),exact('0'));
       return {...dto(row),receiptDocumentNo:receipt.documentNo,availableQtyBase:exact(row.reopenedQtyBase).minus(cancelled).minus(reused).toFixed()};
     }));
-    return {...result,source:source?dto(source):null,evidence:evidence.map(dto),reopenedSources};
+    return {...result,deliverySchedule,reopenedSources};
   });
-}
-export async function getSalesEvidence(user,id,evidenceId){
-  requirePermission(user,'sales_order:read');if(!hasNamedSalesScope(user))throw notFoundError();
-  await orderSource(user,id);
-  const evidence=await Attachment.findOne({_id:evidenceId,ownerDocumentType:'sales_orders',ownerDocumentId:id,status:'ATTACHED'});
-  if(!evidence||!evidence.storageKey.startsWith('sep490/sales-source/'))throw notFoundError();
-  const expiresAt=Math.floor(Date.now()/1000)+60;
-  return {url:cloudinary.utils.private_download_url(evidence.storageKey,evidence.mediaType.split('/')[1],{resource_type:'image',type:'authenticated',expires_at:expiresAt}),expiresAt:new Date(expiresAt*1000).toISOString()};
 }

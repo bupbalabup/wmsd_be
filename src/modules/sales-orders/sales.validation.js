@@ -4,17 +4,17 @@ import { decimalStringSchema } from '../../shared/utils/domain.js';
 
 export const objectId = z.string().regex(/^[a-f\d]{24}$/i).transform((value) => value.toLowerCase());
 export const detailParams = z.object({ id: documentIdentifier }).strict();
-export const evidenceParams = z.object({ id: documentIdentifier, evidenceId: objectId }).strict();
 const label = (max) => z.string().trim().min(1).max(max);
+const quantity = z.string().regex(/^(?:0|[1-9]\d{0,13})(?:\.\d{1,6})?$/).refine((v) => /[1-9]/.test(v));
 export const createOrderBody = z.object({
-  idempotencyKey: label(70), customerId: objectId, neededOn: z.iso.datetime({ offset: true }), deliveryAddress: label(500),
-  evidenceReceipt: label(4000), currencyCode: z.string().regex(/^[A-Z]{3}$/),
-  source: z.object({ sourceSystem: z.enum(['MISA', 'PAPER']), referenceNo: label(100),
-    referenceDate: z.iso.datetime({ offset: true }).optional(), sourceVersion: label(100).optional() }).strict(),
-  lines: z.array(z.object({ sourceLineKey: label(100), productId: objectId, enteredUnit: label(60), lotId: objectId.optional(), unitSellingPrice: decimalStringSchema(),
-    quantity: z.string().regex(/^(?:0|[1-9]\d{0,13})(?:\.\d{1,6})?$/).refine((v) => /[1-9]/.test(v)),
-     }).strict()).min(1).max(200),
-}).strict().refine((v) => new Set(v.lines.map((line) => line.sourceLineKey)).size === v.lines.length, { message: 'Duplicate source lines' });
+  idempotencyKey: label(70), customerId: objectId, deliveryAddress: label(500),
+  recipientName: label(160).optional(), recipientPhone: label(30).optional(), note: label(2000).optional(),
+  currencyCode: z.string().regex(/^[A-Z]{3}$/).default('VND'), orderAmount: decimalStringSchema({ label: 'Tổng tiền' }),
+  lines: z.array(z.object({ clientLineKey: label(100), productId: objectId, lotId: objectId, enteredUnit: label(60),
+    quantity, unitSellingPrice: decimalStringSchema().optional() }).strict()).min(1).max(200),
+  deliveries: z.array(z.object({ plannedOn: z.iso.datetime({ offset: true }), warehouseId: objectId,
+    lines: z.array(z.object({ lineKey: label(100), quantity }).strict()).min(1).max(200) }).strict()).min(1).max(50),
+}).strict().refine((v) => new Set(v.lines.map((line) => line.clientLineKey)).size === v.lines.length, { message: 'Duplicate order lines' });
 export const outboundQuery = z.object({
   q: label(100).optional(),
   warehouseId: objectId.optional(), salesOrderId: documentIdentifier.optional(), issueRequestId: documentIdentifier.optional(),

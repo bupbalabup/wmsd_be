@@ -52,13 +52,18 @@ export function createSalesOrderSchema() {
     options("sales_orders"),
   );
   const item = createDocumentItemSchema();
-  item.add({ unitSellingPrice: decimal(), lineAmount: decimal() });
+  item.add({ unitSellingPrice: decimal({ required: false }), lineAmount: decimal({ required: false }) });
   item.add({ note: opt(2000), evidenceIds: refs("Attachment") });
   item.add({ priceRevision: revision() });
   attachDocumentItems(schema, item);
   addDocumentIndexesAndRules(schema);
   schema.add({ orderAmount: decimal(), currencyCode: text(3) });
-  schema.index({ "header.externalReferenceId": 1 }, { unique: true });
+  // Legacy orders keep a unique source; new orders have none. An older unconditional
+// unique index on this key must be dropped by hand in every environment.
+  schema.index(
+    { "header.externalReferenceId": 1 },
+    { unique: true, partialFilterExpression: { "header.externalReferenceId": { $exists: true } } },
+  );
 
   embedRecordArray(
     schema,

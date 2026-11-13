@@ -1,47 +1,59 @@
-import { nextDocumentFields } from '../../shared/utils/document-number.js';
-import jwt from 'jsonwebtoken';
-import { SalesOrder, ExternalReference, Customer, Attachment } from '../../models/runtime.js';
+import { nextDocumentFields, pairedDocumentFields } from '../../shared/utils/document-number.js';
+import { SalesOrder, DeliverySchedule, Customer, Warehouse, Product } from '../../models/runtime.js';
 import { exact } from '../../models/model-utils.js';
-import { cloudinary } from '../../config/cloudinary.js';
-import { requirePermission } from '../../shared/utils/access.js';
-import { validationError, forbiddenError } from '../../shared/utils/ApiError.js';
-import { command, hash, newId } from '../../shared/utils/document-command.js';
+import { validationError } from '../../shared/utils/ApiError.js';
+import { command, newId } from '../../shared/utils/document-command.js';
 import { makeItem } from '../../shared/utils/document-items.js';
+import { vnDay, vnMidnight } from '../../shared/utils/vn-date.js';
 import { orderSource } from './sales-read.service.js';
-import { createHash } from 'node:crypto';
-const secret=()=>process.env.JWT_SECRET||'wmsd_default_super_secret_jwt_key_2026';
-export async function uploadSourceEvidence(user,file){
-  requirePermission(user,'sales_order:create');if(!file)throw validationError('Thiếu ảnh đơn nguồn');
-  const bytes=file.buffer,png=bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])),jpeg=bytes.length>=3&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255,webp=bytes.subarray(0,4).toString()==='RIFF'&&bytes.subarray(8,12).toString()==='WEBP';
-  if(!png&&!jpeg&&!webp)throw validationError('Chỉ nhận PNG, JPEG hoặc WebP');
-  const stored=await new Promise((resolve,reject)=>cloudinary.uploader.upload_stream({folder:'sep490/sales-source',resource_type:'image',type:'authenticated',timeout:20000},(error,result)=>error?reject(error):resolve(result)).end(bytes));
-  const receipt=jwt.sign({actorId:String(user._id),storageKey:stored.public_id,checksum:createHash('sha256').update(bytes).digest('hex'),mediaType:png?'image/png':jpeg?'image/jpeg':'image/webp',sizeBytes:bytes.length,originalName:file.originalname},secret(),{algorithm:'HS256',audience:'sales-source-evidence',expiresIn:'24h'});
-  return {receipt};
-}
-export function createSalesOrder(user,input){
-  return command(user,'CREATE_SALES_ORDER','sales_order:create',null,input,(id,actor,session)=>orderSource(actor,id,session,{ replay: true }),async(session,actor)=>{
-    let evidence;
-    try{evidence=jwt.verify(input.evidenceReceipt,secret(),{algorithms:['HS256'],audience:'sales-source-evidence'});}catch{throw validationError('Bằng chứng không hợp lệ hoặc hết hạn');}
-    if(evidence.actorId!==String(actor._id))throw forbiddenError('Bằng chứng không thuộc người tạo');
-    if(!await Customer.exists({_id:input.customerId}).session(session))throw validationError('Khách hàng không hợp lệ');
-    const reference=new ExternalReference({...input.source,referenceKind:'SALES_ORDER',correlationId:'so:'+newId(),items:[]});
-    const order=new SalesOrder({...await nextDocumentFields(SalesOrder, 'SO', null, session),workflowStatus:'OPEN',version:1,createdBy:actor._id,
-      externalReferenceIds:[reference._id],header:{externalReferenceId:reference._id,customerId:input.customerId,neededOn:input.neededOn,deliveryAddressSnapshot:input.deliveryAddress},
-      items:[],currencyCode:input.currencyCode,orderAmount:'0'});
-    let amount=exact('0');
-    for(const [index,line]of input.lines.entries()){
-      const item=await makeItem({...line,enteredQty:line.quantity},index+1,session,{lineKind:'SALES_ORDER'});
-      const externalLine={_id:newId(),lineKey:line.sourceLineKey,productId:item.productId,eligibleQty:item.qtyBase};reference.items.push(externalLine);
-      const lineAmount=exact(line.unitSellingPrice).mul(item.enteredQty);amount=amount.plus(lineAmount);
-      order.items.push({...item,unitSellingPrice:line.unitSellingPrice,lineAmount:lineAmount.toFixed(),priceRevision:1,
-        details:{externalReferenceId:reference._id,externalLineId:externalLine._id}});
+import { allocateAndReserve } from './sales-schedule.service.js';
+
+// One call creates the order, its delivery schedule and the stock holds, or nothing.
+export function createSalesOrder(user, input) {
+  return command(user, 'CREATE_SALES_ORDER', 'sales_order:create', null, input, (id, actor, session) => orderSource(actor, id, session, { replay: true }), async (session, actor) => {
+    if (!await Customer.exists({ _id: input.customerId }).session(session)) throw validationError('Khách hàng không hợp lệ');
+    const pairs = input.lines.map(line => `${line.productId}:${line.lotId}`);
+    if (new Set(pairs).size !== pairs.length) throw validationError('Hai dòng không được trùng sản phẩm và lô');
+    const numbers = await nextDocumentFields(SalesOrder, 'SO', null, session);
+    const order = new SalesOrder({ ...numbers, workflowStatus: 'OPEN', version: 1, createdBy: actor._id,
+      header: { customerId: input.customerId, deliveryAddressSnapshot: input.deliveryAddress, recipientName: input.recipientName, recipientPhone: input.recipientPhone },
+      ...(input.note && { note: input.note }), items: [], currencyCode: input.currencyCode, orderAmount: input.orderAmount });
+    const rows = new Map();
+    for (const [index, line] of input.lines.entries()) {
+      const item = await makeItem({ ...line, enteredQty: line.quantity }, index + 1, session, { lineKind: 'SALES_ORDER' });
+      const price = line.unitSellingPrice == null ? {} : { unitSellingPrice: line.unitSellingPrice, lineAmount: exact(line.unitSellingPrice).mul(item.enteredQty).toFixed(), priceRevision: 1 };
+      order.items.push({ ...item, ...price, details: {} });
+      rows.set(line.clientLineKey, { soLine: order.items[index], whole: (await Product.findById(item.productId).select('wholeBaseUnits').session(session).lean())?.wholeBaseUnits });
     }
-    order.orderAmount=amount.toFixed();
-    // Recording a source does not invent D07/D08 verification or its approver.
-    await reference.save({session});
-    const attachment=await new Attachment({ownerDocumentType:'sales_orders',ownerDocumentId:order._id,ownerRevision:1,purpose:'SOURCE_ORDER',
-      originalName:evidence.originalName,mediaType:evidence.mediaType,sizeBytes:evidence.sizeBytes,storageKey:evidence.storageKey,checksum:evidence.checksum,
-      uploadedBy:actor._id,uploadedAt:new Date(evidence.iat*1000),accessCategory:'SALES_PRICE',status:'ATTACHED'}).save({session});
-    order.evidenceIds=[attachment._id];await order.save({session});return {document:order};
+    const warehouses = new Map((await Warehouse.find({ _id: { $in: input.deliveries.map(d => d.warehouseId) }, isActive: true }).session(session).lean()).map(w => [String(w._id), w]));
+    const today = vnDay();
+    const planned = input.deliveries.map((d, index) => ({ ...d, day: vnDay(d.plannedOn), index })).sort((a, b) => a.day.localeCompare(b.day) || a.index - b.index);
+    const totals = new Map();
+    const scheduleId = numbers._id;
+    const deliveries = planned.map((d, i) => {
+      if (d.day < today) throw validationError(`Lần giao ${i + 1}: ngày giao không được sớm hơn hôm nay`);
+      const warehouse = warehouses.get(String(d.warehouseId));
+      if (!warehouse) throw validationError(`Lần giao ${i + 1}: kho không hoạt động`);
+      if (new Set(d.lines.map(l => l.lineKey)).size !== d.lines.length) throw validationError(`Lần giao ${i + 1}: dòng bị lặp`);
+      const lines = d.lines.map(l => {
+        const row = rows.get(l.lineKey);
+        if (!row) throw validationError(`Lần giao ${i + 1}: dòng ${l.lineKey} không có trong SO`);
+        const qtyBase = exact(l.quantity).mul(String(row.soLine.baseUnitsPerUnit));
+        if (!qtyBase.gt(0) || qtyBase.decimalPlaces() > 6 || (row.whole && !qtyBase.isInteger())) throw validationError(`Lần giao ${i + 1}: số lượng không quy đổi chính xác sang đơn vị gốc`);
+        totals.set(l.lineKey, (totals.get(l.lineKey) ?? exact('0')).plus(qtyBase));
+        return { _id: newId(), soLineId: row.soLine._id, lotId: row.soLine.lotId, qtyBase: qtyBase.toFixed(), allocations: [], soLine: row.soLine };
+      });
+      return { _id: newId(), seq: i + 1, plannedOn: vnMidnight(d.day), warehouseId: d.warehouseId, status: 'PLANNED', lines, warehouse };
+    });
+    for (const [key, { soLine }] of rows)
+      if (!(totals.get(key) ?? exact('0')).eq(String(soLine.qtyBase))) throw validationError(`Dòng ${key}: tổng các lần giao ${(totals.get(key) ?? exact('0')).toFixed()} khác số lượng SO ${soLine.qtyBase} (đơn vị gốc)`);
+    for (const delivery of deliveries)
+      for (const line of delivery.lines) await allocateAndReserve({ order, scheduleId, delivery, line, soLine: line.soLine, warehouse: delivery.warehouse, actor, session });
+    const { _id, documentNo } = pairedDocumentFields('DS', numbers);
+    const schedule = new DeliverySchedule({ _id, documentNo, version: 1, createdBy: actor._id, salesOrderId: order._id,
+      deliveries: deliveries.map(({ warehouse, lines, ...d }) => ({ ...d, lines: lines.map(({ soLine, ...l }) => l) })) });
+    await order.save({ session });
+    await schedule.save({ session });
+    return { document: order, resultRefs: [{ documentType: 'delivery_schedules', documentId: schedule._id }] };
   });
 }

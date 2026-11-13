@@ -199,3 +199,21 @@ export async function receiveStock(balance, item, portions, posting, user, sessi
   posting.movements.push({ transactionId: posting._id, lineNo: posting.movements.length + 1,
     packagingPortionIds: received.map(row=>row._id), sourceLineId: item._id, toBalanceId: balance._id, quantityBase: amount.toFixed(), toBefore: before.toFixed(), toAfter: balance.quantityBase });
 }
+// Eligible pick locations of one lot in one warehouse, oldest receipt first. `free` is
+// the quantity still available there (other reservations already deducted).
+export async function fifoCandidates(warehouseId, lotId, session) {
+  const frozen = await StocktakeLocationLock.find({ status: 'LOCKED' }).session(session).distinct('locationId');
+  const locations = await WarehouseLocation.find({ warehouseId, _id: { $nin: frozen }, isActive: true, locationType: 'STORAGE', isPickable: true }).session(session).lean();
+  const points = await StockHoldingPoint.find({ type: 'LOCATION', locationId: { $in: locations.map(l => l._id) } }).session(session).lean();
+  const balances = await InventoryBalance.find({ holdingPointId: { $in: points.map(p => p._id) }, batchId: lotId, ownerType: 'STORE', qualityStatus: 'GOOD', quantityBase: { $gt: 0 } }).session(session).lean();
+  const receipts = await StockTransaction.aggregate([{ $unwind: '$movements' }, { $match: { 'movements.toBalanceId': { $in: balances.map(b => b._id) } } }, { $group: { _id: '$movements.toBalanceId', firstReceivedAt: { $min: '$occurredAt' } } }]).session(session);
+  const candidates = [];
+  for (const balance of balances) {
+    const free = await freeQuantity(balance, session);
+    if (!free.gt(0)) continue;
+    const point = points.find(p => same(p._id, balance.holdingPointId));
+    const firstReceivedAt = receipts.find(r => same(r._id, balance._id))?.firstReceivedAt ?? null;
+    candidates.push({ balance, locationId: point.locationId, free, firstReceivedAt });
+  }
+  return candidates.sort((a, b) => (a.firstReceivedAt ? +new Date(a.firstReceivedAt) : Infinity) - (b.firstReceivedAt ? +new Date(b.firstReceivedAt) : Infinity) || String(a.balance._id).localeCompare(String(b.balance._id)));
+}

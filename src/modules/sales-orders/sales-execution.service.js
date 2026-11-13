@@ -330,7 +330,7 @@ export async function listSalesOrders(user, query) {
 export async function salesOptions(user) {
     if (!hasPermission(user, 'sales_order:create') && !hasPermission(user, 'outbound_delivery:create') && !hasPermission(user, 'picking_task:create'))
         requirePermission(user, 'sales_order:create');
-    const warehouseFilter = currentRole(user)?.code === 'OWNER' ? {} : { _id: { $in: user.warehouseIds || [] } };
+    const warehouseFilter = currentRole(user)?.code === 'OWNER' || hasPermission(user, 'sales_order:create') ? {} : { _id: { $in: user.warehouseIds || [] } };
     const warehouses = await m.Warehouse.find({ ...warehouseFilter, isActive: true }).lean();
     const ids = warehouses.map(w => w._id);
     const locations = await m.WarehouseLocation.find({ warehouseId: { $in: ids }, isActive: true }).lean();

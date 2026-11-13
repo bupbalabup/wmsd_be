@@ -5,9 +5,9 @@ import { opt } from "./schema-helpers.js";
 export function createSalesOrderHeaderSchema() {
   const schema = new Schema(
     {
-      externalReferenceId: ref("ExternalReference"),
+      externalReferenceId: ref("ExternalReference", false),
       customerId: ref("Party"),
-      neededOn: date(),
+      neededOn: date(false),
       deliveryAddressSnapshot: text(500),
     },
     embeddedOptions,
