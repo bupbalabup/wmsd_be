@@ -111,6 +111,13 @@
 ## 14 November 2026 — Purchase custody to supplier-return alternate flow
 
 Source: explicit user request in chat: problematic intake goes to custody, then starts supplier return. Receiving create/update/confirm now require CUSTODY for non-GOOD lines. Custody read DTO adds supplier identity, scoped createSupplierReturn capability and line balance/advisory remaining quantity. FE custody line action creates the standard supplier-return proposal with quantity/reason and stable retry key, then opens agreement stage; supplier-owned dispatch remains CustodyRelease. No defect report, new collection, migration or live database write. Updated PROJECT_GUIDE, native runtime and return contracts, and FE context. Added receiving policy tests, intake-to-return integration coverage and custody UI submission/quantity validation coverage. Validation: 21 native API integration tests passed on an isolated local Mongo replica set at 127.0.0.1:27018 (RUN_NATIVE_API_TESTS=1, RUN_HIEUDT_TESTS=1); 9 policy/return contract tests passed; 25 FE custody/inspection/demo-flow tests passed; TypeScript and changed-file ESLint passed; docs:check passed. Global FE lint reports 48 existing errors and 13 warnings outside the changed files. ui:check cannot run because bash is unavailable and scripts/ui-check.sh is absent. The referenced ui-visual-test skill is absent from the repo and installed skills; desktop/mobile browser visual checks were not performed. No shared/live DB rollout; isolated test DBs are dropped by the tests.
+## 14/11/2026 - Bộ lọc danh sách kiểm kê (UC-93 / FE-08)
+
+- Lý do: màn danh sách đợt kiểm kê cần tìm theo kho, phạm vi, thời điểm cutoff và trạng thái; trước đó `GET /stocktakes` nhận `q`/`from`/`to` nhưng bỏ qua, và không có lọc theo phạm vi.
+- Thay đổi: `src/modules/stocktake-closure/stocktake-list.query.js` (schema strict `stocktakeListQuery` + `buildStocktakeListFilter`); route/service dùng chúng thay cho `outboundQuery` dùng chung. Lọc `locationId` theo `header.scopeLocationIds`, `from`/`to` theo `header.cutoffAt`, `q` theo mã đợt (escape ký tự regex). Hợp đồng ghi tại [STOCKTAKE_LIFECYCLE.md](docs/08_api/STOCKTAKE_LIFECYCLE.md).
+- Dữ liệu: không đổi schema, index, seed hay dữ liệu; quyền không đổi (`stocktake:read`, phạm vi kho).
+- Kiểm chứng: `node --test test/stocktake-list.test.js` 5/5 (hàm dựng filter + validation). Chưa chạy được kiểm chứng với Mongo vì Docker daemon không chạy lúc thực hiện.
+- Giới hạn: `cutoffAt`/`scopeLocationIds` chưa có index; xin duyệt riêng nếu danh sách chậm.
 
 ## 14/11/2026 - Đồng bộ Report 3 theo code và lập bản nháp Report 4
 
