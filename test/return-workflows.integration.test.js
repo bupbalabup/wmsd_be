@@ -12,7 +12,7 @@ let users,warehouse,location,balance,receipt,batch,supplier,customer,receiving,c
 const input=()=>({idempotencyKey:key(),note:'Actual test facts'});
 async function attachment(doc,user){return m.Attachment.create({...stored,ownerDocumentType:doc.constructor.collection.name,ownerDocumentId:doc._id,purpose:'RETURN_EVIDENCE',uploadedBy:user._id,uploadedAt:new Date(),accessCategory:'BUSINESS',status:'ATTACHED'});}
 test.before(async()=>{
- if(!enabled)return;await mongoose.connect(`mongodb://127.0.0.1:27017/returns_test_${id()}?replicaSet=rs0`,{serverSelectionTimeoutMS:10000});
+ if(!enabled)return;await mongoose.connect(`mongodb://127.0.0.1:${process.env.RUN_HIEUDT_TESTS === '1' ? 27018 : 27017}/returns_test_${id()}?replicaSet=${process.env.RUN_HIEUDT_TESTS === '1' ? 'hieudt-test' : 'rs0'}`,{serverSelectionTimeoutMS:10000});
  const data=await buildReviewedDemo();for(const [name,Model]of m.models){await Model.createCollection();if(data[name]?.length)await Model.collection.insertMany(data[name]);await Model.createIndexes();}
  users={};for(const code of ['OWNER','WAREHOUSE','SALES','ACCOUNTANT']){const role=await m.Role.findOne({code});const u=await m.User.findOne({roleId:role._id});u.warehouseIds=(await m.Warehouse.find()).map(w=>w._id);await u.save();users[code]=await m.User.findById(u._id).populate({path:'roleId',populate:{path:'permissionIds'}});}
  warehouse=await m.Warehouse.findOne({code:'WH01'});if(!warehouse)warehouse=await m.Warehouse.findOne();
@@ -166,4 +166,34 @@ run('whole-unit source claims reject fractional quantities before reserving',asy
  const verified=await reads.createHistoricalSource(users.ACCOUNTANT,{...input(),sourceSystem:'WHOLE-UNIT',referenceNo:key(),referenceDate:new Date().toISOString(),correlationId:key(),customerId:customer.id,warehouseId:warehouse.id,lines:[{productId:sid(batch.productId),lotId:batch.id,qtyBase:'4',enteredUnit:'PIECE',baseUnitsPerUnit:'1'}]},stored);const external=await m.ExternalReference.findById(verified.id);
  await t.test('customer claim',()=>assert.rejects(service.createCustomerReturn(users.SALES,{...input(),warehouseId:warehouse.id,customerId:customer.id,lines:[{historicalExternalLineId:sid(external.items[0]),qtyBase:'0.5',reason:'Fractional piece is invalid'}]})));
  await t.test('supplier reservation',()=>assert.rejects(service.createSupplierReturn(users.WAREHOUSE,{...input(),warehouseId:warehouse.id,supplierId:supplier.id,lines:[{originLineId:sid(receipt.items[0]),balanceId:balance.id,qtyBase:'0.5'}]})));
+});
+
+run('split customer return preserves the source cap and returns only refused custody',async()=>{
+ const historical=await reads.createHistoricalSource(users.ACCOUNTANT,{...input(),sourceSystem:'SPLIT-TEST',referenceNo:key(),referenceDate:new Date().toISOString(),correlationId:key(),customerId:customer.id,warehouseId:warehouse.id,lines:[{productId:sid(batch.productId),lotId:batch.id,qtyBase:'8',enteredUnit:'PIECE',baseUnitsPerUnit:'1'}]},stored);
+ const external=await m.ExternalReference.findById(historical.id),source=sid(external.items[0]);
+ await assert.rejects(service.createCustomerReturn(users.SALES,{...input(),warehouseId:warehouse.id,customerId:customer.id,lines:[{historicalExternalLineId:source,qtyBase:'5',reason:'First'},{historicalExternalLineId:source,qtyBase:'4',reason:'Second'}]}),/Vượt/);
+ const created=await service.createCustomerReturn(users.SALES,{...input(),warehouseId:warehouse.id,customerId:customer.id,lines:[{historicalExternalLineId:source,qtyBase:'4',reason:'Intact'},{historicalExternalLineId:source,qtyBase:'4',reason:'Cracked'}]});
+ let doc=await m.CustomerReturn.findById(created.id);const ev=await attachment(doc,users.WAREHOUSE);
+ await service.inspectCustomerReturn(users.WAREHOUSE,doc.id,{...input(),expectedVersion:doc.version,evidenceIds:[ev.id],custodyLocationId:custody.id,lines:doc.items.map((item,index)=>({returnLineId:sid(item),qtyReceived:'4',packagingCondition:'SEALED',installationStatus:'UNUSED',damageCause:index?'SUPPLIER':'NONE',deadlineStatus:'WITHIN',deadlineReference:'Verified terms',assessmentReason:'Actual inspection'}))});
+ doc=await m.CustomerReturn.findById(doc.id);
+ await service.decideCustomerReturn(users.SALES,doc.id,{...input(),expectedVersion:doc.version,decision:'APPROVE',reason:'Accept intact part',lines:doc.items.map((item,index)=>({lineId:sid(item),qtyBase:index?'0':'4'}))});
+ doc=await m.CustomerReturn.findById(doc.id);
+ await service.receiveCustomerReturn(users.WAREHOUSE,doc.id,{...input(),expectedVersion:doc.version,evidenceIds:[ev.id],lines:[{lineId:sid(doc.items[0]),qtyBase:'4',qualityCode:'GOOD',locationId:receiving.id}]});
+ doc=await m.CustomerReturn.findById(doc.id);
+ const before=await reads.detail(users.WAREHOUSE,'customer-returns',doc.id);assert.equal(before.items[1].progress.handbackAvailable,'4');
+ await assert.rejects(service.receiveCustomerReturn(users.WAREHOUSE,doc.id,{...input(),expectedVersion:doc.version,evidenceIds:[ev.id],recipientName:'Customer',lines:[{lineId:sid(doc.items[0]),qtyBase:'4'}]},true),/remaining customer custody/);
+ await service.receiveCustomerReturn(users.WAREHOUSE,doc.id,{...input(),expectedVersion:doc.version,evidenceIds:[ev.id],recipientName:'Customer',lines:[{lineId:sid(doc.items[1]),qtyBase:'4'}]},true);
+ const after=await reads.detail(users.WAREHOUSE,'customer-returns',doc.id);assert.equal(after.items[1].progress.custodyRemaining,'0');
+});
+run('split defect plans enforce combined quantities before any execution',async()=>{
+ const location=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:key(),locationType:'STORAGE',usableLengthMm:5000,usableWidthMm:5000});
+ const point=await m.StockHoldingPoint.create({type:'LOCATION',locationId:location._id});
+ const source=await m.InventoryBalance.create({holdingPointId:point._id,batchId:batch._id,qualityStatus:'GOOD',ownerType:'STORE',quantityBase:'4',version:0,packagingPortions:[{packagingState:'LOOSE',quantityBase:'4',measuredVolumeMm3:'1000',createdBy:users.WAREHOUSE._id}]});
+ const created=await service.createDefect(users.WAREHOUSE,{...input(),warehouseId:warehouse.id,balanceId:source.id,quantity:'4',sourceKind:'MANUAL',reason:'Inspect pieces'},stored);
+ let doc=await m.DefectReport.findById(created.id);const ev=await attachment(doc,users.WAREHOUSE);
+ const proposal=()=>({...input(),expectedVersion:doc.version,evidenceIds:[ev.id],lines:[{lineId:sid(doc.items[0]),qtyBase:'3',outcome:'SCRAP'},{lineId:sid(doc.items[0]),qtyBase:'2',outcome:'RELEASE',targetQuality:'GOOD'}]});
+ await assert.rejects(service.submitDefectProposal(users.WAREHOUSE,doc.id,proposal()),/committed/);
+ const valid=proposal();valid.lines[0].qtyBase='2';await service.submitDefectProposal(users.WAREHOUSE,doc.id,valid);
+ doc=await m.DefectReport.findById(doc.id);assert.equal(doc.resolutionPlans[0].items.length,2);
+ assert.equal((await reads.detail(users.WAREHOUSE,'defects',doc.id)).items[0].progress.proposable,'0');
 });

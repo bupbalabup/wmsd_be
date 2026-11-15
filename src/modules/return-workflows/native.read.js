@@ -1,3 +1,4 @@
+import { quantityProgress } from './quantity-progress.js';
 import { redactPrices } from '../sales-orders/sales-read.service.js';
 import { createHash } from 'node:crypto';
 import * as s from './native.shared.js';
@@ -77,14 +78,16 @@ export async function detail(user,resource,id){
  const related=[];for(const Related of [m.StockScrapRecord,m.StockQualityChange,m.CustomerReturnReceipt,m.FailedDeliveryReceipt,m.SupplierReturnIssue,m.CustodyReceipt,m.CustodyRelease,m.GoodsInspection]){
   const rows=await Related.find({...scope(user),$or:[{'items.sources.documentId':doc._id},{'sources.documentId':doc._id},{'header.returnId':doc._id},{'header.supplierReturnId':doc._id},{'header.planId':{$in:(doc.resolutionPlans??[]).map(p=>p._id)}}]});related.push(...rows.map(serialize));
  }
+ const approval = resource === 'customer-returns' && doc.decisions.at(-1)?.decisionId ? await m.ApprovalHistory.findById(doc.decisions.at(-1).decisionId).lean() : undefined;
+ const progress = ['customer-returns', 'supplier-returns', 'defects'].includes(resource) ? quantityProgress(resource, doc, related, approval) : [];
  const attachments=await m.Attachment.find({ownerDocumentId:doc._id,status:'ATTACHED',accessCategory:'BUSINESS'}).select('-storageKey -checksum -uploadSessionId');
  const party = resource === 'customer-returns' && await m.Customer.findById(doc.header.customerId).select('name').lean();
  const warehouse = ['customer-returns', 'failed-deliveries'].includes(resource) && await m.Warehouse.findById(doc.header.warehouseId).select('name').lean();
  const history=await m.AuditLog.find({subjectId:doc._id}).sort({createdAt:1}).select('-changes');const lots=await m.ProductBatch.find({_id:{$in:doc.items.map(item=>item.lotId).filter(Boolean)}}).select('manufacturerLot piecesPerCarton');const products=await m.Product.find({_id:{$in:doc.items.map(item=>item.productId)}}).select('wholeBaseUnits');const result={...serialize(doc),warehouseName:warehouse?.name,counterpartyName:party?.name,items:doc.items.map(item=>{
   const lot=lots.find(lot=>same(lot._id,item.lotId));
-  return {...serialize(item),wholeBaseUnits:products.find(product=>same(product._id,item.productId))?.wholeBaseUnits,
-    lotCode:lot?.manufacturerLot,baseUnitsPerPackage:lot?.piecesPerCarton == null ? undefined : String(lot.piecesPerCarton)};
- }),...(Model===m.DefectReport&&{unresolvedQty:doc.holds.filter(h=>h.status==='ACTIVE').reduce((n,h)=>n.plus(s.sum(h.allocations,'quantityBase').minus(s.sum(h.events,'quantityBase'))),exact('0')).toFixed()}),relatedDocuments:related,receivableLines:await receivableLines(resource,doc,related),evidence:attachments.map(serialize),history:history.map(serialize)};return ['OWNER','ACCOUNTANT'].includes(currentRole(user)?.code)?result:redactPrices(result);
+  return {...serialize(item),progress:progress.find(row=>row.lineId===String(item._id)),wholeBaseUnits:products.find(product=>same(product._id,item.productId))?.wholeBaseUnits,
+    lotCode:lot?.manufacturerLot,baseUnitsPerPackage:item.packagingSnapshot?.baseUnitsPerPackage != null ? String(item.packagingSnapshot.baseUnitsPerPackage) : lot?.piecesPerCarton == null ? undefined : String(lot.piecesPerCarton)};
+ }),...(Model===m.DefectReport&&{unresolvedQty:doc.holds.filter(h=>h.status==='ACTIVE').reduce((n,h)=>n.plus(s.sum(h.allocations,'quantityBase').minus(s.sum(h.events,'quantityBase'))),exact('0')).toFixed()}),resolutionPlans: (doc.resolutionPlans ?? []).map(plan => ({...serialize(plan),items:plan.items.map(item=>({...serialize(item),remainingQtyBase:exact(item.approvedQtyBase ?? item.qtyBase).minus(s.sum(doc.inspections.filter(event=>same(event.itemId,item._id)),'quantityBase')).toFixed()}))})),relatedDocuments:related,receivableLines:await receivableLines(resource,doc,related),evidence:attachments.map(serialize),history:history.map(serialize)};return ['OWNER','ACCOUNTANT'].includes(currentRole(user)?.code)?result:redactPrices(result);
 }
 export async function listExternal(user,query){
  requirePermission(user,'external_reference:read');const filter=currentRole(user)?.code==='OWNER'?{}:{warehouseId:{$in:user.warehouseIds??[]}};

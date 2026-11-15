@@ -33,7 +33,7 @@ async function page(Model, stages, query, searchFields = ['code', 'name']) {
   return { items: result?.items || [], total: result?.count[0]?.total || 0, page: query.page, limit: query.limit };
 }
 const productContext = [join(m.ProductBatch, 'lotId', 'batch'), { $set: { manufacturerLot: first('batch.manufacturerLot') } }, join(m.Product, 'productId', 'product'), { $set: { productName: first('product.name'), productCode: first('product.sku'), unit: first('product.baseUnit'), wholeBaseUnits: first('product.wholeBaseUnits') } }];
-const sourceProjection = { _id: '$items._id', documentId: '$_id', documentNo: 1, documentKind: 1, warehouseId: '$header.warehouseId', customerId: 1, supplierId: 1, lotId: '$items.lotId', productId: '$items.productId', name: '$items.productNameSnapshot', qtyBase: '$items.qtyBase', unit: '$items.baseUnitSnapshot', version: 1, sourceKind: 1 };
+const sourceProjection = { _id: '$items._id', documentId: '$_id', documentNo: 1, documentKind: 1, warehouseId: '$header.warehouseId', customerId: 1, supplierId: 1, lotId: '$items.lotId', productId: '$items.productId', name: '$items.productNameSnapshot', qtyBase: '$items.qtyBase', unit: '$items.baseUnitSnapshot', version: 1, sourceKind: 1, baseUnitsPerPackage: '$items.packagingSnapshot.baseUnitsPerPackage', enteredUnit: '$items.enteredUnit', baseUnitsPerUnit: '$items.baseUnitsPerUnit', baseUnitSnapshot: '$items.baseUnitSnapshot' };
 async function sourceLookup(user, query) {
   const purpose = query.purpose;
   const stages = [{ $match: { ...scope(user, query), workflowStatus: 'POSTED', ...(query.documentId && { _id: oid(query.documentId) }) } }, { $unwind: '$items' }];
@@ -125,7 +125,7 @@ export async function lookup(user, query) {
       join(m.StockHoldingPoint, 'holdingPointId', 'point'), { $set: { locationId: first('point.locationId'), lotId: '$batchId' } }, join(m.WarehouseLocation, 'locationId', 'location'),
       { $set: { warehouseId: first('location.warehouseId'), locationCode: first('location.code'), locationActive: first('location.isActive') } }, { $match: { ...scope(user, query, 'warehouseId'), locationActive: true } },
       join(m.ProductBatch, 'batchId', 'batch'), { $set: { manufacturerLot: first('batch.manufacturerLot'), productId: first('batch.productId') } }, join(m.Product, 'productId', 'product'),
-      { $project: { code: '$manufacturerLot', name: first('product.name'), unit: first('product.baseUnit'), wholeBaseUnits: first('product.wholeBaseUnits'), productCode: first('product.sku'), lotId: 1, warehouseId: 1, locationId: 1, locationCode: 1, ownerType: 1, ownerId: 1, qualityCode: '$qualityStatus', qtyBase: '$quantityBase' } }];
+      { $project: { code: '$manufacturerLot', name: first('product.name'), unit: first('product.baseUnit'), wholeBaseUnits: first('product.wholeBaseUnits'), productCode: first('product.sku'), lotId: 1, warehouseId: 1, locationId: 1, locationCode: 1, ownerType: 1, ownerId: 1, qualityCode: '$qualityStatus', qtyBase: '$quantityBase', baseUnitsPerPackage: { $arrayElemAt: ['$packagingPortions.packagingSnapshot.baseUnitsPerPackage', 0] } } }];
   } else if (query.kind === 'stocktakes') {
     Model = m.Stocktake;
     let locationId;

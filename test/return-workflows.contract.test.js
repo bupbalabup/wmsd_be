@@ -4,6 +4,11 @@ import * as v from '../src/modules/return-workflows/native.validation.js';
 import { eligibility } from '../src/modules/return-workflows/native.service.js';
 import { heldOnBalance } from '../src/shared/utils/stock.js';
 const id='a'.repeat(24),base={expectedVersion:1,idempotencyKey:'operation-test-000001',note:'Verified actual facts'};
+test('customer request parts and defect outcomes can share a source while supplier proposals stay unique',()=>{
+ const part={salesIssueLineId:id,qtyBase:'2',reason:'Inspect separately'};
+ assert.equal(v.customerCreateSchema.safeParse({body:{idempotencyKey:base.idempotencyKey,warehouseId:id,customerId:id,lines:[part,part]}}).success,true);
+ assert.equal(v.proposalSchema.safeParse({params:{id},body:{...base,evidenceIds:[id],lines:[{lineId:id,qtyBase:'2',outcome:'SCRAP'},{lineId:id,qtyBase:'2',outcome:'RELEASE',targetQuality:'GOOD'}]}}).success,true);
+});
 test('native commands reject numeric/negative/duplicate quantities and evidence-free posting',()=>{
  const body={idempotencyKey:base.idempotencyKey,warehouseId:id,supplierId:id,note:base.note,lines:[{originLineId:id,balanceId:id,qtyBase:'4'}]};
  assert.ok(v.supplierCreateSchema.safeParse({body}).success);
