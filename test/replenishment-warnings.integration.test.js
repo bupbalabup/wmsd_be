@@ -154,7 +154,7 @@ function decision(document, approvedQtyBase = "10") {
   return {
     ...input(), expectedVersion: document.version,
     decision: "APPROVE", reason: "Đã kiểm tra nhu cầu",
-    lines: [{ lineId: String(document.items[0]._id), approvedQtyBase }],
+    lines: [{ lineId: String(document.items[0]._id), approvedQtyBase, reason: "Giảm theo nhu cầu đã kiểm" }],
   };
 }
 
@@ -445,7 +445,13 @@ run("draft PO detail falls back to the approval history and source item when lin
     assert.equal(result.status, 200, JSON.stringify(result.body));
     return result.body.data.draftEdit;
   };
-  assert.equal((await read()).lines[0].approvalId, approval.body.data.decisionId);
+  const first = await read();
+  assert.equal(first.lines[0].approvalId, approval.body.data.decisionId);
+  // The edit form is prefilled with the saved price; Warehouse Staff never receive it.
+  assert.equal(first.lines[0].unitPurchasePrice, "10");
+  const hidden = await api(po + "/" + poId, worker, undefined, "GET");
+  assert.equal(hidden.status, 200, JSON.stringify(hidden.body));
+  assert.equal("unitPurchasePrice" in hidden.body.data.draftEdit.lines[0], false);
 
   // Older records may lack the cached decision and the direct RR item link.
   await m.ReplenishmentRequest.collection.updateOne({ _id: document._id }, { $unset: { "header.latestDecisionId": "" } });

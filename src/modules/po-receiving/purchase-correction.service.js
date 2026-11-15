@@ -25,7 +25,8 @@ export async function eligible(gr,user,session){
     const reservations=await StockReservation.find({balanceId:move.toBalanceId}).session(session);if(reservations.some(r=>remainingReservation(r).gt(0)))throw validationError('Hàng đã được giữ');
     if(await TransferOrder.exists({$or:[{workflowStatus:{$in:['DRAFT','OPEN','PARTIAL']}},{workflowStatus:'CONFIRMED',updatedAt:{$gte:original.recordedAt}}],'items.details.sourceBalanceId':move.toBalanceId}).session(session))throw validationError('Đã lập lệnh sử dụng nguồn tồn');
     if(await StocktakeCount.exists({locationId:ctx.location._id,recordedAt:{$gte:original.recordedAt}}).session(session))throw validationError('Nguồn đã được kiểm kê sau nhập');
-    if(!exact(ctx.balance.quantityBase).eq(String(move.toAfter)))throw validationError('Tồn không còn đúng trạng thái sau nhập');
+    const last=original.movements.filter(m=>same(m.toBalanceId,move.toBalanceId)).at(-1);
+    if(last===move&&!exact(ctx.balance.quantityBase).eq(String(move.toAfter)))throw validationError('Tồn không còn đúng trạng thái sau nhập');
   }
   // Any document using a receipt row prevents reversing the source behind it.
   for(const [collection,Model] of models){if(!Model.schema.path('items')||collection==='stock_reversals')continue;
@@ -65,7 +66,7 @@ export function replaceInspection(user,id,input){return command(user,'REPLACE_GO
   for(const [collection,Model] of models){if(!['custody_receipts','supplier_returns'].includes(collection))continue;if(await Model.exists({'items.sources.documentId':id,workflowStatus:{$ne:'CANCELLED'}}).session(session))throw validationError('Còn chứng từ giữ hộ hoặc trả hàng phụ thuộc');}
   if(await GoodsInspection.exists({'header.previousInspectionId':id,workflowStatus:{$ne:'CANCELLED'}}).session(session))throw validationError('Đã có bản thay thế');
   const po=await activePo(actor,arrival.header.purchaseOrderId,input.expectedPoVersion,session);
-  const newArrival=await newDocument(GoodsArrival,'ARR',actor,{...arrival.header.toObject(),recordedAt:undefined});
+  const newArrival=await newDocument(GoodsArrival,'ARR',actor,{...arrival.header.toObject(),recordedAt:undefined,arrivedAt:new Date(input.arrivedAt),deliveryReference:input.deliveryReference,deliveredBy:input.deliveredBy});
   const document=await newDocument(GoodsInspection,'INS',actor,{arrivalId:newArrival._id,warehouseId:arrival.header.warehouseId,previousInspectionId:inspection._id,correctionReason:input.reason,participants:[actor._id]});
   newArrival.sources=[sourceLink(po),sourceLink(arrival,null,null,'CORRECTION')];document.sources=[sourceLink(newArrival),sourceLink(inspection,null,null,'REPLACES')];
   await prepare(po,input,actor,session,newArrival,document);await newArrival.save({session});await document.save({session});await saveVersion(inspection,inspection.version,session);

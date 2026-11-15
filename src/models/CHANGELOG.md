@@ -1,4 +1,12 @@
 
+## 16/11/2026 — Lý do quyết định từng dòng 2.000 ký tự
+
+`approval-history-item-decisions.schema.js`: `reason` tăng từ 1.000 lên 2.000 ký tự để khớp API duyệt RR và quyết định giữ hộ (trước đây lý do 1.001–2.000 ký tự làm lỗi khi lưu; giữ hộ phải cắt còn 1.000). Không đổi field, index; dữ liệu cũ hợp lệ, không cần migration. `capacity.js`: portion `SEALED` luôn tính tối thiểu thể tích thùng ngoài × số thùng.
+
+## 16/11/2026 — PO hủy được và giải phóng RR; index danh sách RR
+
+`purchase_orders.replenishmentRequestId` chuyển từ bắt buộc sang tùy chọn. Hủy PO (`DRAFT`, hoặc `OPEN` chưa có chứng từ nhận) gỡ trường này để RR lập PO mới; unique index một phần trên trường giữ nguyên nên vẫn chỉ một PO còn hiệu lực cho mỗi RR. `sources[]` và `items[].requestItemId` giữ liên kết lịch sử. Dữ liệu cũ hợp lệ, không cần migration. `replenishment_requests` thêm index `{documentKind:1, "header.warehouseId":1, createdAt:-1, _id:-1}` cho danh sách; `createIndexes` khi triển khai sẽ tạo index này.
+
 ## 14/11/2026 — Ràng buộc qtyBase của dòng chứng từ
 
 `document-item.schema.js` chấp nhận `qtyBase` bằng `enteredQty × baseUnitsPerUnit` hoặc bằng `ceil(round(tích, 6))` (số nguyên) để lưu được dòng theo đơn vị diện tích. Không đổi field, index hay dữ liệu cũ. Xem [CONVERSIONS](../../git_doc/docs/08_api/CONVERSIONS.md).

@@ -106,7 +106,7 @@ async function saveBalance(balance, beforeVersion, session) {
     { $set: { quantityBase: balance.quantityBase, packagingPortions: balance.packagingPortions }, $inc: { version: 1 } }, { session });
   if (result.matchedCount !== 1) throw versionConflict('Tồn đã thay đổi');
 }
-export async function moveStock(sourceId, destinationId, quantity, itemId, stockTransaction, user, session, { preserveReservations = false, excludeTaskId } = {}) {
+export async function moveStock(sourceId, destinationId, quantity, itemId, stockTransaction, user, session, { preserveReservations = false, excludeTaskId, portionIds } = {}) {
   if (same(sourceId, destinationId)) throw validationError('Nguồn và đích phải khác nhau');
   const source = await InventoryBalance.findById(sourceId).session(session);
   const destination = await InventoryBalance.findById(destinationId).session(session);
@@ -121,7 +121,10 @@ export async function moveStock(sourceId, destinationId, quantity, itemId, stock
   const pending = await unreservedPendingTaskQuantity(sourceId, session, excludeTaskId);
   if (amount.plus(pending).plus(preserveReservations ? '0' : reserved).plus(await heldQuantity(sourceId, session)).gt(from)) throw validationError('Lượng chuyển thuộc phần hàng đang bị chặn');
   if (amount.plus(pending).plus(preserveReservations ? '0' : reserved).gt(from)) throw validationError('Tồn đã được giữ hoặc lập lệnh khác');
-  const { kept, taken } = splitPortions(source.packagingPortions, amount, user._id);
+  // portionIds limits the split to the portions of one source line (e.g. one receipt line in a shared receiving balance).
+  const inPool = row => !portionIds?.length || portionIds.some(id => same(id, row._id));
+  const split = splitPortions(source.packagingPortions.filter(inPool), amount, user._id);
+  const kept = [...source.packagingPortions.filter(row => !inPool(row)).map(row => row.toObject ? row.toObject() : { ...row }), ...split.kept], taken = split.taken;
   // Retain existing subdocuments rather than recasting their immutable creation
   // timestamps when an earlier portion is removed from the array.
   const keptIds = new Set(kept.map(row => String(row._id)));

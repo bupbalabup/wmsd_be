@@ -1,4 +1,4 @@
-import { PurchaseReceipt, Warehouse, ProductBatch, TransferOrder, StockTransaction, WarehouseLocation, InventoryBalance, InternalTransferRequirement } from '../../models/runtime.js';
+import { PurchaseReceipt, Warehouse, ProductBatch, TransferOrder, StockTransaction, WarehouseLocation, InventoryBalance, InternalTransferRequirement, Product } from '../../models/runtime.js';
 import { currentRole } from '../../shared/utils/userRole.js';
 import { exact } from '../../models/model-utils.js';
 import { requirePermission, requireWarehouseAccess, isOwner } from '../../shared/utils/access.js';
@@ -8,8 +8,12 @@ import { escapeRegex } from '../../shared/utils/domain.js';
 import { command, checkVersion, saveVersion, same } from '../../shared/utils/document-command.js';
 import { copyItem, sourceLink } from '../../shared/utils/document-copy.js';
 import { sourceContext, locationAt, guardLocations, pendingTaskQuantity, beginStock, balanceAt, moveStock, verifyCapacity, splitPortions } from '../../shared/utils/stock.js';
+import { estimateCartonCapacity } from '../../models/capacity.js';
 import { findPurchase, newDocument, replayPurchase } from './purchase-core.js';
 
+// Portions the receipt line put into the shared receiving balance; other receipts' cartons stay put.
+async function linePortionIds(gr,item,session){const posting=await StockTransaction.findById(gr.stockTransactionId).session(session);return (posting?.movements||[]).filter(m=>same(m.sourceLineId,item._id)).flatMap(m=>m.packagingPortionIds||[]);}
+const ofLine=(portions,ids)=>ids.length?portions.filter(p=>ids.some(id=>same(id,p._id))):portions;
 const looseOf=portions=>portions.filter(p=>p.packagingState!=='SEALED').reduce((n,p)=>n.plus(String(p.quantityBase)),exact('0')).toFixed();
 
 export function purchaseWarehouseFilter(user, id) {
@@ -73,12 +77,14 @@ export async function placementQuantities(receipt, session) {
   });
 }
 async function receipt(id,user,session){const d=await findPurchase(id,user,session,{kind:'GR_PURCHASE',readOnly:true});if(d.workflowStatus!=='POSTED')throw validationError('Phiếu nhập chưa ghi tồn');return d;}
-async function task(id,user,session){
-  const d=await findPurchase(id,user,session,{kind:'TO',readOnly:true});
+// Reads also show transfer (ITR) putaway; writes accept purchase tasks only, the
+// transfer module owns ITR confirm/cancel and its one-ITR-per-receipt state.
+async function task(id,user,session,{purchaseOnly=false}={}){
+  const d=await findPurchase(id,user,session,{kind:'TO',readOnly:!purchaseOnly});
   if(d.header.taskKind!=='PUTAWAY')throw notFoundError();
   const hasGr=d.sources?.some(s=>s.subjectCollection==='goods_receipts');
   const hasItr=d.header?.requirementId||d.sources?.some(s=>s.subjectCollection==='internal_transfer_requirements');
-  if(!hasGr&&!hasItr)throw notFoundError();
+  if(!hasGr&&(purchaseOnly||!hasItr))throw notFoundError();
   return d;
 }
 async function actual(task,session){const tx=await StockTransaction.find({sourceType:'transfer_orders',sourceId:task._id}).session(session);return new Map(task.items.map(i=>[String(i._id),tx.flatMap(t=>t.movements).filter(m=>same(m.sourceLineId,i._id)).reduce((n,m)=>n.plus(String(m.quantityBase)),exact('0'))]));}
@@ -88,16 +94,18 @@ async function source(gr,item,balanceId,toLocationId,session){
   await locationAt(ctx.location._id,gr.header.warehouseId,['RECEIVING'],session);await locationAt(toLocationId,gr.header.warehouseId,['STORAGE'],session);return ctx;
 }
 // Lines may hold only the batch _id; show the manufacturer lot instead.
+// Lets the UI require whole base quantities before the API rejects them.
+const wholeUnits=async items=>new Map((await Product.find({_id:{$in:items.map(i=>i.productId)}}).select('wholeBaseUnits').lean()).map(p=>[String(p._id),p.wholeBaseUnits!==false]));
 const lotLabels=async items=>new Map((await ProductBatch.find({_id:{$in:items.map(i=>i.lotId).filter(Boolean)}}).select('manufacturerLot').lean()).map(b=>[String(b._id),b.manufacturerLot]));
 export async function putawayContext(user,id){
   requirePermission(user,'putaway_task:read');const gr=await receipt(id,user);const quantities=await placementQuantities(gr);
-  const balances=await InventoryBalance.find({_id:{$in:quantities.map(q=>q.sourceBalanceId).filter(Boolean)}}).lean(),labels=await lotLabels(gr.items);
+  const balances=await InventoryBalance.find({_id:{$in:quantities.map(q=>q.sourceBalanceId).filter(Boolean)}}).lean(),labels=await lotLabels(gr.items),whole=await wholeUnits(gr.items);
   const cartons=new Map((await ProductBatch.find({_id:{$in:gr.items.map(i=>i.lotId).filter(Boolean)}}).select('piecesPerCarton').lean()).map(b=>[String(b._id),b.piecesPerCarton]));
   return serialize({receiptId:id,receiptVersion:gr.version,locations:await WarehouseLocation.find({warehouseId:gr.header.warehouseId,locationType:'STORAGE',isActive:true}).lean(),
     tasks:await TransferOrder.find({'sources.subjectCollection':'goods_receipts','sources.documentId':gr._id}).lean(),
     items:gr.items.map(i=>{const q=quantities.find(q=>same(q.lineId,i._id)),balance=balances.find(b=>same(b._id,q?.sourceBalanceId));
       return {...dto(i),lotLabelSnapshot:i.lotLabelSnapshot??labels.get(String(i.lotId)),...q,sourceBalanceVersion:balance?.version,
-        piecesPerCarton:cartons.get(String(i.lotId)),looseQtyBase:looseOf(balance?.packagingPortions??[])};})});
+        piecesPerCarton:cartons.get(String(i.lotId)),wholeBaseUnits:whole.get(String(i.productId)),looseQtyBase:looseOf(balance?.packagingPortions??[])};})});
 }
 export function createPutaway(user,id,input){return command(user,'CREATE_PURCHASE_PUTAWAY','putaway_task:create',id,input,replayPurchase,async(session,actor)=>{
   const gr=await findPurchase(id,actor,session,{kind:'GR_PURCHASE'});checkVersion(gr,input.expectedVersion);if(gr.workflowStatus!=='POSTED')throw validationError('Phiếu nhập chưa ghi tồn');
@@ -107,16 +115,23 @@ export function createPutaway(user,id,input){return command(user,'CREATE_PURCHAS
     if (row.expectedPlacementVersion != null && q.placementVersion !== row.expectedPlacementVersion) throw versionConflict('Kế hoạch cất đã thay đổi');
     const ctx=await source(gr,item,q.sourceBalanceId,row.toLocationId,session);if(ctx.balance.version!==row.expectedSourceVersion)throw versionConflict('Tồn nguồn đã thay đổi');
     const qty=exact(row.qtyBase);if(!qty.gt(0)||(ctx.product.wholeBaseUnits&&!qty.isInteger()))throw validationError('Lượng cất không hợp lệ');
-    const sum=(used.get(row.receiptLineId)||exact('0')).plus(qty);used.set(row.receiptLineId,sum);if(sum.gt(q.unplannedQtyBase))throw validationError('Kế hoạch vượt nguồn nhập còn lại');
+    const sum=(used.get(String(item._id))||exact('0')).plus(qty);used.set(String(item._id),sum);if(sum.gt(q.unplannedQtyBase))throw validationError('Kế hoạch vượt nguồn nhập còn lại');
     const total=(totals.get(String(ctx.balance._id))||exact('0')).plus(qty);totals.set(String(ctx.balance._id),total);
     const pending=await pendingTaskQuantity(ctx.balance._id,session);
     if(total.plus(pending).gt(String(ctx.balance.quantityBase)))throw validationError('Tồn đã được lệnh khác giữ');
     // Fail at planning what confirm would reject (no carton opening, loose lot moves whole).
     // shortcut: skipped while other tasks hold this balance (their split order is unknown), confirm stays authoritative.
-    if(pending.isZero()){const key=String(ctx.balance._id);
-      try{portions.set(key,splitPortions(portions.get(key)??ctx.balance.packagingPortions,qty,actor._id).kept);}
-      catch(error){throw validationError(`${error.message} (${ctx.batch.piecesPerCarton} viên/thùng, phần lẻ còn ${looseOf(portions.get(key)??ctx.balance.packagingPortions)} viên chỉ cất trọn sau các thùng nguyên)`);}}
-    items.push(copyItem(item,qty.toFixed(),{lineNo:index+1,lineKind:'WAREHOUSE_TASK',sources:[sourceLink(gr,item,qty.toFixed(),'PURCHASE_PUTAWAY')],
+    const key=String(item._id),pool=portions.get(key)??ofLine(ctx.balance.packagingPortions,await linePortionIds(gr,item,session));
+    let split;
+    try{split=splitPortions(pool,qty,actor._id);portions.set(key,split.kept);}
+    catch(error){if(pending.isZero())throw validationError(`${error.message} (${ctx.batch.piecesPerCarton} viên/thùng, phần lẻ còn ${looseOf(pool)} viên chỉ cất trọn sau các thùng nguyên)`);}
+    if(split?.taken.some(p=>p.packagingState==='SEALED')){
+      const target=await WarehouseLocation.findById(row.toLocationId).session(session),warehouse=await Warehouse.findById(gr.header.warehouseId).session(session);
+      let fits=false;try{fits=estimateCartonCapacity(target,warehouse,ctx.batch).fits;}catch{fits=false;}
+      if(!fits)throw validationError('Thùng không vừa kích thước vị trí cất');
+    }
+    // Plan in base units: an entered-unit copy (e.g. 4 ÷ 3) may not be exact.
+    items.push(copyItem(item,qty.toFixed(),{enteredQty:qty.toFixed(),enteredUnit:item.baseUnitSnapshot,baseUnitsPerUnit:'1',lineNo:index+1,lineKind:'WAREHOUSE_TASK',sources:[sourceLink(gr,item,qty.toFixed(),'PURCHASE_PUTAWAY')],
       details:{fromLocationId:ctx.location._id,toLocationId:row.toLocationId,sourceBalanceId:ctx.balance._id,sourceBalanceVersion:ctx.balance.version,qualityCode:ctx.balance.qualityStatus,ownerType:ctx.balance.ownerType,ownerId:ctx.balance.ownerId}}));
   }
   await guardLocations(items.flatMap(i=>[i.details.fromLocationId,i.details.toLocationId]),session);
@@ -126,7 +141,7 @@ export function createPutaway(user,id,input){return command(user,'CREATE_PURCHAS
 export async function getPutaway(user,id){
   requirePermission(user,'putaway_task:read');
   const d=await task(id,user),done=await actual(d);
-  const [warehouse,labels]=await Promise.all([Warehouse.findById(d.header?.warehouseId).select('name').lean(),lotLabels(d.items)]);
+  const [warehouse,labels,whole]=await Promise.all([Warehouse.findById(d.header?.warehouseId).select('name').lean(),lotLabels(d.items),wholeUnits(d.items)]);
   let receiptId=d.sources?.find(ref=>ref.subjectCollection==='goods_receipts')?.documentId;
   if(!receiptId&&d.header?.requirementId){
     const itr=await InternalTransferRequirement.findById(d.header.requirementId).lean();
@@ -142,29 +157,30 @@ export async function getPutaway(user,id){
     items:d.items.map(i=>({
       ...dto(i),
       lotLabelSnapshot:i.lotLabelSnapshot??labels.get(String(i.lotId)),
+      wholeBaseUnits:whole.get(String(i.productId)),
       actualQtyBase:done.get(String(i._id)).toFixed(),
       remainingQtyBase:exact(i.qtyBase).minus(done.get(String(i._id))).toFixed()
     }))
   };
 }
 export function confirmPutaway(user,id,input){return command(user,'CONFIRM_PURCHASE_PUTAWAY','putaway_task:confirm',id,input,replayPurchase,async(session,actor)=>{
-  const d=await task(id,actor,session);await findPurchase(id,actor,session,{kind:'TO'});checkVersion(d,input.expectedVersion);if(!['OPEN','PARTIAL'].includes(d.workflowStatus))throw validationError('Lệnh không còn mở');
+  const d=await task(id,actor,session,{purchaseOnly:true});checkVersion(d,input.expectedVersion);if(!['OPEN','PARTIAL'].includes(d.workflowStatus))throw validationError('Lệnh không còn mở');
   const gr=await receipt(d.sources.find(s=>s.subjectCollection==='goods_receipts').documentId,actor,session);const done=await actual(d,session),seen=new Set();
   const locations=[],selected=[];
-  for(const row of input.lines){const i=d.items.id(row.taskLineId);if(!i||seen.has(row.taskLineId))throw validationError('Dòng không hợp lệ hoặc trùng');seen.add(row.taskLineId);
+  for(const row of input.lines){const i=d.items.id(row.taskLineId);if(!i||seen.has(String(i._id)))throw validationError('Dòng không hợp lệ hoặc trùng');seen.add(String(i._id));
     const qty=exact(row.actualQtyBase);if(!qty.gt(0)||qty.gt(exact(i.qtyBase).minus(done.get(String(i._id)))))throw validationError('Lượng cất vượt phần còn lại');
     const ref=i.sources.find(s=>s.subjectCollection==='goods_receipts');const sourceItem=gr.items.id(ref?.itemId);if(!sourceItem)throw validationError('Thiếu nguồn nhập');
-    await source(gr,sourceItem,i.details.sourceBalanceId,i.details.toLocationId,session);selected.push({i,qty});locations.push(i.details.fromLocationId,i.details.toLocationId);
+    await source(gr,sourceItem,i.details.sourceBalanceId,i.details.toLocationId,session);selected.push({i,qty,portionIds:await linePortionIds(gr,sourceItem,session)});locations.push(i.details.fromLocationId,i.details.toLocationId);
   }
   await guardLocations(locations,session);const posting=beginStock(d,actor,'PURCHASE_PUTAWAY',input);
-  for(const {i,qty} of selected){const ctx=await sourceContext(i.details.sourceBalanceId,session);const to=await balanceAt({type:'LOCATION',locationId:i.details.toLocationId},ctx.balance,'GOOD',session);
-    await moveStock(ctx.balance._id,to._id,qty,i._id,posting,actor,session,{preserveReservations:true,excludeTaskId:id});done.set(String(i._id),done.get(String(i._id)).plus(qty));}
+  for(const {i,qty,portionIds} of selected){const ctx=await sourceContext(i.details.sourceBalanceId,session);const to=await balanceAt({type:'LOCATION',locationId:i.details.toLocationId},ctx.balance,'GOOD',session);
+    await moveStock(ctx.balance._id,to._id,qty,i._id,posting,actor,session,{preserveReservations:true,excludeTaskId:id,portionIds});done.set(String(i._id),done.get(String(i._id)).plus(qty));}
   await verifyCapacity(locations,session);await posting.save({session});d.workflowStatus=d.items.every(i=>done.get(String(i._id)).eq(String(i.qtyBase)))?'CONFIRMED':'PARTIAL';
   if(d.workflowStatus==='CONFIRMED'){d.header.confirmedAt=new Date();d.header.confirmedBy=actor._id;}
   return {document:await saveVersion(d,input.expectedVersion,session),versionBefore:input.expectedVersion,stockTransactionId:posting._id};
 });}
 export function cancelPutaway(user,id,input){return command(user,'CANCEL_PURCHASE_PUTAWAY','putaway_task:cancel',id,input,replayPurchase,async(session,actor)=>{
-  const d=await task(id,actor,session);await findPurchase(id,actor,session,{kind:'TO'});checkVersion(d,input.expectedVersion);if(!['OPEN','PARTIAL'].includes(d.workflowStatus))throw validationError('Lệnh không còn phần mở');
+  const d=await task(id,actor,session,{purchaseOnly:true});checkVersion(d,input.expectedVersion);if(!['OPEN','PARTIAL'].includes(d.workflowStatus))throw validationError('Lệnh không còn phần mở');
   await guardLocations(d.items.map(i=>i.details.fromLocationId),session);d.workflowStatus='CANCELLED';d.cancelReason=input.reason;d.cancelledBy=actor._id;d.cancelledAt=new Date();
   return {document:await saveVersion(d,input.expectedVersion,session),versionBefore:input.expectedVersion,reason:input.reason};
 });}

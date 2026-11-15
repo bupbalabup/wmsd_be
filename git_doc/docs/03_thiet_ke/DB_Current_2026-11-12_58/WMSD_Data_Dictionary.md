@@ -739,7 +739,7 @@ Model: [approval-history.model.js](../../../../src/models/approval-history.model
 | `itemDecisions[].itemId` | ObjectId | true |  |
 | `itemDecisions[].approvedQtyBase` | Decimal128 | true |  |
 | `itemDecisions[].outcome` | String | true |  |
-| `itemDecisions[].reason` | String | false |  |
+| `itemDecisions[].reason` | String | false | Tối đa 2.000 ký tự (16/11/2026, khớp lý do API). |
 | `requestedBy` | ObjectId | true | User |
 | `decidedBy` | ObjectId | true | User |
 | `decidedAt` | Date | true |  |
@@ -1577,6 +1577,15 @@ Indexes:
       "createdAt": -1
     },
     {}
+  ],
+  [
+    {
+      "documentKind": 1,
+      "header.warehouseId": 1,
+      "createdAt": -1,
+      "_id": -1
+    },
+    {}
   ]
 ]
 ```
@@ -1698,7 +1707,7 @@ Model: [purchase-order.model.js](../../../../src/models/purchase-order.model.js)
 | `totalAmount` | Decimal128 | true |  |
 | `currency` | String | true |  |
 | `_id` | DocumentIdentity | false |  |
-| `replenishmentRequestId` | DocumentIdentity | true |  |
+| `replenishmentRequestId` | DocumentIdentity | false | ReplenishmentRequest. Gỡ khi PO bị hủy để RR lập được PO mới; unique index một phần giữ một RR một PO còn hiệu lực. |
 
 Indexes:
 

@@ -10,6 +10,7 @@ import {
   ProductBatch,
 } from "../../models/runtime.js";
 import { exact } from "../../models/model-utils.js";
+import { saigonDateOnly } from "../../shared/utils/domain.js";
 import {
   requirePermission,
   requireWarehouseAccess,
@@ -52,8 +53,14 @@ export async function readRequest(id, user, session) {
   return document;
 }
 const replay = (id, user, session) => readRequest(id, user, session);
-async function header(input, user, session) {
+async function header(input, user, session, saved) {
   requireWarehouseAccess(user, input.warehouseId);
+  // The RR code embeds the warehouse code, so a saved request keeps its warehouse.
+  if (saved && !same(saved.warehouseId, input.warehouseId))
+    throw validationError("Không đổi kho sau khi đã cấp mã yêu cầu; hủy và lập yêu cầu mới");
+  const unchanged = saved?.neededOn && saigonDateOnly(saved.neededOn) === input.neededOn;
+  if (!unchanged && input.neededOn < saigonDateOnly())
+    throw validationError("Ngày cần hàng không được trước hôm nay");
   const warehouse = await Warehouse.findOne({
     _id: input.warehouseId,
     isActive: true,
@@ -118,7 +125,8 @@ async function items(input, actor, session, previous = [], requestId) {
       previous: old,
       lineKind: "REPLENISHMENT",
     });
-    staged.push({ value, reasonNote: line.reasonNote ?? old?.details?.reasonNote });
+    // Omitted keeps the saved reason; null is an explicit clear from the form.
+    staged.push({ value, reasonNote: line.reasonNote === null ? undefined : line.reasonNote ?? old?.details?.reasonNote });
   }
 
   const evaluated = await evaluateLines(actor, { ...input, requestId }, session, {
@@ -187,6 +195,9 @@ function savedAssessmentInput(document, overrides = []) {
   };
 }
 async function assessSavedRequest(document, actor, session, evaluations) {
+  const ids = (evaluations ?? []).map((row) => String(row.lineId));
+  if (new Set(ids).size !== ids.length || ids.some((lineId) => !document.items.id(lineId)))
+    throw validationError("Đánh giá có dòng trùng hoặc không thuộc yêu cầu");
   const input = savedAssessmentInput(document, evaluations);
   const evaluated = await evaluateLines(actor, input, session, {
     permission: "replenishment_request:update",
@@ -408,7 +419,7 @@ export function updateReplenishment(user, id, input) {
       )
         throw validationError("Yêu cầu đã có đơn mua");
       document.items = await items(input, actor, session, document.items, id);
-      document.header.set(await header(input, actor, session));
+      document.header.set(await header(input, actor, session, document.header));
       document.note = input.note;
       document.updatedBy = actor._id;
       return {
@@ -488,6 +499,9 @@ export function reviewReplenishment(user, id, input) {
           );
         if (quantity.gt(String(item.qtyBase)))
           throw validationError("Lượng duyệt vượt lượng đề nghị");
+        // H01: a reduced approval needs its own line explanation, not the general decision note.
+        if (input.decision === "APPROVE" && quantity.lt(String(item.qtyBase)) && !decision?.reason?.trim())
+          throw validationError("Cần lý do cho dòng duyệt giảm số lượng");
         if (quantity.gt(0)) positive = true;
         item.approvedQtyBase = quantity.toFixed();
         return {

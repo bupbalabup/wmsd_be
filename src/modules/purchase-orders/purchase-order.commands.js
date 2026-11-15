@@ -6,19 +6,17 @@ import {
   Product,
   Uom,
   ApprovalHistory,
-  AuditLog,
 } from "../../models/runtime.js";
 import { exact } from "../../models/model-utils.js";
 import { toBaseQuantity } from "../../shared/utils/conversions.js";
+import { notBeforeSaigonToday, saigonDateOnly } from "../../shared/utils/domain.js";
 import { requireWarehouseAccess } from "../../shared/utils/access.js";
-import { currentRole } from "../../shared/utils/userRole.js";
 import { validationError } from "../../shared/utils/ApiError.js";
 import {
   command,
   checkVersion,
   saveVersion,
   same,
-  hash,
   newId,
 } from "../../shared/utils/document-command.js";
 import { copyItem, sourceLink } from "../../shared/utils/document-copy.js";
@@ -28,8 +26,14 @@ import {
   newDocument,
   evidenceFor,
 } from "../po-receiving/purchase-core.js";
-import { purchaseOrderQuantities } from "./purchase-order.service.js";
+import { purchaseOrderQuantities, cancelBlocker } from "./purchase-order.service.js";
 
+// A changed or new expected date may not be in the past; an unchanged saved date stays editable.
+function checkExpectedOn(next, saved) {
+  if (!next) return;
+  if (saved && saigonDateOnly(new Date(next)) === saigonDateOnly(saved)) return;
+  if (!notBeforeSaigonToday(next)) throw validationError("Ngày dự kiến giao không được trước hôm nay");
+}
 async function draftItems(actor, input, session, previous = []) {
   requireWarehouseAccess(actor, input.warehouseId);
   const supplier = await Supplier.findOne({
@@ -49,9 +53,6 @@ async function draftItems(actor, input, session, previous = []) {
   const items = [],
     seen = new Set();
   for (const [index, line] of input.lines.entries()) {
-    if (seen.has(String(line.rrLineId)))
-      throw validationError("Gộp lượng của cùng dòng RR");
-    seen.add(String(line.rrLineId));
     const rr = await ReplenishmentRequest.findOne({
       "items._id": line.rrLineId,
       workflowStatus: "APPROVED",
@@ -76,6 +77,9 @@ async function draftItems(actor, input, session, previous = []) {
       decision = approval.itemDecisions.find((row) =>
         same(row.itemId, source._id),
       );
+    if (seen.has(String(source._id)))
+      throw validationError("Gộp lượng của cùng dòng RR");
+    seen.add(String(source._id));
     const product = await Product.findOne({
       _id: source.productId,
       isActive: true,
@@ -97,7 +101,8 @@ async function draftItems(actor, input, session, previous = []) {
     const old = line.id ? previous.find((row) => same(row._id, line.id)) : null;
     if (line.id && (!old || !same(old.requestItemId, source._id)))
       throw validationError("Không đổi nguồn của dòng đã lưu");
-    const value = exact(line.unitPurchasePrice).mul(line.enteredQty);
+    // Model amounts keep 6 decimals; round half up instead of failing on long products.
+    const value = exact(line.unitPurchasePrice).mul(line.enteredQty).toDecimalPlaces(6);
     items.push(
       copyItem(source, amount.toFixed(), {
         _id: old?._id ?? newId(),
@@ -131,10 +136,16 @@ export function createPurchaseOrder(user, input) {
     input,
     replayPurchase,
     async (session, actor) => {
+      checkExpectedOn(input.expectedOn);
       const prepared = await draftItems(actor, input, session);
       // RR cancellation checks for a linked PO. Write the source in the same
       // transaction so a concurrent cancel and PO creation cannot both commit.
       const request = prepared.request;
+      // One PO per RR (unique index); answer 400 instead of a duplicate-key 500.
+      if (
+        await PurchaseOrder.exists({ replenishmentRequestId: request._id }).session(session)
+      )
+        throw validationError("Yêu cầu bổ sung đã có đơn mua");
       const updatedAt = new Date(
         Math.max(Date.now(), (request.updatedAt?.getTime() ?? 0) + 1),
       );
@@ -182,6 +193,7 @@ export function updatePurchaseOrder(user, id, input) {
       checkVersion(po, input.expectedVersion);
       if (po.workflowStatus !== "DRAFT")
         throw validationError("Chỉ sửa trực tiếp PO nháp");
+      checkExpectedOn(input.expectedOn, po.header.expectedOn);
       const prepared = await draftItems(actor, input, session, po.items);
       if (!same(prepared.request._id, po.replenishmentRequestId))
         throw validationError("Không đổi RR nguồn của PO");
@@ -263,6 +275,8 @@ export function confirmPurchaseOrder(user, id, input) {
         }).session(session))
       )
         throw validationError("NCC đã ngừng hoạt động");
+      if (!(await Warehouse.exists({ _id: po.header.warehouseId, isActive: true }).session(session)))
+        throw validationError("Kho đã ngừng hoạt động");
       po.workflowStatus = "OPEN";
       po.header.issuedAt = new Date();
       return {
@@ -285,6 +299,7 @@ export function rescheduleExpectedOn(user, id, input) {
       checkVersion(po, input.expectedVersion);
       if (!["OPEN", "PARTIAL"].includes(po.workflowStatus))
         throw validationError("PO không còn mở");
+      checkExpectedOn(input.expectedOn);
 
       const before = po.header.expectedOn?.toISOString() ?? null;
       po.header.expectedOn = input.expectedOn;
@@ -307,6 +322,10 @@ async function validateClose(po, lines, session) {
   const quantities = await purchaseOrderQuantities(po, session),
     seen = new Set();
   for (const row of lines) {
+    const item = po.items.id(row.poLineId);
+    const product = item && await Product.findById(item.productId).session(session);
+    if (product?.wholeBaseUnits && !exact(row.qtyBase).isInteger())
+      throw validationError("Lượng chốt thiếu phải đúng đơn vị gốc của sản phẩm");
     const available = quantities.find(
       (item) => item.lineId === String(row.poLineId),
     );
@@ -323,10 +342,13 @@ async function validateClose(po, lines, session) {
     seen.add(row.poLineId);
   }
 }
-export function requestClose(user, id, input) {
+// One step by the Accountant (user decision 16/11/2026): no Owner approval and
+// evidence optional. The remainder cancellation cannot be undone; the audit
+// entry keeps the lines, reason and any evidence.
+export function closeRemainder(user, id, input) {
   return command(
     user,
-    "REQUEST_PO_CLOSE",
+    "CLOSE_PO_REMAINDER",
     "purchase_order:update",
     id,
     input,
@@ -336,126 +358,13 @@ export function requestClose(user, id, input) {
       checkVersion(po, input.expectedVersion);
       if (!["OPEN", "PARTIAL"].includes(po.workflowStatus))
         throw validationError("PO không còn mở");
-      await evidenceFor(actor, po, input.evidenceIds, session, true);
+      await evidenceFor(actor, po, input.evidenceIds, session);
       await validateClose(po, input.lines, session);
-      return {
-        document: await saveVersion(po, input.expectedVersion, session),
-        versionBefore: input.expectedVersion,
-        reason: input.reason,
-        auditChanges: [
-          {
-            field: "closureProposal",
-            before: null,
-            after: { lines: input.lines, evidenceIds: input.evidenceIds },
-          },
-        ],
-      };
-    },
-  );
-}
-export function approveClose(user, id, input) {
-  return command(
-    user,
-    "APPROVE_PO_CLOSE",
-    "purchase_order:approve_exception",
-    id,
-    input,
-    replayPurchase,
-    async (session, actor) => {
-      const po = await findPurchase(id, actor, session, { kind: "PO" });
-      checkVersion(po, input.expectedVersion);
-      const request = await AuditLog.findOne({
-        _id: input.requestId,
-        subjectType: "purchase_orders",
-        subjectId: id,
-        action: "REQUEST_PO_CLOSE",
-        versionAfter: po.version,
-      }).session(session);
-      if (!request || same(request.actorId, actor._id))
-        throw validationError(
-          "Đề nghị không đúng phiên bản hoặc người duyệt trùng người lập",
-        );
-      const proposal = request.changes.find(
-        (row) => row.field === "closureProposal",
-      )?.after;
-      if (!proposal) throw validationError("Thiếu nội dung đề nghị");
-      await validateClose(po, proposal.lines, session);
-      await evidenceFor(actor, po, input.evidenceIds, session, true);
-      const decision = await new ApprovalHistory({
-        decisionKey: hash({
-          id,
-          request: String(request._id),
-          key: input.operationKey,
-        }),
-        subjectType: "purchase_orders",
-        subjectId: po._id,
-        subjectRevision: po.version,
-        decisionScope: "PURCHASE_CLOSE",
-        reviewedContent: proposal,
-        decision: "APPROVE",
-        reason: input.reason,
-        requestedBy: request.actorId,
-        decidedBy: actor._id,
-        decidedAt: new Date(),
-        recordedAt: new Date(),
-        itemDecisions: proposal.lines.map((row) => ({
-          itemId: row.poLineId,
-          approvedQtyBase: row.qtyBase,
-          outcome: "CANCEL_REMAINDER",
-        })),
-        authoritySnapshot: {
-          roleCode: currentRole(actor).code,
-          permissionCode: "purchase_order:approve_exception",
-          warehouseIds: actor.warehouseIds,
-        },
-        evidenceIds: input.evidenceIds,
-      }).save({ session });
-      po.header.closureDecisionId = decision._id;
-      return {
-        document: await saveVersion(po, input.expectedVersion, session),
-        versionBefore: input.expectedVersion,
-        decisionId: decision._id,
-      };
-    },
-  );
-}
-export function executeClose(user, id, input) {
-  return command(
-    user,
-    "EXECUTE_PO_CLOSE",
-    "purchase_order:update",
-    id,
-    input,
-    replayPurchase,
-    async (session, actor) => {
-      const po = await findPurchase(id, actor, session, { kind: "PO" });
-      checkVersion(po, input.expectedVersion);
-      const approval = await ApprovalHistory.findOne({
-        _id: input.approvalId,
-        subjectId: id,
-        subjectType: "purchase_orders",
-        decisionScope: "PURCHASE_CLOSE",
-        decision: "APPROVE",
-      }).session(session);
-      if (
-        !approval ||
-        !same(po.header.closureDecisionId, approval._id) ||
-        po.version !== approval.subjectRevision + 1
-      )
-        throw validationError("Quyết định chốt thiếu không còn đúng phiên bản");
-      const lines = approval.itemDecisions.map((row) => ({
-        poLineId: String(row.itemId),
-        qtyBase: String(row.approvedQtyBase),
-      }));
-      await validateClose(po, lines, session);
-      for (const row of lines) {
+      for (const row of input.lines) {
         const item = po.items.id(row.poLineId);
-        item.cancelledRemainderQtyBase = exact(
-          item.cancelledRemainderQtyBase ?? "0",
-        )
+        item.cancelledRemainderQtyBase = exact(item.cancelledRemainderQtyBase ?? "0")
           .plus(row.qtyBase)
           .toFixed();
-        item.cancellationDecisionId = approval._id;
       }
       const quantities = await purchaseOrderQuantities(po, session);
       if (quantities.every((row) => exact(row.outstandingQtyBase).isZero())) {
@@ -466,8 +375,53 @@ export function executeClose(user, id, input) {
       return {
         document: await saveVersion(po, input.expectedVersion, session),
         versionBefore: input.expectedVersion,
-        decisionId: approval._id,
+        reason: input.reason,
+        auditChanges: [
+          {
+            field: "closure",
+            before: null,
+            after: { lines: input.lines, evidenceIds: input.evidenceIds ?? [] },
+          },
+        ],
       };
+    },
+  );
+}
+export function cancelPurchaseOrder(user, id, input) {
+  return command(
+    user,
+    "CANCEL_PURCHASE_ORDER",
+    "purchase_order:update",
+    id,
+    input,
+    replayPurchase,
+    async (session, actor) => {
+      const po = await findPurchase(id, actor, session, { kind: "PO" });
+      checkVersion(po, input.expectedVersion);
+      const blocker = await cancelBlocker(po, session);
+      if (blocker) throw validationError(blocker);
+      const requestId = po.replenishmentRequestId;
+      // Same RR timestamp write as creation: a concurrent new PO or RR cancel
+      // conflicts with this transaction instead of both committing.
+      if (requestId)
+        await ReplenishmentRequest.updateOne(
+          { _id: requestId },
+          { $currentDate: { updatedAt: true } },
+          { session, timestamps: false },
+        );
+      po.workflowStatus = "CANCELLED";
+      po.cancelReason = input.reason;
+      po.cancelledBy = actor._id;
+      po.cancelledAt = new Date();
+      const saved = await saveVersion(po, input.expectedVersion, session);
+      // Releasing the link frees the RR for a new PO; the unique index only
+      // covers POs that still hold replenishmentRequestId. sources[] keeps history.
+      await PurchaseOrder.updateOne(
+        { _id: po._id, version: saved.version },
+        { $unset: { replenishmentRequestId: 1 } },
+        { session },
+      );
+      return { document: saved, versionBefore: input.expectedVersion, reason: input.reason };
     },
   );
 }

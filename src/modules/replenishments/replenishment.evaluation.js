@@ -276,7 +276,10 @@ async function previewQuantity(line, product, previous, session) {
     ? number(previous.baseUnitsPerUnit)
     : await resolveConversion(product, batch, enteredUnit, session);
   const uom = await m.Uom.findOne({ code: enteredUnit }).session(session);
-  return toBaseQuantity(line.enteredQty, factor, product, uom);
+  const quantity = toBaseQuantity(line.enteredQty, factor, product, uom);
+  if (!quantity.gt(0) || quantity.decimalPlaces() > 6 || (product.wholeBaseUnits && !quantity.isInteger()))
+    throw validationError("Số lượng phải quy đổi chính xác sang đơn vị gốc");
+  return quantity;
 }
 
 export async function evaluateLines(user, input, session, options = {}) {
@@ -315,9 +318,11 @@ export async function evaluateLines(user, input, session, options = {}) {
     const threshold = product.stockThresholds.find((row) => same(row.warehouseId, warehouseId));
     const minimum = threshold ? number(threshold.minimumQty) : null;
     // A zero minimum sets no floor; comparing stock >= 0 would warn on an empty warehouse.
-    const stockLimit = minimum?.gt(0) ? minimum : (options.items
+    // Always resolve the quantity so an invalid lot/unit fails here, not only when the RR is saved.
+    const requested = options.items
       ? number(options.items[index].qtyBase)
-      : await previewQuantity(line, product, line.id && own?.items.id(line.id), session));
+      : await previewQuantity(line, product, line.id && own?.items.id(line.id), session);
+    const stockLimit = minimum?.gt(0) ? minimum : requested;
     const pending = await openRequests(user, product._id, warehouseId, requestId, session);
     const incoming = await incomingPurchaseOrders(product._id, warehouseId, requestId, session);
     const other = await otherWarehouseOptions(user, product._id, warehouseId, line.lotId, session);

@@ -2186,12 +2186,13 @@ sequenceDiagram
     A->>API: POST /:id/expected-on {expectedOn, reason}
     PC->>DB: OPEN/PARTIAL only, audit RESCHEDULE_PO_EXPECTED_ON
   end
+  opt cancel before any receiving document
+    A->>API: POST /:id/cancel {expectedVersion, reason}
+    PC->>DB: DRAFT/OPEN without arrival/receipt → CANCELLED, unset replenishmentRequestId (RR free for a new PO)
+  end
   opt stop waiting for the remainder
-    A->>API: POST /:id/close-requests {lines, reason, evidenceIds}
-    O->>API: POST /:id/close-approvals {requestId}
-    PC->>DB: ApprovalHistory (Owner ≠ requester)
-    A->>API: POST /:id/close-executions {approvalId}
-    PC->>DB: cancelledRemainderQtyBase, PO CLOSED
+    A->>API: POST /:id/close-remainder {lines, reason, evidenceIds?}
+    PC->>DB: cancelledRemainderQtyBase, audit CLOSE_PO_REMAINDER, PO CLOSED when nothing outstanding
   end
 ```
 
