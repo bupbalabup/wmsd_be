@@ -4,12 +4,19 @@ import { requirePermission, requireWarehouseAccess, isOwner } from '../../shared
 import { transaction, dto } from '../../shared/utils/persistence.js';
 import { same } from '../../shared/utils/document-command.js';
 import { remainingReservation, heldQuantity, unreservedPendingTaskQuantity } from '../../shared/utils/stock.js';
-import { validationError } from '../../shared/utils/ApiError.js';
+import { validationError, forbiddenError } from '../../shared/utils/ApiError.js';
+import { currentRole } from '../../shared/utils/userRole.js';
 import { effectiveQuantities } from '../sales-orders/sales-read.service.js';
+// Owner-confirmed mapping (15 Nov 2026); any other role holding report:read gets no group.
+const ALL_GROUPS = ['inventory', 'purchases', 'receipts', 'issues', 'sales', 'transfers', 'defects', 'returns', 'supplierReturns', 'stocktakes', 'adjustments'];
+const ROLE_GROUPS = { OWNER: ALL_GROUPS, ACCOUNTANT: ['purchases', 'receipts'], WAREHOUSE: ['inventory', 'transfers', 'stocktakes', 'adjustments'] };
+export const reportGroups = user => ALL_GROUPS.filter(g => (ROLE_GROUPS[currentRole(user)?.code] || []).includes(g));
 const add = (map, key, qty) => map.set(key, (map.get(key) || exact('0')).plus(String(qty)));
-export async function reportOptions(user) { requirePermission(user, 'report:read'); return { warehouses: (await m.Warehouse.find(isOwner(user) ? {} : { _id: { $in: user.warehouseIds || [] } }).select('_id code name').lean()).map(dto) }; }
+export async function reportOptions(user) { requirePermission(user, 'report:read'); return { groups: reportGroups(user), warehouses: (await m.Warehouse.find(isOwner(user) ? {} : { _id: { $in: user.warehouseIds || [] } }).select('_id code name').lean()).map(dto) }; }
 export async function operationalReport(user, query) {
     requirePermission(user, 'report:read');
+    if (!reportGroups(user).includes(query.group))
+        throw forbiddenError();
     if (query.warehouseId)
         requireWarehouseAccess(user, query.warehouseId);
     return transaction(async (session) => {

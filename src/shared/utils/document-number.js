@@ -42,9 +42,12 @@ export async function nextDocumentFields(Model,type,warehouseId,session=currentT
    }),
  );
  const numberFilter = { $in: patterns };
- const field=path?path+'._id':'_id',projection=path?{[path+'._id']:1}:{_id:1};
- const rows=await Model.collection.find({[field]:numberFilter},{session,projection}).toArray();
- const codes=path?rows.flatMap(r=>(r[path]??[]).map(v=>v._id)):rows.map(r=>r._id);
+ const projection=path?{[path+'._id']:1,[path+'.documentNo']:1}:{_id:1};
+ // Embedded documents such as resolution plans keep an ObjectId `_id` and store the allocated number in `documentNo`,
+ // so both fields are scanned; root documents still allocate from `_id` alone.
+ const query=path?{$or:[{[path+'._id']:numberFilter},{[path+'.documentNo']:numberFilter}]}:{_id:numberFilter};
+ const rows=await Model.collection.find(query,{session,projection}).toArray();
+ const codes=path?rows.flatMap(r=>(r[path]??[]).flatMap(v=>[v._id,v.documentNo])):rows.map(r=>r._id);
  // Retained operation receipts prevent reusing a deleted root document number.
  const operations=Model.db.collection('operation_records');
  const history=await operations.find({subjectId:numberFilter},{session,projection:{subjectId:1}}).toArray();
