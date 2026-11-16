@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { customerCreateSchema, inspectionSchema, defectCreateSchema } from '../src/modules/return-workflows/native.validation.js';
 const id='a'.repeat(24),idempotencyKey='operation-test-000001';
-test('customer claims require exactly one delivered source and unique lines',()=>{
+test('customer claims require exactly one delivered source per part and allow split source lines',()=>{
  const body={idempotencyKey,warehouseId:id,customerId:id,lines:[{salesIssueLineId:id,qtyBase:'4',reason:'Unused'}]};assert.ok(customerCreateSchema.safeParse({body}).success);
- assert.equal(customerCreateSchema.safeParse({body:{...body,lines:[...body.lines,...body.lines]}}).success,false);
+ assert.equal(customerCreateSchema.safeParse({body:{...body,lines:[...body.lines,...body.lines]}}).success,true);
  assert.equal(customerCreateSchema.safeParse({body:{...body,lines:[{...body.lines[0],historicalExternalLineId:id}]}}).success,false);
 });
 test('zero physical arrival remains distinct from missing inspection and freeze blocks ordinary proposals',()=>{

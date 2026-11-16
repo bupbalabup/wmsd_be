@@ -234,11 +234,11 @@ run('list: status, stocktakeId, lotId, locationId and q filters match real docum
     assert.deepEqual(planIds(await call(q({ lotId: String(tileLot1._id), status: 'PENDING_APPROVAL', warehouseId: String(whB._id) }), owner)), ids(s3.plan));
 
     // Text search is literal and case-insensitive over plan and stocktake numbers.
-    // Plan numbers are not unique today (see the todo test at the end), so the expectation is every plan carrying the number.
+    // Business prefixes can overlap: a stocktake number can also be a literal substring of another plan number.
     const sameNumber = number => [s1.plan1, s1.plan2, s2.plan, s3.plan].filter(plan => plan.documentNo === number);
     assert.deepEqual(planIds(await call(q({ q: s1.plan2.documentNo.toLowerCase() }), owner)), ids(...sameNumber(s1.plan2.documentNo)));
     assert.deepEqual(planIds(await call(q({ q: s3.plan.documentNo }), owner)), ids(s3.plan));
-    assert.deepEqual(planIds(await call(q({ q: s2.id.toLowerCase() }), owner)), ids(s2.plan));
+    assert.deepEqual(planIds(await call(q({ q: s2.id.toLowerCase() }), owner)), ids(s1.plan2, s2.plan));
     assert.deepEqual(planIds(await call(q({ q: s3.id.slice(0, 5) }), owner)), ids(s3.plan), 'prefix with the warehouse code selects only that warehouse');
     assert.deepEqual(planIds(await call(q({ q: s1.id.slice(0, 5) }), owner)), ids(s1.plan1, s1.plan2, s2.plan));
     assert.deepEqual(planIds(await call(q({ q: 'KK-' }), owner)), sorted(...allPlans.map(get => get())), 'every number contains KK-');
@@ -471,9 +471,8 @@ run('count-sheet: refusals, snapshot rows after live changes, blind body, empty 
     assert.ok(!/bookQty/i.test(later.text));
 });
 
-// Known defect outside the endpoints under test: `nextDocumentFields(..., 'resolutionPlans')` scans `resolutionPlans._id`
-// for coded identities, but plan `_id`s are ObjectIds and the number lives in `documentNo`, so every plan restarts at 000001.
-test('plan document numbers are unique per warehouse and day (KNOWN DEFECT in the plan number allocator)', { skip: !enabled, todo: 'allocator restarts at 000001 for each plan' }, async () => {
+// The embedded allocator must scan documentNo as well as ObjectId-backed plan identities.
+test('plan document numbers are unique across sequential sessions in one warehouse and day', { skip: !enabled }, async () => {
     const numbers = [s1.plan1, s1.plan2, s2.plan].map(plan => plan.documentNo);
     assert.equal(new Set(numbers).size, numbers.length);
 });
