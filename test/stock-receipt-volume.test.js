@@ -34,3 +34,20 @@ test('receiveStock estimates explicit portions, checking only the dimensions eac
   await assert.rejects(receiveStock(balance, item, undefined, posting, user, undefined, 'LOOSE'),
     /Thiếu kích thước lô\/sản phẩm, cần nhập thể tích thực đo/);
 });
+
+test('receiveStock rejects a missing lot even with a measured volume', async t => {
+  t.mock.method(ProductBatch, 'findById', () => ({ session: async () => null }));
+  const balance = { quantityBase: '0', packagingPortions: [] };
+  const item = { qtyBase: '1', productId: 'product' };
+  const posting = { movements: [] };
+  const user = { _id: 'user' };
+  const portion = { packagingState: 'LOOSE', quantityBase: '1' };
+
+  await assert.rejects(receiveStock(balance, item, [portion], posting, user),
+    /Thiếu kích thước lô\/sản phẩm, cần nhập thể tích thực đo/);
+  await assert.rejects(receiveStock(balance, item, [{ ...portion, measuredVolumeMm3: '10' }], posting, user),
+    /Lô hoặc lượng nhập không hợp lệ/);
+  assert.equal(balance.quantityBase, '0');
+  assert.deepEqual(balance.packagingPortions, []);
+  assert.deepEqual(posting.movements, []);
+});

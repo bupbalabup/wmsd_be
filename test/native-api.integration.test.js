@@ -569,8 +569,7 @@ run('purchase and custody intake estimate occupied volume and retain measured ov
  }), 'LOOSE', '1234.567');
  await assert.deepEqual((await reconcilePurchasing()).issues, []);
 });
-run('purchase intake rejects declared volume for SEALED and SEALED-only packaging for opened goods',async()=>{
- const draftReceipt=async condition=>{
+async function draftPurchaseReceipt(condition) {
   const requestInput={creationKey:key(),action:'SUBMIT',warehouseId:String(warehouse._id),neededOn:'2026-12-01',triggerReason:'Test',lines:[{productId:String(product._id),lotId:String(batch._id),enteredUnit:'BOX',enteredQty:'2',reasonNote:'Test'}]};
   await acknowledgeIndependentNeed(requestInput);const created=await rr.createReplenishment(worker,requestInput);let request=await m.ReplenishmentRequest.findById(created.id);
   await rr.reviewReplenishment(owner,created.id,{...input(),expectedVersion:request.version,decision:'APPROVE',reason:'Test',lines:request.items.map(i=>({lineId:String(i._id),approvedQtyBase:'8'}))});request=await m.ReplenishmentRequest.findById(created.id);
@@ -581,14 +580,80 @@ run('purchase intake rejects declared volume for SEALED and SEALED-only packagin
   const confirmed=await receiving.confirmInspection(worker,inspection.id,{...input(),expectedVersion:inspected.version,expectedPoVersion:orderDoc.version,destinations:[{inspectionItemId:String(inspected.items[0]._id),locationId:String(receivingLocation._id)}]});
   const receipt=await m.PurchaseReceipt.findById(confirmed.resultRefs.find(r=>r.documentType==='goods_receipts').documentId);
   return {receipt,post:{...input(),expectedVersion:1,expectedPoVersion:(await m.PurchaseOrder.findById(order.id)).version}};
- };
+}
+
+run('purchase intake rejects declared volume for SEALED and SEALED-only packaging for opened goods',async()=>{
  const snapshot={packageUnit:'Thùng',baseUnitsPerPackage:'4',outerLengthMm:'620',outerWidthMm:'620',outerHeightMm:'50'};
- const sealed=await draftReceipt('SEALED');
+ const sealed=await draftPurchaseReceipt('SEALED');
  await assert.rejects(receiving.postReceipt(worker,sealed.receipt._id,{...sealed.post,packaging:[{lineId:String(sealed.receipt.items[0]._id),portions:[{packagingState:'SEALED',sealedPackCount:2,quantityBase:'8',measuredVolumeMm3:'1',packagingSnapshot:snapshot}]}]}),/không khai thể tích/);
  await assert.rejects(receiving.postReceipt(worker,sealed.receipt._id,{...sealed.post,packaging:[{lineId:String(sealed.receipt.items[0]._id),portions:[{packagingState:'SEALED',sealedPackCount:2,quantityBase:'8',packagingSnapshot:snapshot}]},{lineId:String(sealed.receipt.items[0]._id),portions:[{packagingState:'OPEN',quantityBase:'8',measuredVolumeMm3:'1'}]}]}),/trùng/);
- const opened=await draftReceipt('TORN');
+ const opened=await draftPurchaseReceipt('TORN');
  await assert.rejects(receiving.postReceipt(worker,opened.receipt._id,{...opened.post,packaging:[{lineId:String(opened.receipt.items[0]._id),portions:[{packagingState:'SEALED',sealedPackCount:2,quantityBase:'8',packagingSnapshot:snapshot}]}]}),/phải có phần hàng mở\/lẻ/);
  assert.equal(await m.StockTransaction.countDocuments({sourceId:{$in:[sealed.receipt._id,opened.receipt._id]}}),0);
+});
+
+run('a draft purchase receipt rejects two destinations for the same line', async () => {
+ const { receipt } = await draftPurchaseReceipt('SEALED');
+ const destination = await m.WarehouseLocation.create({
+  warehouseId: warehouse._id, code: 'DESTINATION-TEST', locationType: 'RECEIVING',
+  usableLengthMm: '5000', usableWidthMm: '5000',
+ });
+ const lineId = String(receipt.items[0]._id);
+ const change = { ...input(), expectedVersion: receipt.version, reason: 'Move to another receiving bay' };
+ const original = { lineId, receivingLocationId: String(receivingLocation._id) };
+ const replacement = { lineId, receivingLocationId: String(destination._id) };
+ await assert.rejects(receiving.changeDestinations(worker, receipt._id, {
+  ...change, lines: [original, replacement],
+ }), /Mỗi dòng chỉ chọn một vị trí/);
+
+ const current = await m.PurchaseReceipt.findById(receipt._id);
+ assert.equal(current.version, receipt.version);
+ assert.equal(String(current.items.id(lineId).destinationLocationId), original.receivingLocationId);
+ await receiving.changeDestinations(worker, receipt._id, { ...change, lines: [replacement] });
+ const updated = await m.PurchaseReceipt.findById(receipt._id);
+ assert.equal(updated.version, receipt.version + 1);
+ assert.equal(String(updated.items.id(lineId).destinationLocationId), replacement.receivingLocationId);
+});
+
+run('replacing a confirmed inspection records corrected delivery details on the new arrival', async () => {
+ const { receipt, post } = await draftPurchaseReceipt('SEALED');
+ const inspection = await m.GoodsInspection.findById(receipt.items[0].inspectionId);
+ const arrival = await m.GoodsArrival.findById(inspection.header.arrivalId);
+ const evidence = await m.Attachment.create({
+  ownerDocumentType: 'goods_inspections', ownerDocumentId: inspection._id, purpose: 'TEST',
+  originalName: 'correction.png', mediaType: 'image/png', sizeBytes: 10, storageKey: key(),
+  checksum: 'a'.repeat(64), uploadedBy: worker._id, uploadedAt: new Date(),
+  accessCategory: 'BUSINESS', status: 'ATTACHED',
+ });
+ const correctionInput = {
+  ...input(), expectedVersion: inspection.version, expectedPoVersion: post.expectedPoVersion,
+  arrivedAt: new Date(+arrival.header.arrivedAt - 60_000).toISOString(),
+  deliveryReference: 'CORRECTED-DELIVERY', deliveredBy: 'Corrected driver',
+  reason: 'Correct the delivery record', evidenceIds: [String(evidence._id)],
+  lines: [{
+   poLineId: String(receipt.items[0].purchaseOrderItemId), lotId: String(batch._id),
+   enteredQty: '2', enteredUnit: 'BOX', qualityCode: 'GOOD', ownershipDecision: 'ACCEPT', packagingCondition: 'SEALED',
+  }],
+ };
+ await assert.rejects(correction.replaceInspection(worker, inspection._id, correctionInput), /phiếu nhập phụ thuộc/);
+ await receiving.cancelDraft(worker, receipt._id, 'GR_PURCHASE', { ...post, reason: correctionInput.reason });
+ const order = await m.PurchaseOrder.findById(receipt.header.purchaseOrderId);
+ const result = await correction.replaceInspection(worker, inspection._id, {
+  ...correctionInput, expectedPoVersion: order.version,
+ });
+
+ const replacement = await m.GoodsInspection.findById(result.id);
+ assert.equal(replacement.workflowStatus, 'DRAFT');
+ assert.equal(String(replacement.header.previousInspectionId), String(inspection._id));
+ const correctedArrival = await m.GoodsArrival.findById(replacement.header.arrivalId);
+ assert.notEqual(String(correctedArrival._id), String(arrival._id));
+ assert.equal(correctedArrival.header.arrivedAt.toISOString(), correctionInput.arrivedAt);
+ assert.equal(correctedArrival.header.deliveredBy, correctionInput.deliveredBy);
+ assert.equal(correctedArrival.header.deliveryReference, correctionInput.deliveryReference);
+ assert.equal(correctedArrival.header.recordedAt, undefined);
+ const originalArrival = await m.GoodsArrival.findById(arrival._id);
+ assert.equal(originalArrival.workflowStatus, 'RECORDED');
+ assert.deepEqual(originalArrival.header.toObject(), arrival.header.toObject());
 });
 
 import * as custody from '../src/modules/po-receiving/purchase-custody.service.js';
