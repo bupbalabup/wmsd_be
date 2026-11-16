@@ -314,6 +314,12 @@ export async function evaluateLines(user, input, session, options = {}) {
     const product = await m.Product.findById(line.productId).session(session);
     if (!product?.isActive) throw validationError("Sản phẩm không hoạt động");
     const source = await resolveSource({ ...line, lineNo: index + 1 }, warehouseId, user, session);
+    // 16/11/2026 decision 3.b: submission must use the source version the requester reviewed.
+    const seen = line.source?.version;
+    if (options.strictSourceVersion && seen != null && source.version != null && Number(seen) !== Number(source.version))
+      throw reviewRequired([], "Chứng từ nguồn đã thay đổi; mở yêu cầu, xem lại nhu cầu và lưu lại trước khi gửi duyệt", [
+        { lineNo: index + 1, message: `Nguồn đã đổi từ phiên bản ${seen} sang ${source.version}` },
+      ]);
     const available = await availableStock(product._id, warehouseId, line.lotId, session);
     const threshold = product.stockThresholds.find((row) => same(row.warehouseId, warehouseId));
     const minimum = threshold ? number(threshold.minimumQty) : null;

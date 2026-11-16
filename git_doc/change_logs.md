@@ -1,3 +1,33 @@
+## 16 November 2026: Additive Atlas demo seed
+
+- The user requested a separate seed and authorized loading it into Atlas. `src/seeds/atlas-demo.seed.js` added 4,016 records to `wmsd_database` in one transaction. The seed reuses existing warehouses, category and unit records, plus actors with the required warehouse assignments. It inserts synthetic records under groups `DM01` to `DM08`.
+- The seed checks the registered schemas, source links, stock ledger, reservations, capacity and unique index keys. It carries historical scenarios and adds work queues for replenishment approval, PO drafts, open orders, partial and full draft inspection, and draft miscellaneous receipts. [Commands and sample codes](docs/09_phat_trien/SEED_CUA_HANG_GACH.md#bổ-sung-dữ-liệu-demo-trên-atlas).
+- The local replica check passed preview, a unique-code collision with zero fixture writes, atomic insert, readback and rerun. Atlas readback matched all 4,016 planned IDs and rerun returned `ALREADY_SEEDED`. Native read services showed 120 received and zero outstanding on the sample completed PO, and a Warehouse Staff account could read the 16-piece draft inspection. All 57 tests in `npm run test:db-rebuild` passed. The archive evidence rows contain metadata only. Browser workflows were not exercised.
+
+## 16 November 2026 - Occupied volume for open cartons and loose pieces
+
+- Followed the approved receiving-volume plan. Purchase and custody post from the source inspection condition. `LOOSE` identifies loose pieces in purchase and return inspections.
+- Stock receipts use the submitted occupied volume for `OPEN` and `LOOSE` when present. Otherwise they estimate per portion using batch carton or product dimensions. Stored quantities and volumes from existing transactions keep their original values.
+- The FE posts purchase receipts without a packaging payload and treats measured volume as optional in custody, returns and stocktake closure.
+- Contracts and field definitions are in the [native runtime contract](docs/08_api/NATIVE_MODEL_RUNTIME.md#mua-và-nhập) and [data dictionary](docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Data_Dictionary.md).
+- MongoDB integration verified purchase, custody and OTHER receiving. Chrome with mocked API responses verified selection and posting at 1440 px and 390 px. The full test suites still report the existing 1 BE and 15 FE failures.
+
+## 16 November 2026 — Purchase putaway checks receipt-line packaging
+
+- Decision: the user chose to block affected purchase receipt lines and explain why when the source posting lacks packaging portion IDs.
+- The purchase putaway service scopes portions by receipt line and source balance for context, planning and confirmation. Missing provenance blocks writes with HTTP 400. Planning checks package splits even when other tasks have open claims. An explicit empty portion list in the stock helper cannot move stock.
+- The FE shows `putawayBlockedReason` on affected receipt and task lines. Eligible lines can still be submitted. The BE owns the split check. No schema change or data migration is required.
+- Contracts: [native purchase runtime](docs/08_api/NATIVE_MODEL_RUNTIME.md#mua-và-nhập) and [goods receipt API](docs/08_api/GOODS_RECEIPTS.md#kiểm-hàng-hàng-tạm-giữ-và-lệnh-cất).
+- Verification: 24 native BE integration tests and 13 focused FE tests passed. Chrome verified actual create and confirm for two loose pieces at 1440 px and both missing-provenance screens at 390 px, using an isolated local MongoDB test database.
+
+## 16 November 2026 — RR submission checks the reviewed source version
+
+- Source: user decisions in chat on 16/11/2026 on the open points of the validation review: (1) PO supplier document reference stays optional and is not added now; (2) `deliveryReference` keeps allowing repeats (no warning or block); (3.b) an RR cannot be submitted when its source document changed after the requester reviewed it.
+- API: `POST /api/replenishments` with `action: SUBMIT` and `POST /api/replenishments/:id/submit` compare each line's `source.version` with the current SO/WIR/stocktake version and answer 409 `ERR-RR-409-004` with `invalidLines` when they differ; the RR stays `DRAFT`. `SAVE_DRAFT` and `PUT` still bind the latest version, so saving the draft again clears the conflict. Legacy lines without a stored version are not checked.
+- FE: the RR detail "Gửi duyệt" error names the affected lines; the editor already highlighted `invalidLines`.
+- Docs: [RR contract](docs/08_api/REPLENISHMENT_COVERAGE.md).
+- Verification: 68/68 integration tests on a temporary local replica set 127.0.0.1:27018 (scratch data, shut down afterwards), including a new case: stale submit and stale direct SUBMIT rejected, re-save then submit accepted. FE `tsc --noEmit` clean and RR detail tests pass. Browser check not run. No remote DB write.
+
 ## 16 November 2026 — Validation fixes for RR → PO → inspection → receipt → putaway
 
 - Source: user asked in chat to fix the confirmed findings of the validation review and to block past dates when creating/editing an RR or PO.

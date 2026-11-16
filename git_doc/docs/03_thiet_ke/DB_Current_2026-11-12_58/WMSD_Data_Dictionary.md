@@ -497,7 +497,7 @@ Model: [inventory-balance.model.js](../../../../src/models/inventory-balance.mod
 | `packagingPortions[]._id` | ObjectId | false |  |
 | `packagingPortions[].createdAt` | Date | false |  |
 | `packagingPortions[].updatedAt` | Date | false |  |
-| `packagingPortions[].measuredVolumeMm3` | Decimal128 | false |  |
+| `packagingPortions[].measuredVolumeMm3` | Decimal128 | false | Thể tích chiếm chỗ thực đo hoặc BE ước tính (mm³). |
 | `packagingPortions[].extraOccupiedVolumeMm3` | Decimal128 | false |  |
 
 Indexes:
@@ -1839,7 +1839,7 @@ Model: [goods-arrival.model.js](../../../../src/models/goods-arrival.model.js).
 | `items[].expectedProductId` | ObjectId | false | Product |
 | `items[].observedLabel` | String | false |  |
 | `items[].lotLabelSnapshot` | String | false |  |
-| `items[].packagingCondition` | String | false |  |
+| `items[].packagingCondition` | String | false | Tình trạng ghi trên dòng hàng đến. API kiểm nhận dùng SEALED, OPENED, TORN, UNKNOWN hoặc LOOSE (hàng lẻ). |
 | `items[].{DocumentLine_REPLENISHMENT}.details` | Embedded | true |  |
 | `items[].{DocumentLine_SALES_ORDER}.details` | Embedded | true |  |
 | `items[].{DocumentLine_OUTBOUND_DELIVERY}.details` | Embedded | true |  |
@@ -5043,7 +5043,7 @@ Model: [customer-return.model.js](../../../../src/models/customer-return.model.j
 | `inspections[].inspectedAt` | Date | true |  |
 | `inspections[].portions` | Array | false |  |
 | `inspections[].portions[].quantityBase` | Decimal128 | true |  |
-| `inspections[].portions[].packagingCondition` | String | true |  |
+| `inspections[].portions[].packagingCondition` | String | true | SEALED, OPENED, TORN, UNKNOWN hoặc LOOSE (hàng lẻ). |
 | `inspections[].portions[].installationStatus` | String | true |  |
 | `inspections[].portions[].damageCause` | String | true |  |
 | `inspections[].portions[].deadlineStatus` | String | true |  |

@@ -132,6 +132,7 @@ async function items(input, actor, session, previous = [], requestId) {
   const evaluated = await evaluateLines(actor, { ...input, requestId }, session, {
     permission: requestId ? "replenishment_request:update" : "replenishment_request:create",
     items: staged.map(({ value }) => value),
+    strictSourceVersion: input.action === "SUBMIT",
   });
   checkWarnings(input.lines, evaluated);
   return staged.map(({ value, reasonNote }, index) => {
@@ -202,6 +203,7 @@ async function assessSavedRequest(document, actor, session, evaluations) {
   const evaluated = await evaluateLines(actor, input, session, {
     permission: "replenishment_request:update",
     items: document.items,
+    strictSourceVersion: true,
   });
   checkWarnings(input.lines, evaluated);
   document.items.forEach((item, index) => {

@@ -258,6 +258,40 @@ run("updating an existing line keeps the selected source document and item", asy
   assert.equal(String(reloaded.items[0].details.source.documentId), linked.documentId);
 });
 
+run("submission rejects a source document changed after the requester reviewed it", async () => {
+  const order = await m.SalesOrder.create({
+    documentNo: "SO-" + key(), workflowStatus: "OPEN", version: 1, createdBy: worker._id,
+    header: { externalReferenceId: key(), customerId: key(), neededOn: new Date("2026-12-01"), deliveryAddressSnapshot: "Test address" },
+    items: [{ lineNo: 1, lineKind: "STANDARD", productId: product._id,
+      enteredUnit: "PIECE", baseUnitSnapshot: "PIECE", baseUnitsPerUnit: "1",
+      enteredQty: "1", qtyBase: "1", productNameSnapshot: product.name, unitSellingPrice: "0", lineAmount: "0" }],
+    orderAmount: "0", currencyCode: "VND",
+  });
+  const source = { triggerType: "SALES_SHORTAGE", documentType: "sales_orders", documentId: String(order._id),
+    itemId: String(order.items[0]._id), version: order.version };
+  const body = draft();
+  const line = { ...body.lines[0], source, ...accepted };
+  const saved = await create({ ...body, lines: [line] });
+  await m.SalesOrder.updateOne({ _id: order._id }, { $inc: { version: 1 } });
+  const evaluations = [{ lineId: String(saved.items[0]._id), ...accepted }];
+
+  const stale = await api(rr + "/" + saved._id + "/submit", worker, { ...input(), expectedVersion: saved.version, evaluations });
+  assert.equal(stale.status, 409, JSON.stringify(stale.body));
+  assert.match(stale.body.message, /nguồn đã thay đổi/i);
+  assert.equal(stale.body.details.invalidLines[0].lineNo, 1);
+  assert.equal((await m.ReplenishmentRequest.findById(saved._id)).workflowStatus, "DRAFT");
+  const direct = await api(rr, worker, draft({ action: "SUBMIT", lines: [line] }));
+  assert.equal(direct.status, 409, JSON.stringify(direct.body));
+
+  // Saving the draft again binds the current version; then submission passes.
+  const resaved = await api(rr + "/" + saved._id, worker, { ...input(), expectedVersion: saved.version,
+    warehouseId: body.warehouseId, neededOn: body.neededOn, triggerReason: body.triggerReason,
+    lines: [{ ...line, id: String(saved.items[0]._id) }] }, "PUT");
+  assert.equal(resaved.status, 200, JSON.stringify(resaved.body));
+  const fresh = await api(rr + "/" + saved._id + "/submit", worker, { ...input(), expectedVersion: saved.version + 1, evaluations });
+  assert.equal(fresh.status, 200, JSON.stringify(fresh.body));
+});
+
 run("submit reevaluates the saved lines and persists confirmation and snapshots", async () => {
   const document = await create();
   await create(draft({ lines: [{ ...draft().lines[0], ...accepted }] }));

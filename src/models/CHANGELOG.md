@@ -1,4 +1,8 @@
 
+## 16/11/2026 - Hàng lẻ và thể tích chiếm chỗ
+
+`inspection-details.schema.js` và `return-inspection-portions.schema.js` nhận thêm `LOOSE` từ `PACKAGING_CONDITIONS`. `inventory_balances.packagingPortions[].measuredVolumeMm3` lưu giá trị thực đo hoặc giá trị ước tính lúc ghi tồn. Dữ liệu cũ vẫn hợp lệ và không cần migration. Xem [hợp đồng ước tính](../../git_doc/docs/08_api/NATIVE_MODEL_RUNTIME.md#mua-và-nhập).
+
 ## 16/11/2026 — Lý do quyết định từng dòng 2.000 ký tự
 
 `approval-history-item-decisions.schema.js`: `reason` tăng từ 1.000 lên 2.000 ký tự để khớp API duyệt RR và quyết định giữ hộ (trước đây lý do 1.001–2.000 ký tự làm lỗi khi lưu; giữ hộ phải cắt còn 1.000). Không đổi field, index; dữ liệu cũ hợp lệ, không cần migration. `capacity.js`: portion `SEALED` luôn tính tối thiểu thể tích thùng ngoài × số thùng.

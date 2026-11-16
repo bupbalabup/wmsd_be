@@ -35,6 +35,32 @@ Validation performed / not performed:
 
 ## Log entries
 
+### 2026-11-16 - Estimate occupied volume when receiving open cartons and loose pieces
+
+- **Work item:** Implement the approved receiving-volume plan for UC-37 and the shared stock intake used by OTHER receipts, returns and positive stocktake adjustments.
+- **Tool and model:** Codex.
+- **Prompt summary:** Implement `PLAN_uoc_tinh_the_tich_hang_le.md`.
+- **Result used:** The stock intake helper estimates OPEN from batch carton dimensions and LOOSE from product dimensions. A submitted volume takes precedence. Purchase and custody use the source inspection condition, including LOOSE for loose pieces.
+- **Intervention:** Adopted.
+- **Human changes / reason for rejection:** None observed.
+- **Files affected:** `src/shared/utils/stock.js`, `src/modules/po-receiving`, `src/modules/return-workflows/native.validation.js`, `src/models/constants.js`, receiving tests and current contracts in `git_doc`.
+- **Validation performed / not performed:** The suite with native, goods receipt and return integration enabled passed 219 tests, skipped 33 and reproduced the existing customer claims contract failure. The volume tests covered the formulas, a missing dimension, explicit overrides and an OTHER receipt with whole cartons plus one loose piece.
+
+### 2026-11-16 — Analysis and plan: BE estimates open/loose packaging volume; new LOOSE packaging condition (UC-37, UC-45)
+
+- **Work item:** Analysis and implementation plan only. No code changed.
+  - **Finding:** posting requires a hand-measured `measuredVolumeMm3` for opened or loose goods. The rule was added on 2026-11-06 (`5f4a296`, `49d0aac`). On 2026-11-12 `137930c` made `receiveStock` estimate the loose remainder. On 2026-11-16 `ca53b33` added `intakePortions` in `po-receiving.service.js`, which requires hand entry again for purchase and custody intake.
+  - **Defect:** `copyItem` does not copy `details`, so purchase receipt lines have no `packagingCondition`. Because of this, the FE never shows `PackagingEditor`. A purchase receipt with an OPENED/TORN/UNKNOWN inspection line is blocked by the BE, and the UI has no field to enter the volume. This was inferred from the code and not reproduced in the browser.
+  - **Decision (user):** the BE estimates the volume from the chosen batch and product. Hand entry is needed only when the data for the estimate is missing, and a submitted value still overrides. Add the inspection packaging condition `LOOSE` ("Hàng lẻ (viên rời)").
+  - **Planned rule:** OPENED/TORN/UNKNOWN → one OPEN portion, volume = ceil(qty / `piecesPerCarton`) × batch carton volume. LOOSE → qty × product piece volume (`lengthMm × widthMm × heightMm`). The remainder of a SEALED line becomes LOOSE by piece volume. `checkBinCapacity` is unchanged. `conversions` hold only factors and are not used for volume.
+- **Tool and model:** Claude Code (Claude Opus 5.5).
+- **Prompt summary:** Is hand-entered volume for loose goods realistic? Who added it? Can the BE estimate it from the batch or product? Map how inspection packaging conditions become OPEN/LOOSE portions. Explain why the receipt draft shows no loose-goods choice. Write a plan for another agent. Update this log and the RTM.
+- **Result used:** Plan file `PLAN_uoc_tinh_the_tich_hang_le.md` in the workspace root, outside the `be/` and `fe/` repositories.
+- **Intervention:** Edited.
+- **Human changes:** The user decided that the BE estimates from the chosen batch with hand entry only as a fallback, and chose to add the `LOOSE` packaging condition.
+- **Files affected:** `be/docs/ai-log.md`, `be/docs/rtm.md`. Planned BE scope: `src/models/constants.js`, `src/modules/po-receiving/{po-receiving.service,po-receiving.routes}.js`, `src/modules/return-workflows/native.validation.js`, `src/shared/utils/stock.js`, `test/native-api.integration.test.js`, Data Dictionary.
+- **Validation:** Code reading and `git log -S` only. No tests or browser run, because no code changed.
+
 ### 2026-11-16 — RR → put-away review fixes, one-step PO short closure, PO cancellation and RR list aggregation (UC-01, UC-02, UC-08, UC-09, UC-12, UC-13, UC-37, UC-46)
 
 - **Work item:** Review the flow from replenishment request to purchase put-away, then fix and change it:

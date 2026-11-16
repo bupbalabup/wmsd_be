@@ -43,7 +43,7 @@ The older 19-UC assignment is covered by these functions; split UCs are shown se
 
 Kho dùng **Lập phiếu nhập** trên hồ sơ khách trả hoặc giao thất bại, hoặc tìm nguồn từ **Phiếu nhập kho**. API danh sách nhận `status` phân tách bằng dấu phẩy và `receivable=true`. Khách trả lọc `ACCEPTED,PARTIAL` và có tham chiếu quyết định. Giao thất bại lọc `INSPECTED,PARTIAL`. Chi tiết trả `receivableLines` theo dòng gốc, gồm lượng còn được nhập và phẩm cấp hợp lệ. Giao thất bại có thêm tình trạng bao bì đã kiểm.
 
-Form gọi lệnh `/receipt` của nguồn với `expectedVersion`, `idempotencyKey`, minh chứng đã đính kèm và các dòng có lượng thực nhận. ĐVT là đơn vị gốc. Giao thất bại gửi quy cách và thể tích đo nếu thùng mở hoặc hàng lẻ. Lệnh thành công trả ID phiếu nhập trong `resultRefs` và cập nhật tồn trong cùng giao dịch. Kiểm hàng, ra quyết định và bàn giao lại khách thực hiện ở hồ sơ nguồn.
+Form gọi lệnh `/receipt` của nguồn với `expectedVersion`, `idempotencyKey`, minh chứng đã đính kèm và các dòng có lượng thực nhận. ĐVT là đơn vị gốc. Form nhận hàng giao thất bại ánh xạ `SEALED` thành `SEALED`, `LOOSE` thành `LOOSE`, các tình trạng còn lại thành `OPEN`. Khi nhận lại hàng giao thất bại hoặc kiểm hàng khách trả vào khu giữ hộ, mỗi phần `OPEN` hoặc `LOOSE` có thể kèm `measuredVolumeMm3`. Nếu không có giá trị, BE dùng [công thức ước tính](NATIVE_MODEL_RUNTIME.md#mua-và-nhập). Kiểm nhận và đánh giá lại chấp nhận tình trạng bao bì `LOOSE` (hàng lẻ). Lệnh thành công trả ID phiếu nhập trong `resultRefs` và cập nhật tồn trong cùng giao dịch. Kiểm hàng, ra quyết định và bàn giao lại khách thực hiện ở hồ sơ nguồn.
 
 ## Payload and response rules
 

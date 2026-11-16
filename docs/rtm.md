@@ -55,7 +55,7 @@ This matrix records BE implementation and test evidence. Blank or `TBD` fields i
 | UC-34 | View Customer Details | FE-02 | ACTIVE | TBD | TBD | TBD | TBD |
 | UC-35 | Create Customer Delivery Reference | FE-02 | ACTIVE | TBD | TBD | TBD | TBD |
 | UC-36 | Update Customer Delivery Reference | FE-02 | ACTIVE | TBD | TBD | TBD | TBD |
-| UC-37 | Inspect and Post Goods Receipt | FE-03 | ACTIVE | Implemented | Passed | [Native integration](../test/native-api.integration.test.js), local browser and MongoDB ledger | Tests cover purchase inspection limits, stock posting, and retries that create a single stock transaction. `receiveStock` can split a receipt quantity into sealed cartons and loose portions with proportional volume. The custody scenario records the holding location and preserves supplier ownership. 2026-11-16: cancelling a draft inspection also cancels the GoodsArrival created with it. Asserted. |
+| UC-37 | Inspect and Post Goods Receipt | FE-03 | ACTIVE | Implemented | Passed | [Native integration](../test/native-api.integration.test.js), local browser and MongoDB ledger | Tests cover purchase inspection limits, stock posting, and retries that create a single stock transaction. `receiveStock` can split a receipt quantity into sealed cartons and loose portions with volume calculated from the product dimensions for the loose remainder. The custody scenario records the holding location and preserves supplier ownership. 2026-11-16: cancelling a draft inspection also cancels the GoodsArrival created with it. Asserted. 2026-11-16: purchase and supplier custody derive OPEN or LOOSE portions from the inspection. Native tests assert rounded-up carton volume, piece volume and measured override. The OTHER receipt integration covers whole cartons plus one loose piece. |
 | UC-38 | View warehouse and location list | FE-04 | ACTIVE | TBD | TBD | TBD | TBD |
 | UC-39 | View storage location details | FE-04 | ACTIVE | TBD | TBD | TBD | TBD |
 | UC-40 | Create Storage Location | FE-04 | ACTIVE | TBD | TBD | TBD | TBD |
@@ -123,7 +123,7 @@ This matrix records BE implementation and test evidence. Blank or `TBD` fields i
 | UC-102 | Propose Stocktake Resolution | FE-08 | ACTIVE | TBD | TBD | TBD | TBD |
 | UC-103 | Confirm Stocktake Resolution Execution | FE-08 | ACTIVE | TBD | TBD | TBD | TBD |
 | UC-104 | Approve Stocktake Resolution | FE-08 | ACTIVE | TBD | TBD | TBD | TBD |
-| UC-105 | Clear Stocktake Difference | FE-08 | ACTIVE | Implemented | Partial | [HieuDT integration](../test/hieudt-iterations.integration.test.js); [native BF03/BF04](../test/native-api.integration.test.js) | HieuDT plan UC-93; current native contract. Local verification; browser E2E/live evidence not certified. |
+| UC-105 | Clear Stocktake Difference | FE-08 | ACTIVE | Implemented | Partial | [HieuDT integration](../test/hieudt-iterations.integration.test.js); [native BF03/BF04](../test/native-api.integration.test.js) | HieuDT plan UC-93; current native contract. Local verification; browser E2E/live evidence not certified. A positive delta uses the shared receipt volume rules for OPEN and LOOSE portions. Formula and missing-dimension behavior are covered by [receipt stock unit tests](../test/stock-receipt-volume.test.js). |
 | UC-106 | Sign in to the system | FE-09 | ACTIVE | TBD | TBD | TBD | TBD |
 | UC-107 | View account list | FE-09 | ACTIVE | TBD | TBD | TBD | TBD |
 | UC-108 | View account details | FE-09 | ACTIVE | TBD | TBD | TBD | TBD |

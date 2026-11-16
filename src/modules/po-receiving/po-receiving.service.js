@@ -93,7 +93,7 @@ export async function prepare(po, input, actor, session, arrival, inspection) {
       productId: source.productId, lotId: row.lotId, enteredUnit, enteredQty: row.enteredQty,
     }, i + 1, session, { previous: oldArrival, includeLotLabel: true, allowInactiveUom: true });
     if (row.packagingCondition === "SEALED" && !exact(item.qtyBase).mod(String(item.packagingSnapshot.baseUnitsPerPackage)).isZero())
-      throw validationError("Dòng nguyên thùng phải đủ số viên theo quy cách lô; phần lẻ ghi dòng riêng là hàng mở");
+      throw validationError("Dòng nguyên thùng phải đủ số viên theo quy cách lô; phần lẻ ghi dòng riêng là hàng lẻ");
     const lot = await ProductBatch.findById(row.lotId).select("manufacturedOn").session(session);
     if (lot?.manufacturedOn && lot.manufacturedOn > new Date(input.arrivedAt))
       throw validationError("Thời điểm nhận không được trước ngày sản xuất của lô");
@@ -127,22 +127,19 @@ export async function prepare(po, input, actor, session, arrival, inspection) {
   arrival.items = arrivalItems;
   inspection.items = inspectionItems;
 }
-// Purchase intake: intact cartons follow the batch size; anything opened needs a measured volume.
 async function intakePortions(item, condition, portions, session) {
+  if (!portions?.length && condition !== "SEALED") return undefined;
   const batch = await ProductBatch.findById(item.lotId).session(session);
   if (!batch) throw validationError("Thiếu lô nhập");
-  const perCarton = exact(String(batch.piecesPerCarton));
+  const perCarton = exact(batch.piecesPerCarton ?? 0);
   if (!portions?.length) {
-    if (condition !== "SEALED")
-      throw validationError("Hàng không nguyên thùng cần nhập quy cách và thể tích thực đo");
-    if (!exact(item.qtyBase).mod(perCarton).isZero())
-      throw validationError("Phần lẻ ngoài thùng nguyên cần nhập thể tích thực đo");
+    if (perCarton.gt(0) && !exact(item.qtyBase).mod(perCarton).isZero())
+      throw validationError("Dòng nguyên thùng phải đủ số viên theo quy cách lô; phần lẻ ghi dòng riêng là hàng lẻ");
     return undefined;
   }
   let opened = false;
   for (const portion of portions) {
     if (portion.packagingState !== "SEALED") {
-      if (portion.measuredVolumeMm3 == null) throw validationError("Phần hàng mở/lẻ cần thể tích thực đo");
       opened = true;
       continue;
     }
@@ -154,7 +151,7 @@ async function intakePortions(item, condition, portions, session) {
       throw validationError("Số viên thùng nguyên khác quy cách lô");
   }
   if (condition === "SEALED" && opened) throw validationError("Dòng kiểm nguyên thùng chỉ khai thùng nguyên");
-  if (condition !== "SEALED" && !opened) throw validationError("Hàng kiểm mở/rách/chưa rõ phải có phần hàng mở/lẻ đã đo");
+  if (condition && condition !== "SEALED" && !opened) throw validationError("Dòng kiểm không nguyên thùng phải có phần hàng mở/lẻ");
   return portions;
 }
 function checkPackagingLines(document, packaging = []) {
@@ -442,7 +439,7 @@ export function postReceipt(user, id, input) {
         );
         const portions = await intakePortions(item, source.details.packagingCondition,
           input.packaging?.find((row) => same(row.lineId, item._id))?.portions, session);
-        await receiveStock(target, item, portions, posting, actor, session);
+        await receiveStock(target, item, portions, posting, actor, session, source.details.packagingCondition);
       }
       await verifyCapacity(locations, session);
       await posting.save({ session });
@@ -683,7 +680,7 @@ export function postCustodyReceipt(user, id, input) {
         );
         const portions = await intakePortions(item, origin.details.packagingCondition,
           input.packaging?.find((r) => same(r.lineId, item._id))?.portions, session);
-        await receiveStock(target, item, portions, posting, actor, session);
+        await receiveStock(target, item, portions, posting, actor, session, origin.details.packagingCondition);
       }
       await verifyCapacity(locations, session);
       await posting.save({ session });
