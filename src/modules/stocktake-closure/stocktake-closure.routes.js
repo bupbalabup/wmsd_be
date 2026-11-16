@@ -7,6 +7,9 @@ import { formatApiResponse } from '../../shared/utils/ApiResponse.js';
 import { validationError } from '../../shared/utils/ApiError.js';
 import { objectId } from '../sales-orders/sales.validation.js';
 import { stocktakeListQuery } from './stocktake-list.query.js';
+import { resolutionListQuery } from './stocktake-resolution.query.js';
+import * as resolution from './stocktake-resolution.service.js';
+import { getCountSheet } from './stocktake-count-sheet.service.js';
 import { operation } from '../sales-orders/sales-execution.validation.js';
 import * as service from './stocktake-closure.service.js';
 import * as commands from './stocktake-commands.service.js';
@@ -46,6 +49,10 @@ router.post('/:id/resolution-plans', catchAsync(async (req, res) => formatApiRes
 router.post('/:id/resolution-plans/:planId/review', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.reviewResolutionPlan(req.user, parse(documentIdentifier, req.params.id), parse(oid, req.params.planId), parse(reviewBody, req.body)) })));
 router.post('/:id/resolution-plans/:planId/executions', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.recordExecution(req.user, parse(documentIdentifier, req.params.id), parse(oid, req.params.planId), parse(executionBody, req.body)) })));
 router.get('/', catchAsync(async (req, res) => formatApiResponse(res, { data: await service.listStocktakes(req.user, parse(stocktakeListQuery, req.query)) })));
+// Literal segments are registered before `/:id` so they are not parsed as a stocktake identifier.
+router.get('/resolution-plans', catchAsync(async (req, res) => formatApiResponse(res, { data: await resolution.listResolutionPlans(req.user, parse(resolutionListQuery, req.query)) })));
+router.get('/resolution-plans/:planId', catchAsync(async (req, res) => formatApiResponse(res, { data: await resolution.getResolutionPlan(req.user, parse(oid, req.params.planId)) })));
+router.get('/:id/count-sheet', catchAsync(async (req, res) => formatApiResponse(res, { data: await getCountSheet(req.user, parse(documentIdentifier, req.params.id)) })));
 router.get('/:id', catchAsync(async (req, res) => formatApiResponse(res, { data: await service.getStocktake(req.user, parse(documentIdentifier, req.params.id)) })));
 router.post('/:id/close', catchAsync(async (req, res) => formatApiResponse(res, { data: await service.closeStocktake(req.user, parse(documentIdentifier, req.params.id), parse(closureBody, req.body)) })));
 export default router;
