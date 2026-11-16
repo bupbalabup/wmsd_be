@@ -77,7 +77,7 @@ run('Owner plans, assigned Staff freezes; counts stay blind-append-only; full fl
     await assert.rejects(st.createStocktake(worker, { idempotencyKey: key(), warehouseId: String(warehouse._id), reason: 'x', assignedCounterIds: [String(worker._id)], scope: { locationIds: [String(book.loc._id)] } }), /quyền/i);
     const { id, receipt } = await plan([book.loc._id, empty.loc._id]);
     assert.equal(receipt.workflowStatus, 'PLANNED');
-    assert.match(id, /^KK - LC - \d{6} - \d{6}$/);
+    assert.match(id, /^KK-LC-\d{6}-\d{6}$/);
     assert.equal(await locked(id), 0);
     assert.equal(await m.StocktakeSnapshot.countDocuments({ stocktakeId: id }), 0);
     // Stale version and activation by someone not assigned are rejected without writes.

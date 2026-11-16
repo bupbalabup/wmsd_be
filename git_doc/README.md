@@ -1,3 +1,4 @@
+> Mới 15/11/2026: [Báo cáo vận hành UC-113](docs/08_api/OPERATIONAL_REPORTS.md) — nhóm báo cáo theo vai trò, bộ lọc, chỉ đọc và giới hạn vai trò tùy chỉnh.
 > Mới 13/11/2026: [Vòng đời kiểm kê BF-05](docs/08_api/STOCKTAKE_LIFECYCLE.md) — lập kế hoạch, đóng băng, đếm mù, đối chiếu, duyệt độc lập, chốt và hàng phát hiện ngoài sổ.
 > Mới 10/11/2026: [18 UC HieuDT — API và màn hình](docs/08_api/HIEUDT_ITERATIONS_NATIVE.md), [chạy test local](docs/09_phat_trien/HIEUDT_LOCAL_TESTS.md).
 
@@ -27,6 +28,7 @@ Bản v8 là snapshot lịch sử có category. Registry hiện hành có 58 col
 | Tài liệu | Nội dung |
 |---|---|
 | [GitHub Actions CI](docs/09_phat_trien/GITHUB_ACTIONS_CI.md) | Trigger và lệnh kiểm tra cho hai repo FE và BE |
+| [Docker](docs/09_phat_trien/DOCKER.md) | Dockerfile backend, compose ở thư mục gốc workspace |
 | [DB rebuild](docs/09_phat_trien/DB_REBUILD.md) | Registry mới, migration lịch sử và giới hạn runtime |
 | [Đọc code RR → nhập → cất hàng](docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md) | Từng hàm, biến, truy vấn MongoDB và rủi ro của luồng mua hàng |
 | [BF03](docs/08_api/location-movements/README.md) | API chuyển vị trí cùng kho trên runtime hiện có |
