@@ -4,6 +4,8 @@
 
 **Quy tắc nhận thùng đã xác nhận ngày 05/11/2026.** Mỗi thùng vật lý chỉ chứa một mã sản phẩm của một lô. Kho có thể ghi chung nhiều thùng nguyên trên một dòng khi cùng sản phẩm, cùng lô và cùng quy cách, gồm số đơn vị trong thùng và kích thước ngoài. Nếu một trong các thông tin này khác nhau, kho tách dòng để tra đúng lô và tính đúng lượng nhận.
 
+Theo quy tắc nhận hàng ngày 16/11/2026, kho chọn `LOOSE` cho viên rời. Dòng nguyên thùng phải đủ số viên theo quy cách lô. Khi ghi nhập hoặc giữ hộ, BE [ước tính thể tích chiếm chỗ](../../08_api/NATIVE_MODEL_RUNTIME.md#mua-và-nhập) nếu phần hàng mở hoặc hàng lẻ chưa có số đo.
+
 ## Phân biệt ba loại hồ sơ
 
 | Mã | Bảng đề xuất | Trả lời câu hỏi |

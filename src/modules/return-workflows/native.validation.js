@@ -1,6 +1,7 @@
 import { documentIdentifier } from '../../shared/utils/document-id.validation.js';
 import { z } from 'zod';
 import { exact } from '../../models/model-utils.js';
+import { PACKAGING_CONDITIONS } from '../../models/constants.js';
 export const id=z.string().regex(/^[a-f\d]{24}$/i);
 export const qty=z.string().regex(/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/).refine(v=>exact(v).gt(0)&&exact(v).lt('100000000000000'));
 const factor=z.string().regex(/^(?:0|[1-9]\d*)(?:\.\d{1,12})?$/).refine(v=>exact(v).gt(0)&&exact(v).lt('1000000000000'));
@@ -30,8 +31,8 @@ export const ackSchema=mutation({...base,evidenceIds,supersedesAcknowledgementId
 export const closeSchema=mutation(base);
 export const receiptSchema=mutation({...base,note:note.optional(),evidenceIds,lines:unique({lineId:id,qtyBase:qty,locationId:id,qualityCode:z.enum(['GOOD','DAMAGED','BLOCKED']),portions})});
 export const failedCreateSchema=z.object({body:z.object({idempotencyKey:key,warehouseId:id,note,lines:unique({salesIssueLineId:id,qtyBase:qty,holderName:note.optional()})}).strict()});
-export const failedInspectionSchema=mutation({...base,evidenceIds,lines:unique({lineId:id,qtyBase:qty,qualityCode:z.enum(['GOOD','DAMAGED','BLOCKED']),packagingCondition:z.enum(['SEALED','OPENED','TORN','UNKNOWN'])})});
-export const assessment={returnLineId:id,qtyReceived:zero,packagingCondition:z.enum(['SEALED','OPENED','TORN','UNKNOWN']),installationStatus:z.enum(['UNUSED','INSTALLED','UNKNOWN']),damageCause:z.enum(['NONE','CUSTOMER','SUPPLIER','OTHER','UNKNOWN']),deadlineStatus:z.enum(['WITHIN','EXCEEDED','NOT_APPLICABLE','UNKNOWN']),deadlineReference:note.optional(),assessmentReason:note,portions};
+export const failedInspectionSchema=mutation({...base,evidenceIds,lines:unique({lineId:id,qtyBase:qty,qualityCode:z.enum(['GOOD','DAMAGED','BLOCKED']),packagingCondition:z.enum(PACKAGING_CONDITIONS)})});
+export const assessment={returnLineId:id,qtyReceived:zero,packagingCondition:z.enum(PACKAGING_CONDITIONS),installationStatus:z.enum(['UNUSED','INSTALLED','UNKNOWN']),damageCause:z.enum(['NONE','CUSTOMER','SUPPLIER','OTHER','UNKNOWN']),deadlineStatus:z.enum(['WITHIN','EXCEEDED','NOT_APPLICABLE','UNKNOWN']),deadlineReference:note.optional(),assessmentReason:note,portions};
 export const inspectionSchema=mutation({...base,evidenceIds,custodyLocationId:id,lines:unique(assessment)});
 export const reassessSchema=mutation({...base,evidenceIds,lines:unique(assessment)});
 export const customerCreateSchema=z.object({body:z.object({idempotencyKey:key,warehouseId:id,customerId:id,lines:z.array(z.object({salesIssueLineId:id.optional(),historicalExternalLineId:id.optional(),qtyBase:qty,reason:note}).strict()).min(1).max(100).refine(rows=>rows.every(r=>Boolean(r.salesIssueLineId)!==Boolean(r.historicalExternalLineId)),'Chọn đúng một nguồn')}).strict()});

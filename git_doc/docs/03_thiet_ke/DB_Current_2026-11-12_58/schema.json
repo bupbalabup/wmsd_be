@@ -4811,6 +4811,15 @@
           "createdAt": -1
         },
         {}
+      ],
+      [
+        {
+          "documentKind": 1,
+          "header.warehouseId": 1,
+          "createdAt": -1,
+          "_id": -1
+        },
+        {}
       ]
     ]
   },
@@ -5488,7 +5497,7 @@
       {
         "path": "replenishmentRequestId",
         "type": "DocumentIdentity",
-        "required": true,
+        "required": false,
         "target": ""
       }
     ],

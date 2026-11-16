@@ -101,7 +101,7 @@ Mỗi dòng phải có executionRecords đủ lượng, performedAt sau quyết 
 
 DELTA tạo StockAdjustment cho chênh lệch khác 0; RECLASS chuyển chất lượng tại cùng vị trí; RELOCATE chỉ chuyển vị trí và giữ chủ/lô/chất lượng cùng cam kết. Không dùng hai DELTA trái dấu để che đổi chất lượng/vị trí. Tổng dự kiến phải khớp mọi count. RECLASS còn reservation bị từ chối. Sau thực hiện kiểm sức chứa và reservation không vượt tồn, ghi ledger và mở khóa cùng transaction. Nhánh không lệch không tạo ADJ hay ledger lượng 0; audit ghi count đã dùng.
 
-DELTA dương hàng mở/lẻ nhận `packaging:[{lineId,portions:[{packagingState,quantityBase,measuredVolumeMm3,...}]}]`. FE cho nhập thể tích thực đo phần tăng (mm³), ghi LOOSE đủ lượng; bỏ trống chỉ khi toàn bộ là thùng nguyên theo quy cách lô. API cũng nhận nhiều portions. Không tự bịa thể tích hàng mở/lẻ.
+DELTA dương hàng mở/lẻ nhận `packaging:[{lineId,portions:[{packagingState,quantityBase,measuredVolumeMm3,...}]}]`. Nếu nhập thể tích thực đo, FE gửi một phần `LOOSE` cho toàn bộ lượng tăng. Nếu bỏ trống, BE tự tách thùng nguyên và phần lẻ. API nhận nhiều phần và [ước tính thể tích](NATIVE_MODEL_RUNTIME.md#mua-và-nhập) cho từng phần `OPEN` hoặc `LOOSE` thiếu số đo.
 
 Các UC tạo đợt/snapshot, nhập đếm, lập/duyệt phương án và ghi executionRecords là dữ liệu đầu vào của UC93, không nằm trong 18 UC này. Dòng phát hiện mới phải được đối chiếu sourceBalance trước chốt; dữ liệu thiếu bị từ chối thay vì ghi hoàn tất giả.
 

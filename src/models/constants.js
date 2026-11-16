@@ -12,7 +12,7 @@ export const QUALITY_STATUSES = [
   { code: "BLOCKED", name: "Blocked" },
 ];
 export const QUALITY_CODES = QUALITY_STATUSES.map((status) => status.code);
-export const PACKAGING_CONDITIONS = ["SEALED", "OPENED", "TORN", "UNKNOWN"];
+export const PACKAGING_CONDITIONS = ["SEALED", "OPENED", "TORN", "UNKNOWN", "LOOSE"];
 export const SALES_ORDER_STATUSES = [
   "DRAFT", "OPEN", "IN_PROGRESS", "PARTIALLY_DELIVERED", "DELIVERED", "COMPLETED", "CANCELLED",
 ];

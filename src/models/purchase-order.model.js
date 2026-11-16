@@ -52,7 +52,9 @@ export function createPurchaseOrderSchema() {
   attachDocumentItems(schema, item);
   addDocumentIndexesAndRules(schema);
   schema.add({
-    replenishmentRequestId: documentId(),
+    // Unset when the PO is cancelled so the RR can get a new PO; the partial
+    // unique index below keeps one RR to one live PO. sources[] keeps the history.
+    replenishmentRequestId: documentId(false),
     totalAmount: decimal(),
     currency: text(3),
   });

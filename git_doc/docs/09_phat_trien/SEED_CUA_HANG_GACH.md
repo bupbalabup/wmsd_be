@@ -8,7 +8,30 @@ Bản seed BE `wmsd-tile-shop-20261114-v11` dựng 58 collection dữ liệu m�
 mongodb://localhost:27017/wmsd_api_test_6aedf823b3e33975e06c07d1
 ```
 
-Sau reset test, database trên phải chưa tồn tại cho đến khi người dùng tự chạy `npm run seed` từ BE. Chỉ dùng URI loopback; không chạy seed demo hoặc seed ứng dụng trên Atlas. Các báo cáo v1–v8 giữ làm lịch sử.
+Sau reset test, database trên phải chưa tồn tại cho đến khi người dùng chạy `npm run seed` từ BE với URI loopback. Để bổ sung dữ liệu vào Atlas, dùng lệnh seed riêng dưới đây.
+
+## Bổ sung dữ liệu demo trên Atlas
+
+[Seed bổ sung](../../../src/seeds/atlas-demo.seed.js) dùng `MONGODB_URI` đã cấu hình cho `wmsd_database`. Chạy từ thư mục backend. Lệnh đầu lập kế hoạch và kiểm khóa với dữ liệu đang có. Lệnh sau ghi toàn bộ bản ghi trong một transaction và đối chiếu ID đã ghi. Khi đã nạp, cả hai lệnh trả `ALREADY_SEEDED`.
+
+```powershell
+node src/seeds/atlas-demo.seed.js --database=wmsd_database
+node src/seeds/atlas-demo.seed.js --database=wmsd_database --apply
+```
+
+Bộ mẫu `wmsd-demo-261116-v1` có 4.016 bản ghi, chia thành tám nhóm `DM01` đến `DM08` tại `K-GACH-01` và `K-GACH-02`. Tìm theo tiền tố trên SKU, mã vị trí hoặc ghi chú phiếu. So sánh trạng thái và lọc theo ngày có thể dùng các chứng từ trải qua nhiều kỳ. Các nhóm có lô, tồn, bút toán và chứng từ nguồn riêng.
+
+| Muốn demo | Tìm dữ liệu |
+|---|---|
+| Tồn, lô, đóng thùng và quy đổi | SKU `DM01-AP6601` |
+| Chuỗi mua đã nhập | PO `ĐMH-K-GACH-01-261010-901001` và phiếu nhập `PNM-K-GACH-01-261010-901001` |
+| Mua và nhận đang xử lý | RR chờ duyệt trong `DM02`, PO nháp trong `DM04`, PO mở trong `DM05`, kiểm nhận nháp từng phần trong `DM06` và đủ lượng trong `DM07` |
+| Phiếu nhập khác | `PNK-K-GACH-01-261115-901001` đang nháp |
+| Xuất bán và giao hàng | `ĐBH-KD-261012-901001`, có yêu cầu xuất, lệnh giao, phiếu xuất và hóa đơn |
+| Điều chuyển và kiểm kê | `YCĐC-KG1-261019-901001` và `KK-K-GACH-02-261025-901001` |
+| Trả hàng và giao thất bại | `ĐTK-K-GACH-01-261017-901001`, `ĐTNCC-K-GACH-01-261022-901001` và `GHTB-K-GACH-01-261015-901001` |
+
+Quyền xem và thao tác vẫn theo tài khoản và kho được phân công. Một số phiếu lịch sử giữ kiểu ID ObjectId để các trường tham chiếu cũ hoạt động. Metadata bằng chứng mẫu ở trạng thái `SUPERSEDED` và không có tệp tải xuống. Bộ seed không tạo thông báo hay yêu cầu gửi email.
 
 ## Quy mô
 
