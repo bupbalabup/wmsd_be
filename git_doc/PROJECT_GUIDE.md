@@ -1,5 +1,7 @@
 15 November 2026 — quantity workflow refinements: CR can split a verified sale source into independently inspected/decided request parts, retaining cumulative source caps. BF02 can propose multiple disposition outcomes against one hold, with combined in-flight plan limits. Refused CR parts can be handed back after the accepted part is received; approved stock cannot be consumed by handback. Details expose posted-document quantity progress and remaining caps. See docs/08_api/RETURN_WORKFLOWS_NATIVE.md for the current DTO, historical conversion and stage rules.
 
+> 13/11/2026: [Vòng đời kiểm kê BF-05](docs/08_api/STOCKTAKE_LIFECYCLE.md) là hợp đồng hiện hành cho các lệnh kiểm kê trước bước chốt UC-93.
+
 14 November 2026 — user-approved receiving alternate flow: non-GOOD inspection quantities must enter supplier custody. Confirm creates CustodyReceipt DRAFT; Warehouse posts before starting SupplierReturn. Custody detail offers a scoped per-line proposal, then Accountant agreement, Warehouse CustodyRelease dispatch and Accountant ACK/closure. No DefectReport or store-owned issue for this intake incident. Canonical API contracts: docs/08_api/NATIVE_MODEL_RUNTIME.md and RETURN_WORKFLOWS_NATIVE.md.
 
 > 12/11/2026: [Phạm vi HieuDT 20 UC mới](docs/08_api/HIEUDT_WAREHOUSE_SCOPE.md) theo bảng người dùng: kho/vị trí, tồn, BF03, BF04, đối soát và nhật ký. Đây là nguồn đối chiếu phạm vi hiện tại; các khả năng 18 UC trước vẫn được giữ. Native warehouse-stock thay route demo, không fallback dữ liệu mẫu.
