@@ -71,7 +71,7 @@ Các mảng lệnh có 1–200 dòng, trường lạ bị từ chối. quantity 
 
 Yêu cầu xuất là bước nguồn cần thiết cho UC51, tạo từ SO tại `/sales-orders/:id/issue-requests`; không ghi tồn. OD ghi trạng thái RELEASED và reservation trong một transaction, kiểm phiên bản số dư, hàng GOOD/STORE, lô VERIFIED, vị trí STORAGE pickable, kho, khóa kiểm kê và khả dụng. Khóa nguồn SO/WIR ngăn hai lệnh đồng thời vượt lượng.
 
-Tạo picking sinh SalesGoodsIssue DRAFT và TransferOrder PICK OPEN, chuyển quyền giữ hàng từ OD sang nhiệm vụ. Chưa trừ tồn. Xác nhận từng phần chỉ do người được giao, chuyển lượng thực từ storage sang STAGING, chuyển reservations và ghi StockTransaction SALES_PICK. Tổng tồn không đổi; PARTIAL rồi CONFIRMED khi đủ. GI trở thành PICKED, **chưa phải POSTED/xuất bán**. Việc đăng xuất GI, POD, thanh toán thuộc UC khác.
+Theo [Goods Issue UC-69–72](GOODS_ISSUES.md), luồng UI mới tạo SalesGoodsIssue DRAFT riêng từ OD, sau đó tạo TransferOrder PICK OPEN từ phiếu xuất. Endpoint OD → picking cũ vẫn tương thích và tạo cả GI/TO trong một transaction. Chưa trừ tồn khi lập phiếu/lệnh. Xác nhận từng phần chỉ do người được giao, chuyển lượng thực từ storage sang STAGING, chuyển reservations và ghi StockTransaction SALES_PICK. Tổng tồn không đổi; PARTIAL rồi CONFIRMED khi đủ. GI trở thành PICKED, **chưa phải POSTED/xuất bán**. UC-72 ghi POSTED khi bàn giao; POD và thanh toán vẫn riêng.
 
 Khả dụng trừ reservations và phần nhiệm vụ chưa có reservation; không trừ một nhiệm vụ hai lần. Số lượng thập phân dùng exact decimal, không cộng khác đơn vị thành tổng chứng từ.
 

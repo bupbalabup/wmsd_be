@@ -46,6 +46,8 @@ export function checkBinCapacity(data) {
       }
       if (portion.measuredVolumeMm3 != null) {
         volume = volume.plus(String(portion.measuredVolumeMm3));
+      } else if (portion.packagingState !== 'SEALED' && portion.volumeUpperBoundMm3 != null) {
+        volume = volume.plus(String(portion.volumeUpperBoundMm3));
       } else {
         const p = portion.packagingSnapshot;
         if (portion.packagingState !== 'SEALED' || !p?.outerLengthMm || !p.outerWidthMm || !p.outerHeightMm) throw new Error('Packaging volume measurement required');

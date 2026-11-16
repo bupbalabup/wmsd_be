@@ -1,3 +1,10 @@
+## 17/11/2026 — Outbound carton opening
+
+User permits fractional cartons and carton opening for issues. Embedded packaging portions add optional Decimal128 volumeUpperBoundMm3 (mm³), absent by default, for OPEN/LOOSE fragments. Capacity uses actual measurement first, then the conservative bound; splitting retains safe bounds without inventing measured volume. Quantities, whole cartons and residual identity remain exact. No collection/index change, backfill or remote DB write. Default relocation/receiving splitting is unchanged. Unit and isolated issue transaction tests cover opening, loose-first reuse, unknown-volume rejection and capacity overflow. Current contract: ../../git_doc/docs/08_api/GOODS_ISSUES.md.
+
+## 16/11/2026 — Goods Issue manual references and Sales approval
+
+User explicitly replaces the mandatory internal sale-order prerequisite with manual MISA eShop order references, product quantities and notes. SalesGoodsIssue now accepts GI_OTHER alongside GI_SALE; header.issueKind adds OTHER (SALE remains default), optional referenceNo max160 and reasonText max500. Optional approvedBy(User)/approvedAt record the same-document PENDING_APPROVAL → DRAFT transition. SalesGoodsIssueDetails.outboundDeliveryLineId is optional for manual planned rows, still checked at legacy command boundaries. No new collection/index, required field on old documents, backfill or stored ID rewrite. New GI_OTHER numbering uses PXK and the existing transactional allocator. Updated MODEL_MAP, current Data Dictionary and Goods Issue contract with its relationship diagram and compatibility notes. Isolated integration tests exercise source-free creation/approval/picking/posting and legacy compatibility; no remote write.
 
 ## 14/11/2026 — Ràng buộc qtyBase của dòng chứng từ
 

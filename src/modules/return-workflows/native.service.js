@@ -54,7 +54,7 @@ export const executeDefect=(user,id,input)=>operation(m.DefectReport,user,id,inp
    const Model=item.details.outcome==='SCRAP'?m.StockScrapRecord:m.StockQualityChange;
    const execution=await envelope(Model,actor,{warehouseId:doc.header.warehouseId,planId:plan._id,...(Model===m.StockScrapRecord&&{approvedRevision:plan.version,destroyedBy:actor._id,destroyedAt:new Date()})},[copy(defectItem,request.qtyBase,1,{sources:[source(doc,defectItem,'DEFECT_EXECUTION',request.qtyBase)]})],'DRAFT',input.note);
    execution.evidenceIds=input.evidenceIds;const posting=beginStock(execution,actor,'DEFECT_EXECUTION',input);
-   const {portions}=await takeStock(ctx.balance._id,request.qtyBase,execution.items[0]._id,posting,actor,session,{holdId:hold._id});
+   const {portions}=await takeStock(ctx.balance._id,request.qtyBase,execution.items[0]._id,posting,actor,session,{holdId:hold._id,allowOpening:item.details.outcome==='SCRAP'});
    if(Model===m.StockQualityChange){if(!item.details.targetQuality)throw validationError('Thiếu phẩm cấp đích');await postIn(execution,execution.items[0],actor,session,posting,{locationId:request.locationId??ctx.location._id,qualityCode:item.details.targetQuality,portions});}
    await savePosted(execution,posting,actor,session);transactionId=posting._id;
   }else if(ctx.balance.qualityStatus!=='GOOD')throw validationError('Giải phóng chỉ dành hàng đạt; đổi phẩm cấp phải có phương án riêng');
@@ -213,7 +213,7 @@ export const dispatchSupplierReturn=(user,id,input)=>operation(m.SupplierReturn,
    const ctx=await sourceContext(item.details.sourceBalanceId,session);if(ctx.balance.ownerType!==ownerType||(ownerType==='SUPPLIER'&&!same(ctx.balance.ownerId,doc.header.supplierId)))throw validationError('Chủ hàng đã thay đổi');
    const defect=item.details.defectHoldId?await m.DefectReport.findOne({'holds._id':item.details.defectHoldId}).session(session):null;const hold=defect?.holds.id(item.details.defectHoldId);if(item.details.defectHoldId&&(!hold||hold.status!=='ACTIVE'||!hold.allocations.some(a=>same(a.balanceId,ctx.balance._id))))throw validationError('Defect hold changed');
    if(hold&&(hold.stocktakeId||hold.allocations.length!==1))throw validationError('Hàng đang thuộc kiểm kê');
-   await takeStock(ctx.balance._id,row.qtyBase,r._id,posting,actor,session,{reservationDocumentId:doc._id,holdId:hold?._id});
+   await takeStock(ctx.balance._id,row.qtyBase,r._id,posting,actor,session,{reservationDocumentId:doc._id,holdId:hold?._id,allowOpening:true});
    if(hold){const remaining=sum(hold.allocations,'quantityBase').minus(sum(hold.events,'quantityBase'));if(exact(row.qtyBase).gt(remaining))throw validationError('Vượt lượng lỗi đang chặn');hold.events.push({kind:'CONSUMED',quantityBase:row.qtyBase,sourceRef:ref(issue,r),performedBy:actor._id,performedAt:new Date()});hold.version++;if(exact(row.qtyBase).eq(remaining))hold.status='RESOLVED';await saveVersion(defect,defect.version,session);}
   }issue.evidenceIds=input.evidenceIds;await savePosted(issue,posting,actor,session);created.push(issue);
  }

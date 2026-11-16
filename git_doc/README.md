@@ -31,6 +31,7 @@ Bản v8 là snapshot lịch sử có category. Registry hiện hành có 58 col
 | [BF04](docs/08_api/transfers/BF04_API.md) / [quyền đọc TR](docs/08_api/transfers/README.md) | API chuyển giữa kho và phạm vi xem |
 | [RR](docs/08_api/replenishments/README.md) | Bổ sung hàng |
 | [SO / giao hàng](docs/08_api/sales-orders/README.md) | Hợp đồng API bán hàng hiện có |
+| [Goods Issue UC-69–72](docs/08_api/GOODS_ISSUES.md) | Danh sách/chi tiết, tạo/cập nhật phiếu xuất, picking và PGI bàn giao |
 | [Gói test FE06](docs/08_api/test_packs/fe06-iteration1/README.md) | Cách gọi API và nguồn test lịch sử |
 | [Return workflows native](docs/08_api/RETURN_WORKFLOWS_NATIVE.md) / [kết quả kiểm chứng](docs/08_api/RETURN_WORKFLOWS_VERIFICATION.md) | Port ba iteration Trungph theo schema hiện hành |
 | [Nhật ký thay đổi](change_logs.md) | Mỗi lượt thay đổi cùng kiểm chứng và phần còn mở |

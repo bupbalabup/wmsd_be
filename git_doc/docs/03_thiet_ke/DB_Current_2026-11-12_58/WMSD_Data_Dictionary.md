@@ -498,6 +498,7 @@ Model: [inventory-balance.model.js](../../../../src/models/inventory-balance.mod
 | `packagingPortions[].createdAt` | Date | false |  |
 | `packagingPortions[].updatedAt` | Date | false |  |
 | `packagingPortions[].measuredVolumeMm3` | Decimal128 | false |  |
+| `packagingPortions[].volumeUpperBoundMm3` | Decimal128 | false | mm³; conservative known-volume bound on outbound OPEN/LOOSE fragments, not a measurement; absent on historical rows; capacity fallback after measuredVolumeMm3 |
 | `packagingPortions[].extraOccupiedVolumeMm3` | Decimal128 | false |  |
 
 Indexes:
@@ -3561,6 +3562,8 @@ Indexes:
 
 ## sales_goods_issues
 
+16/11/2026: SalesGoodsIssue stores GI_SALE and GI_OTHER. New manual issues record referenceNo text; Sales creates PENDING_APPROVAL and a different Owner changes the same ID to DRAFT. No SO/WIR/OD or stock mutation on creation/approval. Legacy OD links remain supported; physical lots are chosen on PICK TO. See [current Goods Issue contract](../../08_api/GOODS_ISSUES.md) for state, scope, field defaults, stock rules and the updated relationship diagram. No collection/index/backfill is added.
+
 Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.model.js).
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
@@ -3585,10 +3588,14 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `sources[].documentId` | DocumentIdentity | true |  |
 | `header` | Embedded | true |  |
 | `header.warehouseId` | ObjectId | true | Warehouse |
-| `header.issueKind` | String | true |  |
+| `header.issueKind` | String | true | SALE (default) or OTHER |
 | `header.issuedAt` | Date | false |  |
 | `header.issuedBy` | ObjectId | false | User |
-| `header.deliveryOrderId` | DocumentIdentity | false | DeliveryOrder |
+| `header.deliveryOrderId` | DocumentIdentity | false | DeliveryOrder, legacy source |
+| `header.referenceNo` | String <=160 | false | Manual external reference; no FK/unique constraint |
+| `header.reasonText` | String <=500 | false | Required by command for OTHER |
+| `approvedBy` | ObjectId | false | User; 1 approver : n issues |
+| `approvedAt` | Date | false | Status approval time; no stock effect |
 | `updatedBy` | ObjectId | false | User |
 | `evidenceIds` | Array | false |  |
 | `cancelledBy` | ObjectId | false | User |
@@ -3640,7 +3647,8 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `items[].{DocumentLine_REPLENISHMENT}.details` | Embedded | true |  |
 | `items[].{DocumentLine_SALES_ORDER}.details` | Embedded | true |  |
 | `items[].{DocumentLine_OUTBOUND_DELIVERY}.details` | Embedded | true |  |
-| `items[].{DocumentLine_SALES_GOODS_ISSUE}.details` | Embedded | true |  |
+| `items[].{DocumentLine_SALES_GOODS_ISSUE}.details` | Embedded | true | Empty object for manual planned rows |
+| `items[].details.outboundDeliveryLineId` | ObjectId | false | Required by legacy OD-backed commands only |
 | `items[].{DocumentLine_DELIVERY_CONFIRMATION}.details` | Embedded | true |  |
 | `items[].{DocumentLine_FAILED_DELIVERY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_FAILED_DELIVERY_RECEIPT}.details` | Embedded | true |  |

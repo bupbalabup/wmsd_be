@@ -587,10 +587,10 @@
   },
   {
     "code": "goods_issue:read",
-    "description": "Xem phiếu xuất bán (GI-S)",
+    "description": "Xem danh sách và chi tiết phiếu xuất bán (GI-S)",
     "uc": [
-      "UC-56",
-      "UC-57"
+      "UC-69",
+      "UC-70"
     ],
     "roles": [
       "OWNER",
@@ -601,19 +601,31 @@
   },
   {
     "code": "goods_issue:create",
-    "description": "Lập GI-S nháp trước khi soạn",
+    "description": "Tạo phiếu xuất; Sales gửi xuất bán chờ duyệt",
     "uc": [
-      "UC-58"
+      "UC-71"
     ],
     "roles": [
-      "WAREHOUSE"
+      "WAREHOUSE",
+      "SALES"
+    ]
+  },
+  {
+    "code": "goods_issue:update",
+    "description": "Cập nhật và hủy phiếu chưa thực hiện",
+    "uc": [
+      "UC-72"
+    ],
+    "roles": [
+      "WAREHOUSE",
+      "SALES"
     ]
   },
   {
     "code": "goods_issue:post",
-    "description": "Post xuất kho (PGI) khi bàn giao thực tế",
+    "description": "Xác nhận xuất kho thực tế khi bàn giao",
     "uc": [
-      "UC-58"
+      "UC-72"
     ],
     "roles": [
       "WAREHOUSE"
@@ -1067,6 +1079,16 @@
     ],
     "roles": [
       "ADMIN"
+    ]
+  },
+  {
+    "code": "goods_issue:approve",
+    "description": "Store Owner duyệt phiếu xuất bán Sales đã gửi",
+    "uc": [
+      "UC-72"
+    ],
+    "roles": [
+      "OWNER"
     ]
   }
 ]

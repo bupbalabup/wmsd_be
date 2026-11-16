@@ -10,6 +10,10 @@ the UI must not infer access from a fixed role name.  The `GET /options` endpoin
 is selection data only: each write command repeats its data, stock, capacity and
 scope checks inside its transaction.
 
+## Outbound packaging — 17/11/2026
+
+The user permits opening cartons and fractional-carton issue quantities. Source PICK and dispatch to transit opt into exact packaging splits, preserving OPEN remainders and conservative volumeUpperBoundMm3 rather than inventing measurements. Existing source caps, whole-base quantities, reservations, freeze and capacity checks remain mandatory. Receipt and ordinary BF03 moves keep their prior rules. The common Goods Issue form embeds native dispatch creation; see [Goods Issue](../GOODS_ISSUES.md).
+
 ## Read DTO names — 11/11/2026
 
 Scoped list/detail responses add sourceWarehouse and destinationWarehouse objects containing id,code,name (null if a reference no longer exists). FE renders explicit warehouse source/destination code and name for BF04, retaining the header IDs separately for actions. Lookups happen only after the request scope check; Sales redaction of operational documents remains unchanged. These fields are response-only current catalogue labels; no migration or shared-DB write is required.
