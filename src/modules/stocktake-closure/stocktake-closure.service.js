@@ -11,7 +11,33 @@ import { buildStocktakeListFilter } from './stocktake-list.query.js';
 async function scoped(user, id, session) { const document = await m.Stocktake.findById(id).session(session); if (!document)
     throw notFoundError(); requireWarehouseAccess(user, document.header.warehouseId); return document; }
 export async function listStocktakes(user, query) { requirePermission(user, 'stocktake:read'); return page(m.Stocktake, buildStocktakeListFilter(user, query), query); }
-export async function getStocktake(user, id) { requirePermission(user, 'stocktake:read'); const document = await scoped(user, id); const scope = { stocktakeId: document._id, scopeVersion: document.header.scopeVersion }; return { ...dto(document), snapshots: (await m.StocktakeSnapshot.find(scope)).map(dto), counts: (await m.StocktakeCount.find(scope).sort({ attemptNo: -1 })).map(dto), locks: (await m.StocktakeLocationLock.find(scope)).map(dto) }; }
+export async function getStocktake(user, id) {
+    requirePermission(user, 'stocktake:read');
+    const document = await scoped(user, id);
+    const scope = { stocktakeId: document._id, scopeVersion: document.header.scopeVersion };
+    const [snapshots, counts, locks] = await Promise.all([
+        m.StocktakeSnapshot.find(scope),
+        m.StocktakeCount.find(scope).sort({ attemptNo: -1 }),
+        m.StocktakeLocationLock.find(scope),
+    ]);
+    // Catalogue labels are current metadata, never a replacement for frozen quantities/units.
+    const batchIds = [...new Set(snapshots.map(row => String(row.batchId)))];
+    const [warehouses, locations, batches] = await Promise.all([
+        m.Warehouse.find({ _id: document.header.warehouseId }).select('_id code name').lean(),
+        m.WarehouseLocation.find({ _id: { $in: document.header.scopeLocationIds }, warehouseId: document.header.warehouseId }).select('_id warehouseId code name').lean(),
+        m.ProductBatch.find({ _id: { $in: batchIds } }).select('_id productId manufacturerLot').lean(),
+    ]);
+    const products = await m.Product.find({ _id: { $in: [...new Set(batches.map(row => String(row.productId)))] } }).select('_id sku name').lean();
+    return {
+        ...dto(document), snapshots: snapshots.map(dto), counts: counts.map(dto), locks: locks.map(dto),
+        lookups: {
+            warehouses: warehouses.map(row => ({ id: String(row._id), code: row.code, name: row.name })),
+            locations: locations.map(row => ({ id: String(row._id), warehouseId: String(row.warehouseId), code: row.code, name: row.name })),
+            batches: batches.map(row => ({ id: String(row._id), productId: String(row.productId), manufacturerLot: row.manufacturerLot })),
+            products: products.map(row => ({ id: String(row._id), sku: row.sku, name: row.name })),
+        },
+    };
+}
 export const approvalContent = plan => serialize({ planId: plan._id, planVersion: plan.version, scopeVersion: plan.header.scopeVersion, items: plan.items, selectedCounts: plan.selectedCounts });
 export function closeStocktake(user, id, input) {
     return command(user, 'CLOSE_STOCKTAKE', 'stock_adjustment:post', id, input, (id, a, s) => scoped(a, id, s), async (session, actor, operationId) => {
