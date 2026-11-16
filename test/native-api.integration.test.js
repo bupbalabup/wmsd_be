@@ -329,6 +329,57 @@ run('native RR → PO → inspection → receipt → partial putaway preserves s
  assert.equal((await m.TransferOrder.findById(task.id)).workflowStatus,'CONFIRMED');assert.equal((await putaway.placementQuantities(receipt))[0].unplacedQtyBase,'0');const report=await reconcilePurchasing();assert.deepEqual(report.issues,[]);
  const preflight=await correction.reversalPreflight(worker,receipt._id);assert.equal(preflight.eligible,false);
 });
+run('locked products can finish open purchase putaway but cannot start a new task', async () => {
+  const receipt = await postedReceipt();
+  const unplannedReceipt = await postedReceipt();
+  async function plan(receipt) {
+    const context = await putaway.putawayContext(worker, receipt._id);
+    const row = context.items[0];
+    return putaway.createPutaway(worker, receipt._id, {
+      creationKey: key(),
+      expectedVersion: context.receiptVersion,
+      lines: [{
+        receiptLineId: row.lineId,
+        expectedSourceVersion: row.sourceBalanceVersion,
+        qtyBase: '8',
+        toLocationId: String(storageLocation._id),
+      }],
+    });
+  }
+  const task = await plan(receipt);
+  const before = await m.Product.findById(product._id);
+  const locked = await productService.changeProductStatus(owner, String(product._id), {
+    expectedUpdatedAt: before.updatedAt.toISOString(),
+    isActive: false,
+    reason: 'Stop sales',
+  });
+  try {
+    await assert.rejects(plan(unplannedReceipt), /đã ngừng kinh doanh/);
+    for (const [version, expectedStatus] of [[1, 'PARTIAL'], [2, 'CONFIRMED']]) {
+      const current = await m.TransferOrder.findById(task.id);
+      await putaway.confirmPutaway(worker, task.id, {
+        ...input(),
+        expectedVersion: version,
+        lines: [{ taskLineId: String(current.items[0]._id), actualQtyBase: '4' }],
+      });
+      assert.equal((await m.TransferOrder.findById(task.id)).workflowStatus, expectedStatus);
+    }
+    const postings = await m.StockTransaction.find({ sourceId: task.id });
+    assert.deepEqual(postings.flatMap(row => row.movements.map(move => String(move.quantityBase))), ['4', '4']);
+    for (const { movements: [move] } of postings) {
+      assert.notEqual(String(move.fromBalanceId), String(move.toBalanceId));
+      assert.equal(Number(move.fromBefore) - Number(move.fromAfter), 4);
+      assert.equal(Number(move.toAfter) - Number(move.toBefore), 4);
+    }
+    assert.equal((await m.Product.findById(product._id)).isActive, false);
+  } finally {
+    await productService.changeProductStatus(owner, String(product._id), {
+      expectedUpdatedAt: locked.updatedAt,
+      isActive: true,
+      reason: 'Restore shared test fixture',
+    });
+  }
+});
 run('purchase putaway uses each receipt line’s measured portions and blocks missing provenance',async()=>{
   const location=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'IN-PORTIONS',locationType:'RECEIVING',usableLengthMm:'5000',usableWidthMm:'5000'});
   const shelf=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'ST-PORTIONS',locationType:'STORAGE',usableLengthMm:'5000',usableWidthMm:'5000'});
@@ -947,6 +998,37 @@ run('HTTP catalogue contracts enforce permissions, immutable codes and concurren
  const history=await api('GET',conversionPath+'?limit=1&productBatchId=null',owner);
  assert.equal(history.status,200);assert.equal(history.body.data.total,7);assert.equal(history.body.data.items[0].isCurrent,false);
  assert.equal((await api('POST','/products',owner,{...body,sku:key(),baseUnit:'CUSTOM'})).status,400);
+ const { sku: createdSku, ...updateFields } = { ...body, sku: productResult.body.data.sku };
+ const editInput = { ...updateFields, name: 'Updated tile', expectedUpdatedAt: productResult.body.data.updatedAt };
+ assert.equal((await api('PUT', detailPath, worker, editInput)).status, 403);
+ for (const [field, value] of [['manufacturerCode', 'OTHER BRAND'], ['color', 'Blue']]) {
+   await m.Product.create({ ...updateFields, sku: createdSku, [field]: value });
+   const result = await api('PUT', detailPath, owner, { ...editInput, [field]: value });
+   assert.equal(result.status, 400);
+   assert.equal(result.body.fieldErrors[0].path, `body.${field}`);
+ }
+ const unchanged = await m.Product.findById(productId);
+ assert.deepEqual([unchanged.manufacturerCode, unchanged.sku, unchanged.color], [body.manufacturerCode, createdSku, body.color]);
+ assert.equal(unchanged.updatedAt.toISOString(), editInput.expectedUpdatedAt);
+ const editResult = await api('PUT', detailPath, owner, editInput);
+ assert.equal(editResult.status, 200);
+ assert.equal(editResult.body.data.name, editInput.name);
+ assert.equal((await api('PUT', detailPath, owner, editInput)).status, 409);
+ const lockInput = { expectedUpdatedAt: editResult.body.data.updatedAt, isActive: false, reason: 'End of line' };
+ assert.equal((await api('PATCH', detailPath + '/status', worker, lockInput)).status, 403);
+ assert.equal((await api('PATCH', detailPath + '/status', owner, { ...lockInput, reason: '  ' })).status, 400);
+ const lockResult = await api('PATCH', detailPath + '/status', owner, lockInput);
+ assert.equal(lockResult.status, 200);
+ assert.equal(lockResult.body.data.isActive, false);
+ assert.equal((await api('GET', detailPath, worker)).body.data.isActive, false);
+ assert.equal((await api('PATCH', detailPath + '/status', owner, lockInput)).status, 409);
+ const unlockResult = await api('PATCH', detailPath + '/status', owner, {
+   expectedUpdatedAt: lockResult.body.data.updatedAt, isActive: true, reason: 'Resume sales',
+ });
+ assert.equal(unlockResult.status, 200);
+ assert.equal(unlockResult.body.data.isActive, true);
+ const statusAudit = await m.AuditLog.find({ subjectId: productId, action: 'CHANGE_PRODUCT_STATUS' });
+ assert.deepEqual(statusAudit.map(row => row.reason).sort(), ['End of line', 'Resume sales']);
  const sup=await api('POST','/suppliers',accountant,{code:key(),name:'NCC',contactName:'Contact',taxCode:'TAX',notes:'Note'});assert.equal(sup.status,201);assert.equal(sup.body.data.status,'ACTIVE');
  assert.equal((await api('PATCH','/suppliers/'+sup.body.data.id+'/status',owner,{expectedUpdatedAt:sup.body.data.updatedAt,status:'SUSPENDED',reason:'Pause'})).status,200);
  const receipt=await postedReceipt();const order=await getPurchaseOrder(worker,String(receipt.header.purchaseOrderId));assert.ok(!('unitPurchasePrice' in order.items[0]));assert.ok(!('totalAmount' in order));

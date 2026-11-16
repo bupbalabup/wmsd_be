@@ -1,3 +1,10 @@
+## 16 November 2026 - Product editing, status and purchase putaway
+
+- The user fixed manufacturer, SKU and colour at product creation. The product update endpoint rejects manufacturer or colour changes with field errors. Both product actions use the saved `updatedAt` and require `product:update`. The frontend uses the record read when opening each dialog and preserves user input on a version conflict.
+- Purchase putaway rejects inactive products when creating a task. Warehouse Staff can confirm the remaining quantities of an existing `OPEN` or `PARTIAL` purchase task after product deactivation. Confirmation still checks the original receipt, source portions, quantity and capacity.
+- [Product contract](docs/08_api/NATIVE_MODEL_RUNTIME.md#sửa-và-đổi-trạng-thái-sản-phẩm) and [purchase putaway contract](docs/08_api/GOODS_RECEIPTS.md#kiểm-hàng-hàng-tạm-giữ-và-lệnh-cất). The changes require no schema migration. Release the backend before the frontend.
+- Five focused native integration tests and 13 backend validation tests passed. The frontend product suite passed 32 of 33 tests, with one failure in the warehouse lot test. Chrome exercised live local API calls at 1440 px and 390 px, including stale edits, stale status changes and read-only access. The scratch databases were dropped. The repository-wide frontend lint still reports existing errors.
+
 ## 16 November 2026: Additive Atlas demo seed
 
 - The user requested a separate seed and authorized loading it into Atlas. `src/seeds/atlas-demo.seed.js` added 4,016 records to `wmsd_database` in one transaction. The seed reuses existing warehouses, category and unit records, plus actors with the required warehouse assignments. It inserts synthetic records under groups `DM01` to `DM08`.

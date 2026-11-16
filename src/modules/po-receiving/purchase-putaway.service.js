@@ -97,7 +97,7 @@ async function task(id,user,session,{purchaseOnly=false}={}){
 async function actual(task,session){const tx=await StockTransaction.find({sourceType:'transfer_orders',sourceId:task._id}).session(session);return new Map(task.items.map(i=>[String(i._id),tx.flatMap(t=>t.movements).filter(m=>same(m.sourceLineId,i._id)).reduce((n,m)=>n.plus(String(m.quantityBase)),exact('0'))]));}
 async function source(gr,item,balanceId,toLocationId,session){
   const ctx=await sourceContext(balanceId,session);
-  if(!same(ctx.batch._id,item.lotId)||ctx.balance.ownerType!=='STORE'||ctx.balance.qualityStatus!=='GOOD'||!ctx.product.isActive||ctx.batch.identificationStatus!=='VERIFIED'||!same(ctx.location?._id,item.destinationLocationId))throw validationError('Nguồn nhập không còn hợp lệ');
+  if(!same(ctx.batch._id,item.lotId)||ctx.balance.ownerType!=='STORE'||ctx.balance.qualityStatus!=='GOOD'||ctx.batch.identificationStatus!=='VERIFIED'||!same(ctx.location?._id,item.destinationLocationId))throw validationError('Nguồn nhập không còn hợp lệ');
   await locationAt(ctx.location._id,gr.header.warehouseId,['RECEIVING'],session);await locationAt(toLocationId,gr.header.warehouseId,['STORAGE'],session);return ctx;
 }
 // Lines may hold only the batch _id; show the manufacturer lot instead.
@@ -126,7 +126,9 @@ export function createPutaway(user,id,input){return command(user,'CREATE_PURCHAS
     const ids=linePortionIds(posting,item._id,q.sourceBalanceId);
     if(!ids.length)throw validationError(missingPortions);
     if (row.expectedPlacementVersion != null && q.placementVersion !== row.expectedPlacementVersion) throw versionConflict('Kế hoạch cất đã thay đổi');
-    const ctx=await source(gr,item,q.sourceBalanceId,row.toLocationId,session);if(ctx.balance.version!==row.expectedSourceVersion)throw versionConflict('Tồn nguồn đã thay đổi');
+    const ctx=await source(gr,item,q.sourceBalanceId,row.toLocationId,session);
+    if(!ctx.product.isActive)throw validationError('Sản phẩm đã ngừng kinh doanh, cần kích hoạt lại trước khi tạo lệnh cất');
+    if(ctx.balance.version!==row.expectedSourceVersion)throw versionConflict('Tồn nguồn đã thay đổi');
     const qty=exact(row.qtyBase);if(!qty.gt(0)||(ctx.product.wholeBaseUnits&&!qty.isInteger()))throw validationError('Lượng cất không hợp lệ');
     const sum=(used.get(String(item._id))||exact('0')).plus(qty);used.set(String(item._id),sum);if(sum.gt(q.unplannedQtyBase))throw validationError('Kế hoạch vượt nguồn nhập còn lại');
     const total=(totals.get(String(ctx.balance._id))||exact('0')).plus(qty);totals.set(String(ctx.balance._id),total);

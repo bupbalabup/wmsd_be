@@ -72,17 +72,13 @@ async function planningOperation(user, row, input, code, session, warehouseId) {
   }).save({ session });
   return operation._id;
 }
-const fields = [
+const editableFields = [
   "name",
-  "manufacturerCode",
   "categoryId",
   "material",
-  "baseUnit",
-  "wholeBaseUnits",
   "lengthMm",
   "widthMm",
   "heightMm",
-  "color",
   "surface",
   "origin",
   "description",
@@ -301,6 +297,16 @@ export async function updateProduct(user, id, input) {
   requirePermission(user, "product:update");
   return transaction(async (session) => {
     const before = await product(id, session);
+    const identityErrors = [
+      { field: "manufacturerCode", message: "Không thể đổi hãng của sản phẩm đã tạo" },
+      { field: "color", message: "Không thể đổi màu của sản phẩm đã tạo" },
+    ].filter(({ field }) => input[field] !== before[field]);
+    if (identityErrors.length) {
+      throw validationError(
+        "Hãng và màu là thông tin định danh cố định của sản phẩm",
+        identityErrors.map(({ field, message }) => ({ path: `body.${field}`, message })),
+      );
+    }
     await category(input.categoryId, session);
     if (
       input.baseUnit !== before.baseUnit ||
@@ -308,9 +314,9 @@ export async function updateProduct(user, id, input) {
     )
       throw validationError("Không đổi đơn vị gốc của sản phẩm đã tạo");
     const changes = Object.fromEntries(
-      fields.map((field) => [field, input[field] ?? null]),
+      editableFields.map((field) => [field, input[field] ?? null]),
     );
-    const auditFields = [...fields];
+    const auditFields = [...editableFields];
     if (input.imageUrls !== undefined) {
       changes.imageUrls = input.imageUrls;
       auditFields.push("imageUrls");
