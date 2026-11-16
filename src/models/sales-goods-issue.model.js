@@ -25,7 +25,7 @@ export function createSalesGoodsIssueSchema() {
   const schema = new Schema(
     {
       documentNo: text(160, { unique: true }),
-      documentKind: code(["GI_SALE"], { default: "GI_SALE" }),
+      documentKind: code(["GI_SALE", "GI_OTHER"], { default: "GI_SALE" }),
       workflowStatus: text(40),
       version: integer(1),
       createdBy: ref("User"),
@@ -35,6 +35,8 @@ export function createSalesGoodsIssueSchema() {
       sources: { type: [createDocumentSourceSchema()], default: undefined },
       header: { type: createSalesGoodsIssueHeaderSchema(), required: true },
       updatedBy: ref("User", false),
+      approvedBy: ref("User", false),
+      approvedAt: date(false),
       evidenceIds: refs("Attachment"),
       cancelledBy: ref("User", false),
       cancelledAt: date(false),

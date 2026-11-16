@@ -117,9 +117,11 @@ export const PERMISSION_CATALOGUE = [
   { code: 'picking_task:create', description: 'Tạo nhiệm vụ soạn hàng', uc: ['UC-54'], roles: [WAREHOUSE] },
   { code: 'picking_task:confirm', description: 'Xác nhận soạn hàng', uc: ['UC-55'], roles: [WAREHOUSE] },
 
-  { code: 'goods_issue:read', description: 'Xem phiếu xuất bán (GI-S)', uc: ['UC-56', 'UC-57'], roles: BUSINESS_ROLES },
-  { code: 'goods_issue:create', description: 'Lập GI-S nháp trước khi soạn', uc: ['UC-58'], roles: [WAREHOUSE] },
-  { code: 'goods_issue:post', description: 'Post xuất kho (PGI) khi bàn giao thực tế', uc: ['UC-58'], roles: [WAREHOUSE] },
+  { code: 'goods_issue:read', description: 'Xem danh sách và chi tiết phiếu xuất bán (GI-S)', uc: ['UC-69', 'UC-70'], roles: BUSINESS_ROLES },
+  { code: 'goods_issue:create', description: 'Tạo phiếu xuất; Sales gửi xuất bán chờ duyệt', uc: ['UC-71'], roles: [WAREHOUSE, SALES] },
+  { code: 'goods_issue:update', description: 'Cập nhật và hủy phiếu chưa thực hiện', uc: ['UC-72'], roles: [WAREHOUSE, SALES] },
+  { code: 'goods_issue:approve', description: 'Store Owner duyệt phiếu xuất bán Sales đã gửi', uc: ['UC-72'], roles: [OWNER] },
+  { code: 'goods_issue:post', description: 'Xác nhận xuất kho thực tế khi bàn giao', uc: ['UC-72'], roles: [WAREHOUSE] },
 
   { code: 'fulfilment_option:read', description: 'Xem phương án đáp ứng thiếu hàng', uc: ['UC-103'], roles: [OWNER, WAREHOUSE, SALES] },
   { code: 'fulfilment_option:select', description: 'Chọn phương án tồn / xác nhận với khách', uc: ['UC-103'], roles: [WAREHOUSE, SALES] },

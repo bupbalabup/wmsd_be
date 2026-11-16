@@ -29,6 +29,7 @@ import {
 import returnWorkflowsRouter from './modules/return-workflows/workflow.routes.js';
 import uomRouter from './modules/uoms/uom.routes.js';
 import goodsReceiptRouter from './modules/goods-receipts/goods-receipt.routes.js';
+import goodsIssueRouter from './modules/goods-issues/goods-issue.routes.js';
 
 const router = Router();
 router.use(warehouseStockRouter);
@@ -57,6 +58,7 @@ router.use("/stock-reversals", reversalRouter);
 router.use("/custody-receipts", custodyRouter);
 router.use("/custody-releases", custodyReleaseRouter);
 router.use('/goods-receipts', goodsReceiptRouter);
+router.use('/goods-issues', goodsIssueRouter);
 router.use('/putaway-tasks', putawayRouter);
 router.use('/purchase-receiving/queue', queueRouter);
 router.use('/purchase-documents', purchaseDocumentRouter);
