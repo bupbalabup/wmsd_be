@@ -2860,6 +2860,12 @@ sequenceDiagram
 | Development | Vite dev server proxies `/api` to the backend (`VITE_API_PROXY_TARGET`); `cors({origin:true})` reflects the request origin | GET, POST, PUT, PATCH, DELETE, OPTIONS | true |
 | Production (recommended) | Explicit allowlist of the deployed FE origin instead of `origin:true` | Same | true |
 
+**c. Email password recovery**
+
+Report 3 specifies two password recovery requirements pending implementation. In UC-131, the account holder requests an OTP from Sign In. In UC-132, the Administrator requests an OTP from the target account's details. WMSD sends the code to the account's registered email address. The account holder verifies the code and chooses the new password on the Sign In screen. The Administrator sees the send outcome only.
+
+The current Forgot Password dialog directs the user to support. The current account edit form still lets an authorized operator enter a new password via `PUT /api/users/:id`.
+
 #### 1.2 Authorization & RBAC Implementation
 
 | Aspect | Decision |

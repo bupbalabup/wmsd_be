@@ -1,3 +1,9 @@
+## 16 November 2026 - Password reset by email OTP
+
+- The user chose an email OTP for password recovery. UC-131 starts at Sign In and UC-132 starts from the account details when an Administrator requests a reset. In both cases the account holder enters the OTP and chooses the new password. The Administrator sees the send outcome.
+- Updated [Report 3](docs/01_bao_cao/WMSD_Report3_Fix.docx.txt), [Report 4](docs/01_bao_cao/WMSD_Report4_Draft.md), the [project guide](PROJECT_GUIDE.md), and both requirements traceability matrices. Report 4 records the current support-only Forgot Password dialog and the existing direct password edit. The two OTP flows are pending implementation. This update changes documentation only.
+- `npm run docs:check` passed. A cross-check verified the 132 Report 3 identifiers and specifications, both new RTM rows, and their actors, permissions, screen references and OTP failure branches. The existing UC-10 title and UC-11 status differences between Report 3 and the RTMs predate this update.
+
 ## 16 November 2026 - Product editing, status and purchase putaway
 
 - The user fixed manufacturer, SKU and colour at product creation. The product update endpoint rejects manufacturer or colour changes with field errors. Both product actions use the saved `updatedAt` and require `product:update`. The frontend uses the record read when opening each dialog and preserves user input on a version conflict.

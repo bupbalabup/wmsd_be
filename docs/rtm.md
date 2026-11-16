@@ -4,7 +4,7 @@
 
 ## Scope and source
 
-One row per ACTIVE UC in the approved WMSD Report 3 catalogue (UC-01–UC-130). Requirement IDs, titles, feature groups, and source status come from `be/git_doc/docs/01_bao_cao/WMSD_Report3_Fix.docx.txt`; do not create replacement IDs. The BE catalogue is the source for shared requirement identity.
+One row per ACTIVE UC in the approved WMSD Report 3 catalogue (UC-01–UC-132). Requirement IDs, titles, feature groups, and source status come from `be/git_doc/docs/01_bao_cao/WMSD_Report3_Fix.docx.txt`; do not create replacement IDs. The BE catalogue is the source for shared requirement identity.
 
 This matrix records BE implementation and test evidence. Blank or `TBD` fields indicate that assessment is pending.
 
@@ -149,3 +149,5 @@ This matrix records BE implementation and test evidence. Blank or `TBD` fields i
 | UC-128 | Cancel Eligible WIR Remainder | FE-06 | ACTIVE | TBD | TBD | TBD | TBD |
 | UC-129 | Confirm Customer Delivery with Photo Evidence | FE-06 | ACTIVE | TBD | TBD | TBD | TBD |
 | UC-130 | Confirm Full External Payment Receipt | FE-06 | ACTIVE | TBD | TBD | TBD | TBD |
+| UC-131 | Reset Own Password by Email | FE-09 | ACTIVE | Not started | Not tested | — | Email OTP request and verification are pending. |
+| UC-132 | Initiate User Password Reset as Administrator | FE-09 | ACTIVE | Not started | Not tested | — | The account update API accepts a password directly. Administrator-initiated email OTP and audit are pending. |
