@@ -29,6 +29,7 @@ export function createPackagingPortionSchema() {
 
   stackItems.add({
     measuredVolumeMm3: decimal({ required: false }),
+    volumeUpperBoundMm3: decimal({ required: false }),
     extraOccupiedVolumeMm3: decimal({ required: false }),
   });
   rules(stackItems, function () {

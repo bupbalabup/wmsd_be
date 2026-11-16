@@ -1,3 +1,47 @@
+## Goods Issue manual requests and carton opening — 17/11/2026
+
+Current contract: [UC69–72](../08_api/GOODS_ISSUES.md). Existing documents need no backfill. Target MONGODB_URI deliberately, then run `npm run seed:goods-issue-permissions`: additive Sales create/update, Owner approve, Warehouse update; preserves custom grants. Applied only to wmsd_hieudt_local_20261111 at localhost27018/hieudt-test (modifiedRoles3, replay0); no remote write.
+
+Isolated tests: set RUN_GOODS_ISSUE_TESTS=1, then `node --test test/goods-issue-validation.test.js test/goods-issues.integration.test.js test/outbound-carton-opening.test.js`; unset the flag afterwards. GI fixtures use guarded random goods_issue_test_<ObjectId> databases on loopback27018/hieudt-test, never application MONGODB_URI. The manual scenario includes1.5BOX×4=6PIECE, no-SO approval, opening/picking/posting, scope and concurrent identities. Unit cases check exact residuals, loose-first reuse and capacity bounds. Integration runs with60/300second limits timed out in this final environment; do not count cancelled cases as passes. See changelog for final post-merge results.
+
+FE command: `npx vitest run --pool=threads --maxWorkers=2 src/features/goods-issues/pages.test.tsx src/shared/components/CartonQtyInput.test.tsx src/features/sales-execution/pages.test.tsx src/features/transfers/live/TransferFlowPage.test.tsx src/features/return-workflows/commandQuantities.test.ts src/features/return-workflows/QuantityProgressTable.test.tsx src/features/return-workflows/usability.test.tsx src/features/return-workflows/pages.test.tsx src/app/routeAccess.test.ts`. Pre-merge result51pass/1known baseline pagination failure. Typecheck/build/changed-file lint passed before final UI copy/label fixes; final checks recorded in changelog.
+
+Browser fixture goods_issue_request_review_<ObjectId> uses separate API3002/FE3336. PXB-GI-TEST-261116-000001 approval kept same ID with no SO/reservations/ledger. PXK-GI-TEST-261116-000001 posted6PIECE from1.5BOX once;10pieces remain (8sealed+2open with a conservative bound). UI checked1440/390, native-source empty states and guarded physical flow. These are synthetic fixtures, not production evidence. Persistent local preview remains API3001/FE3334, DB wmsd_hieudt_local_20261111.
+
+## Goods Issue CRU — 16/11/2026
+
+See [UC-69–72 contract](../08_api/GOODS_ISSUES.md). No schema migration is needed.
+For an existing database, target its URI explicitly and run the additive permission
+seed; it inserts `goods_issue:update` and adds it to WAREHOUSE without replacing
+other role grants. This task did not run the command against any shared database.
+
+```powershell
+# Run only against the database deliberately selected in MONGODB_URI.
+npm run seed:goods-issue-permissions
+
+# Isolated transaction tests; fixed loopback replica set, never MONGODB_URI.
+$env:RUN_GOODS_ISSUE_TESTS='1'
+node --test test/goods-issue-validation.test.js test/goods-issues.integration.test.js
+Remove-Item Env:RUN_GOODS_ISSUE_TESTS
+```
+
+The test creates and drops only its random `goods_issue_test_<ObjectId>` database
+on `127.0.0.1:27018`, replica set `hieudt-test`. Example generated codes use
+`PXB-GI-TEST-261116-000001` and `LSH-GI-TEST-261116-000001`; IDs remain opaque.
+Result: 5 passed, 0 failed, 0 skipped. Checks cover reservation restoration on edit
+and cancel (including an unstarted task), partial/full picking, frozen-location
+rollback, PGI replay, source/warehouse permissions, old item-linked issues and
+competing drafts. Local browser reads used `wmsd_hieudt_local_20261111` on API 3001
+and FE 3334; the additive permission seed updated one WAREHOUSE role there, with
+no stock write. A separate random `goods_issue_review_<ObjectId>` DB on the same
+loopback replica set supported browser create/edit/cancel/pick/post using two lots.
+It produced one PGI and one handover, then was dropped with its exact name/prefix
+checked; temporary API 3002/FE 3336 and the fixture script were removed. Final related
+FE tests: 32 passed; build/typecheck, changed-file lint and docs checks passed.
+Desktop 1440, mobile 390 and list boundary 768 were inspected; the finish reviewer
+scored the three requested fixes resolved. The default BE suite still has one
+unrelated duplicate-return-source assertion failure; integration skips are not passes.
+
 ## Migration Atlas receipts — 12/11/2026
 
 Migration được thực hiện bằng scripts/migrate-receipts-to-goods-receipts.mjs. Dry-run phát hiện 7 phiếu và 21 liên kết legacy. Apply đã đổi documentKind, giữ _id/documentNo, chuyển sourceType/subjectType/subjectCollection/documentType sang goods_receipts, tạo goods_receipts/uoms/conversions và index, xác minh referencesAfter=0 rồi drop 4 collection legacy. Kết quả Atlas wmsd_database: 58 collections; goods_receipts gồm PURCHASE=1, CUSTOMER_RETURN=1, FAILED_DELIVERY=1, TRANSFER=4; purchase_receipts/customer_return_receipts/failed_delivery_receipts/transfer_receipts không còn. Script yêu cầu đúng database name và cờ --allow-atlas; chạy lại idempotent.

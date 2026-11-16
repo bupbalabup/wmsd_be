@@ -7,6 +7,7 @@
 import 'dotenv/config';
 import mongoose from 'mongoose';
 import { runSeeds, grantPurchaseReadPermissions } from './index.js';
+import { grantGoodsIssueUpdatePermission } from './goods-issue-permissions.js';
 
 async function main() {
   const uri = process.env.MONGODB_URI;
@@ -16,6 +17,11 @@ async function main() {
 
   await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 });
   console.info('Connected to MongoDB.');
+
+  if (process.argv.includes('--goods-issue-update-only')) {
+    console.info(await grantGoodsIssueUpdatePermission());
+    return;
+  }
 
   if (process.argv.includes('--purchase-read-only')) {
     await grantPurchaseReadPermissions();

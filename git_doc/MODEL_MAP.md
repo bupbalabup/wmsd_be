@@ -34,7 +34,7 @@ nguồn/requirement trùng; không tự xóa bản ghi hoặc dựng lại DB.
 | `customers` | Khách hàng gồm mã WMSD, tên và điện thoại; không lưu địa chỉ giao mặc định. | [customer.model.js](../src/models/customer.model.js) |
 | `suppliers` | Nhà cung cấp và thông tin liên hệ; theo dõi trạng thái chờ/kích hoạt/ngừng. | [supplier.model.js](../src/models/supplier.model.js) |
 | `stock_holding_points` | Điểm theo dõi tồn: một ô kho hoặc phần hàng đang chuyển theo dòng xuất. | [stock-holding-point.model.js](../src/models/stock-holding-point.model.js) |
-| `inventory_balances` | Số dư theo điểm tồn, lô, chất lượng và chủ sở hữu; lượng dùng đơn vị gốc. Phần `OPEN` và `LOOSE` lưu thể tích thực đo hoặc BE ước tính. | [inventory-balance.model.js](../src/models/inventory-balance.model.js) |
+| `inventory_balances` | Số dư theo điểm tồn, lô, chất lượng và chủ sở hữu; lượng dùng đơn vị gốc. Phần `OPEN` và `LOOSE` khi nhập lưu thể tích thực đo hoặc BE ước tính; phần tách khi xuất có volumeUpperBoundMm3 tùy chọn, capacity dùng giới hạn bảo thủ, không giả số đo. | [inventory-balance.model.js](../src/models/inventory-balance.model.js) |
 | `stock_transactions` | Một lần ghi tồn đã thành công, liên kết nghiệp vụ nguồn và mã chống ghi lặp. | [stock-transaction.model.js](../src/models/stock-transaction.model.js) |
 | `stock_reservations` | Giữ hàng thực tế cho nhu cầu và lệnh thực hiện; theo dõi đã dùng, giải phóng hoặc chuyển. | [stock-reservation.model.js](../src/models/stock-reservation.model.js) |
 | `supply_allocations` | Dữ liệu phân bổ nguồn PO/TR. Luồng đánh giá RR đã ngừng đọc. Chi tiết điều chuyển vẫn đọc bản ghi có sẵn. | [supply-allocation.model.js](../src/models/supply-allocation.model.js) |
@@ -64,7 +64,7 @@ nguồn/requirement trùng; không tự xóa bản ghi hoặc dựng lại DB.
 | `sales_orders` | Đơn bán có khách hàng, giá và quy đổi trên từng dòng; lưu tham chiếu đơn nguồn. | [sales-order.model.js](../src/models/sales-order.model.js) |
 | `warehouse_issue_requests` | Yêu cầu xuất do Sales chia từ đơn bán; mới lập chưa giữ hoặc trừ tồn. | [warehouse-issue-request.model.js](../src/models/warehouse-issue-request.model.js) |
 | `delivery_orders` | Lệnh giao một đợt từ một kho theo WIR; có lịch, người nhận, địa chỉ và lượng cam kết. | [delivery-order.model.js](../src/models/delivery-order.model.js) |
-| `sales_goods_issues` | Phiếu thực xuất bán theo lệnh giao; lưu lô, lượng, giá chụp tại nguồn và bàn giao nhúng. | [sales-goods-issue.model.js](../src/models/sales-goods-issue.model.js) |
+| `sales_goods_issues` | GI_SALE/GI_OTHER: mã tham chiếu tay, sản phẩm/lượng/ghi chú; SALES tạo PENDING_APPROVAL, Owner duyệt cùng ID sang DRAFT, không đổi tồn. Kho phân bổ lô/ô vào PICK TO rồi PGI. OD/giá nguồn cũ vẫn tương thích; approval User refs và bàn giao nhúng. [Goods Issue + sơ đồ quan hệ](docs/08_api/GOODS_ISSUES.md). | [sales-goods-issue.model.js](../src/models/sales-goods-issue.model.js) |
 | `defect_reports` | Hồ sơ phần hàng nghi lỗi, nguồn phát hiện, dấu hiệu, bằng chứng và các lần kiểm. | [defect-report.model.js](../src/models/defect-report.model.js) |
 | `stock_scrap_records` | Phiếu thực hủy theo phương án duyệt; chỉ trừ đúng lượng thực hủy. | [stock-scrap-record.model.js](../src/models/stock-scrap-record.model.js) |
 | `stocktakes` | Đợt kiểm kê theo kho/phạm vi, lịch, người đếm, mốc kích hoạt và chốt. | [stocktake.model.js](../src/models/stocktake.model.js) |

@@ -53,8 +53,9 @@ export function checkBinCapacity(data) {
         const measured = portion.measuredVolumeMm3 != null ? exact(String(portion.measuredVolumeMm3)) : cartons;
         volume = volume.plus(measured.gt(cartons) ? measured : cartons);
       } else {
-        if (portion.measuredVolumeMm3 == null) throw new Error('Packaging volume measurement required');
-        volume = volume.plus(String(portion.measuredVolumeMm3));
+        const knownVolume = portion.measuredVolumeMm3 ?? portion.volumeUpperBoundMm3;
+        if (knownVolume == null) throw new Error('Packaging volume measurement required');
+        volume = volume.plus(String(knownVolume));
       }
       volume = volume.plus(String(portion.extraOccupiedVolumeMm3 || 0));
     }

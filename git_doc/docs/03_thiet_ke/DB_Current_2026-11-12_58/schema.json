@@ -1236,6 +1236,12 @@
         "target": ""
       },
       {
+        "path": "packagingPortions[].volumeUpperBoundMm3",
+        "type": "Decimal128",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "packagingPortions[].extraOccupiedVolumeMm3",
         "type": "Decimal128",
         "required": false,
@@ -13586,6 +13592,18 @@
         "target": ""
       },
       {
+        "path": "header.referenceNo",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.reasonText",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "header.issuedAt",
         "type": "Date",
         "required": false,
@@ -13608,6 +13626,18 @@
         "type": "ObjectId",
         "required": false,
         "target": "User"
+      },
+      {
+        "path": "approvedBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "approvedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
       },
       {
         "path": "evidenceIds",
