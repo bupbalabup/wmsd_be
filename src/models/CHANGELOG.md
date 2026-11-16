@@ -1,4 +1,3 @@
-
 ## 14/11/2026 — Ràng buộc qtyBase của dòng chứng từ
 
 `document-item.schema.js` chấp nhận `qtyBase` bằng `enteredQty × baseUnitsPerUnit` hoặc bằng `ceil(round(tích, 6))` (số nguyên) để lưu được dòng theo đơn vị diện tích. Không đổi field, index hay dữ liệu cũ. Xem [CONVERSIONS](../../git_doc/docs/08_api/CONVERSIONS.md).
@@ -14,6 +13,8 @@
 ## 12/11/2026 — Bãi tiếp nhận trên dòng kiểm hàng
 
 `inspection-details.schema.js` nhận `receivingLocationId` tùy chọn. Khi lưu nháp hoặc chốt kiểm nhận mua, backend kiểm vị trí `RECEIVING` cùng kho và chỉ lưu cho dòng nhận mua. Dữ liệu cũ vẫn hợp lệ. Không có collection, index hoặc migration mới.
+
+13/11/2026: `stocktake-header.schema.js` (header của `stocktakes`) thêm `selectedCounts[]` (`snapshotId`, `countId`), `lastReconciledBy`, `lastReconciledAt` để ghi kết quả đối chiếu BF-05; chốt UC-93 yêu cầu đã đối chiếu và `selectedCounts` khớp. Trường nhúng tùy chọn, không đổi collection/index, không cần migration; đợt cũ chưa đối chiếu phải đối chiếu lại trước khi chốt. Snapshot `origin: DISCOVERED` (đã có trong model) nay được tạo bởi lệnh đếm hàng phát hiện ngoài sổ. Chi tiết [vòng đời kiểm kê](../../git_doc/docs/08_api/STOCKTAKE_LIFECYCLE.md).
 
 12/11/2026: Kho 3D chặng 2 thêm danh mục chức năng theo kho, vùng chữ nhật xoay, ô local có tính kích thước theo lưới pallet; vẽ/kéo khu vực và kéo ô trong 2D, phản ánh màu/vạch trên 3D. Schema layout3d mở rộng; warehouses thêm layout3dApplied/layout3dAppliedAt. API lưu nháp giữ snapshot áp dụng, apply:true kiểm containment và ghi snapshot/audit nguyên tử với optimistic updatedAt; đổi functions cần access_control:update. Chặn chồng vùng/ô, kiểm vùng trong kho lõm theo cả cạnh; vùng ngoài do sửa đường bao lưu nháp được nhưng chặn apply. Catalogue kho loại field layout nặng khỏi response danh sách. Cập nhật MODEL_MAP, Data Dictionary, sơ đồ nhúng STAGE2_ZONES, PROJECT_GUIDE, context FE/BE và model log. Không migration/seed/ghi DB chung, không đổi tồn hoặc enum vị trí nghiệp vụ. FE 13 test Kho 3D và 6 test trang kho đạt; BE 8 test hình học/schema đạt; build (kèm typecheck), lint module và docs:check đạt. Chưa kiểm WebGL trực tiếp hoặc tích hợp ghi DB.
 
