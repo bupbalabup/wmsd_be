@@ -1,16 +1,15 @@
-import { documentIdentifier } from '../../shared/utils/document-id.validation.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { decimalStringSchema } from '../../shared/utils/domain.js';
 import { authenticate } from '../../middlewares/auth.js';
 import { validate } from '../../middlewares/validate.js';
 import { objectIdString as oid } from '../../shared/utils/domain.js';
-import { schema, handle, key, ver, qty, reason, evidenceIds, commandBody } from '../po-receiving/po-receiving.routes.js';
+import { schema, handle, key, qty, reason, commandBody } from '../po-receiving/po-receiving.routes.js';
 import * as c from './purchase-order.commands.js';
 
 // Deprecated. Accepted for older clients and unused by PO commands.
 const evaluations = z.array(z.object({ lineId: oid, evaluationKey: z.string().min(1).max(200) }).strict()).max(100).optional();
-const form = { evaluations, warehouseId: oid, supplierId: oid, currency: z.string().regex(/^[A-Z]{3}$/), expectedOn: z.string().datetime({ offset: true }).optional(),
+const form = { evaluations, warehouseId: oid, supplierId: oid, currency: z.literal('VND'), expectedOn: z.string().datetime({ offset: true }).optional(),
   lines: z.array(z.object({ id: oid.optional(), rrLineId: oid, approvalId: oid, enteredQty: qty, unitPurchasePrice: decimalStringSchema(), note: z.string().trim().min(1).max(2000).optional() }).strict()).min(1).max(100) };
 const action = fields => z.object({ ...commandBody, evaluations, ...fields }).strict();
 const closeLines = z.array(z.object({ poLineId: oid, qtyBase: qty }).strict()).min(1).max(100);
@@ -19,8 +18,9 @@ router.post('/', validate(schema(z.object({ ...form, creationKey: key }).strict(
 router.put('/:id', validate(schema(action(form))), handle((u,v) => c.updatePurchaseOrder(u,v.params.id,v.body)));
 router.post('/:id/confirm', validate(schema(action({}))), handle((u,v) => c.confirmPurchaseOrder(u,v.params.id,v.body)));
 router.post('/:id/expected-on', validate(schema(action({ expectedOn: z.string().datetime({ offset: true }), reason }))), handle((u,v) => c.rescheduleExpectedOn(u,v.params.id,v.body)));
-router.post('/:id/close-requests', validate(schema(action({ reason, evidenceIds, lines: closeLines }))), handle((u,v) => c.requestClose(u,v.params.id,v.body)));
-router.post('/:id/close-approvals', validate(schema(action({ reason, evidenceIds, requestId: documentIdentifier }))), handle((u,v) => c.approveClose(u,v.params.id,v.body)));
-router.post('/:id/close-executions', validate(schema(action({ reason, approvalId: oid }))), handle((u,v) => c.executeClose(u,v.params.id,v.body)));
+// Evidence is optional for closing the remainder (user decision 16/11/2026).
+const optionalEvidence = z.array(oid).max(20).refine(a => new Set(a).size === a.length).optional();
+router.post('/:id/close-remainder', validate(schema(action({ reason, evidenceIds: optionalEvidence, lines: closeLines }))), handle((u,v) => c.closeRemainder(u,v.params.id,v.body)));
+router.post('/:id/cancel', validate(schema(action({ reason }))), handle((u,v) => c.cancelPurchaseOrder(u,v.params.id,v.body)));
 export default router;
 

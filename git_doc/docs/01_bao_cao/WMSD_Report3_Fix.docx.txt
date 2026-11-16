@@ -9,7 +9,7 @@ I. Overall Requirements
 3. Conceptual Data Model and Data Rules
 4. Actors, UC Catalogue, Actor Associations and Permission Matrix
 5. Screens, Interfaces and Jobs
-II. Use Case Specifications: 129 active and 1 retired use cases (UC-01–UC-130)
+II. Use Case Specifications: 131 active use cases and 1 retired use case (UC-01–UC-132)
 III. Functional Requirements: SC-01–31 (28 active, 3 retired)
 IV. Non-Functional Requirements
 V. Requirement Appendix
@@ -35,6 +35,7 @@ I. Overall Requirements
 Five default roles, plus custom roles that the Administrator builds only from the fixed permission catalogue, with exactly one role assigned to each user: Sales copies verified external SO, manages linked WIR/OD and customer-return demand and confirms full external payment receipt (UC-130); assigned Warehouse records physical operations and photo POD (UC-129); Accountant agrees PO terms with the supplier outside WMSD, then records, issues and reschedules the PO and requests/executes remainder closure, and records supplier-return agreements/ACK and external accounting references; Owner makes scoped decisions, clears differences and maintains products, UOM/conversions and the warehouse/location catalogue; Administrator manages accounts (lock with reason), custom roles and permissions without business-posting rights.
 MISA, Customer, Supplier and Carrier are staff-mediated business parties/systems, not direct API/login actors. Commercial pricing policy, invoices/refunds, payment execution, debt and accounting remain external; WMSD keeps the copied SO unit selling price only for permitted roles. WMSD SO is a manually copied source record; POD/PAY-CFM track fulfilment without executing payment. No automatic channel/MISA integration. D2/D3 retain personal departmental entry and five roles despite survey-reported shared entry/delegation.
 API-01 SMTP sends post-commit warehouse notifications. API-02 controlled storage supports private evidence upload/retrieval; the implementation stores authenticated Cloudinary assets and issues short-lived signed download URLs only after document/warehouse scope checks.
+Password recovery by email adds two planned interactions. Staff can request a one-time password (OTP) from Sign In, and the Administrator can request an OTP for a selected account. In both flows, WMSD sends the OTP to the account's registered email address and the account holder uses it to choose a new password (UC-131, UC-132).
 
 Figure 1 — editable text context:
 ```mermaid
@@ -47,9 +48,9 @@ flowchart LR
   W -->|Actual receipt and issue quantities, unresolved returns, separate financial follow-up| A
   O[Store Owner] -->|RR and TR decisions, eligible CR exceptions, scoped dispositions, B1 review and closure| W
   W -->|Scoped requests and exceptions, stocktake execution evidence, reports| O
-  AD[Administrator] -->|Accounts, permissions and technical configuration| W
+  AD[Administrator] -->|Accounts, permissions, configuration and reset requests| W
   W -->|Administration results| AD
-  W -->|Post-commit notifications| E[SMTP API-01]
+  W -->|Post-commit notifications and planned reset OTPs| E[SMTP API-01]
   E -->|Delivery results| W
   W -->|Private evidence and delivery photo upload| F[Controlled storage API-02]
   F -->|Asset reference and upload result| W
@@ -591,10 +592,10 @@ Five default application roles operate within their assigned permissions and rec
 	Copy verified external SO, manage linked WIR/OD/net reopened demand; accept/reject ordinary CR after Warehouse inspection, including own CR (C2), but no exception approval. Confirm full external payment after current DELIVERED (UC-130).
 	5
 	Administrator
-	Accounts (lock/unlock with reason), custom roles from the fixed permission catalogue, role and warehouse assignment and technical configuration; no implied business approval or stock-posting rights.
+	Manage staff accounts, lock or unlock them, and request email OTPs for password recovery (UC-132). Maintain custom roles from the fixed permission catalogue, role and warehouse assignments, and technical configuration within administrative scope.
 
 4.2 Use Cases (UC)
-The use-case inventory contains 130 identifiers: 129 ACTIVE and UC-11 RETIRED by the user decision of 11/11/2026. UC-121 remains separate. Identifiers run continuously from UC-01 to UC-130.
+The use-case inventory contains 132 identifiers from UC-01 to UC-132. It includes 131 ACTIVE requirements and UC-11, which was RETIRED by the user decision of 11/11/2026. UC-121 remains separate. UC-131 and UC-132 are active requirements pending implementation.
 | ID | Name | Feature | State | Description |
 |---|---|---|---|---|
 | UC-01 | View replenishment request list | FE-01 | ACTIVE | Sales and Warehouse Staff view their own/assigned replenishment needs; Owner and Accountant view within responsibility and warehouse scope. |
@@ -706,7 +707,7 @@ The use-case inventory contains 130 identifiers: 129 ACTIVE and UC-11 RETIRED by
 | UC-107 | View account list | FE-09 | ACTIVE | Search and filter accounts by name, role, and active status. |
 | UC-108 | View account details | FE-09 | ACTIVE | Display the selected account's information, assigned role, and status. |
 | UC-109 | Create Staff Account | FE-09 | ACTIVE | Create unique staff identity/protected credentials with exactly one existing role including inactive accounts. Role/operation/warehouse assignment remains UC-112. |
-| UC-110 | Update Staff Account Information | FE-09 | ACTIVE | Update permitted account profile/credentials with audit and historical actor references. Exclude status and access assignment UC-112. |
+| UC-110 | Update Staff Account Information | FE-09 | ACTIVE | Update permitted profile and contact details with audit and historical actor references. See UC-111 for status, UC-112 for access assignment and UC-132 for password reset. |
 | UC-111 | Change Staff Account Status | FE-09 | ACTIVE | Lock (with a mandatory reason stored as lockReason) or unlock an existing account with audit; self-lock is rejected and ordinary profile updates cannot change status. Locked accounts cannot sign in and historical actors remain unchanged. This grants no business posting rights. |
 | UC-112 | Assign roles and operation permissions | FE-09 | ACTIVE | Maintain the five default roles and Administrator-created custom roles by selecting existing permissions from the fixed catalogue (no new permission codes), and assign exactly one role and multiple warehouses per user. Custom roles are evaluated by permissions, not by name. No purchasing/delivery role, proxy entry or dynamic delegation workflow is introduced. Owner approvals still require a different requester, including after a role change. |
 | UC-113 | View Operational Reports | FE-09 | ACTIVE | Run authorized physical/available/reserved/custody/transit, outstanding receipt/issue, customer-received quantities, DELIVERED pending receipt, COMPLETED/cancelled orders, defect, transfer, return and stocktake reports; no revenue/profit reports. |
@@ -727,6 +728,8 @@ The use-case inventory contains 130 identifiers: 129 ACTIVE and UC-11 RETIRED by
 | UC-128 | Cancel Eligible WIR Remainder | FE-06 | ACTIVE | Cancel only unexecuted or received-back not-redelivered WIR remainder after dependent OD/task/hold resolution. Preserve history and forbid cancelling unresolved off-site quantities. No stock movement. |
 | UC-129 | Confirm Customer Delivery with Photo Evidence | FE-06 | ACTIVE | Assigned Warehouse confirms actual customer receipt against valid posted GI-S with photo. Share source cap with FD/GR-FD; received quantity uses CR for later return. |
 | UC-130 | Confirm Full External Payment Receipt | FE-06 | ACTIVE | Only Sales confirms full money receipt outside WMSD after rechecking current-version DELIVERED. Reference/evidence/note and user/time are required; atomically set COMPLETED without stock or payment execution. |
+| UC-131 | Reset Own Password by Email | FE-09 | ACTIVE | Request an OTP at Sign In and use the code sent to the registered email address to choose a new password. |
+| UC-132 | Initiate User Password Reset as Administrator | FE-09 | ACTIVE | An Administrator requests an email OTP for a selected staff account. The account holder uses the OTP to choose the new password. |
 
 4.3 Use Case Actor Associations
 Derived from current operation rights; view never implies confirmation.
@@ -734,7 +737,8 @@ Store Owner: UC-01, UC-02, UC-06, UC-07, UC-08, UC-14, UC-15, UC-17, UC-18, UC-1
 Accountant: UC-01, UC-02, UC-07, UC-08, UC-09, UC-14, UC-15, UC-17, UC-18, UC-28, UC-29, UC-30, UC-33, UC-34, UC-43, UC-44, UC-51, UC-52, UC-57, UC-58, UC-62, UC-63, UC-65, UC-66, UC-69, UC-70, UC-79, UC-80, UC-88, UC-89, UC-92, UC-106, UC-113, UC-114, UC-115, UC-116, UC-122, UC-124, UC-129, UC-130, UC-10, UC-12, UC-13, UC-31, , UC-123, UC-125.
 Warehouse Staff: UC-01, UC-02, UC-03, UC-07, UC-08, UC-14, UC-15, UC-16, UC-17, UC-18, UC-24, UC-25, UC-26, UC-33, UC-34, UC-37, UC-38, UC-39, UC-43, UC-44, UC-45, UC-46, UC-47, UC-48, UC-49, UC-50, UC-51, UC-52, UC-53, UC-55, UC-57, UC-58, UC-62, UC-63, UC-65, UC-66, UC-67, UC-68, UC-69, UC-70, UC-71, UC-73, UC-74, UC-75, UC-78, UC-79, UC-80, UC-84, UC-86, UC-88, UC-89, UC-90, UC-91, UC-93, UC-94, UC-96, UC-98, UC-100, UC-101, UC-102, UC-106, UC-113, UC-114, UC-115, UC-116, UC-117, UC-120, UC-121, UC-124, UC-129, UC-130, UC-04, UC-05, UC-72, UC-76, UC-85, UC-87, UC-97, UC-99, UC-103, UC-118, UC-125.
 Sales Staff: UC-01, UC-02, UC-03, UC-17, UC-18, UC-33, UC-34, UC-35, UC-43, UC-44, UC-51, UC-52, UC-57, UC-58, UC-59, UC-60, UC-62, UC-63, UC-64, UC-65, UC-66, UC-69, UC-70, UC-79, UC-80, UC-81, UC-82, UC-106, UC-117, UC-124, UC-129, UC-130, UC-04, UC-05, UC-36, UC-61, UC-119, UC-125, UC-126, UC-127, UC-128.
-Administrator: UC-106, UC-107, UC-108, UC-109, UC-112, UC-110, UC-111.
+Administrator: UC-106, UC-107, UC-108, UC-109, UC-112, UC-110, UC-111, UC-132 (initiate for another account).
+All staff account holders, including custom roles: UC-131 (own account) and UC-132 (complete a reset for their own account).
 
 4.4 Permission Matrix
 Operation/sub-operation rights require assigned warehouse, document state/version and actual user identity. Each user has exactly one role; the Owner decision requester must differ even after role reassignment; C2 permits Sales own ordinary inspected CR acceptance. BF-08 has no Owner approval; transfer receiver differs from dispatcher. Departments record their own work. Co-inspection/external contact grants no extra right. View never implies mutation.
@@ -870,14 +874,16 @@ Operation/sub-operation rights require assigned warehouse, document state/versio
 | UC-128 | Cancel Eligible WIR Remainder | — | — | — | Perform within existing scope | — |
 | UC-129 | Confirm Customer Delivery with Photo Evidence | View | Reconciliation scope | Confirm / correct POD in assigned warehouse | Related progress view | — |
 | UC-130 | Confirm Full External Payment Receipt | View | Reconciliation scope; no confirmation | Related progress view; no confirmation | Confirm / correct full external receipt after DELIVERED | — |
+| UC-131 | Reset Own Password by Email | Own account | Own account | Own account | Own account | Own account |
+| UC-132 | Initiate User Password Reset as Administrator | Complete own reset via OTP | Complete own reset via OTP | Complete own reset via OTP | Complete own reset via OTP | Initiate for another staff account / complete own reset via OTP |
 
 5. System Functionalities
 5.1 Screen Inventory and Navigation
 Sign in→scoped worklists. RR→PO→inspection/GR→put-away; copied SO→linked WIR→options→OD→pick→PGI→photo POD/DELIVERED→Sales PAY-CFM/COMPLETED; TR→TD→independent MWTR→variance; defect→disposition→supplier return; CR→custody/inspection→Sales ordinary or Owner eligible exception→GR-CR/handback; failed-delivery GI-S→ARR/INS→GR-FD/net reopening; stocktake→freeze/count/hold→direct explanation or recount→B1 plan/execution→UC-104/105 batch. Supplier return agreement/dispatch/ACK/reconcile/closure has no Owner approval. Documents link external evidence to SC-28. Saved-SO shortage prompts and stocktake warnings open the same SC-06 form after users select lines. Operational pages show each authorized recipient's notification list/read state; opening reevaluates the source and does not itself save RR. Retired screens are absent from active navigation.
 | Screen | Name | State | Linked UC |
 |---|---|---|---|
-| SC-01 | Sign In | ACTIVE | UC-106 |
-| SC-02 | Accounts and Permissions | ACTIVE | UC-107, UC-108, UC-109, UC-110, UC-111, UC-112 |
+| SC-01 | Sign In | ACTIVE | UC-106, UC-131, UC-132 (account holder completes reset) |
+| SC-02 | Accounts and Permissions | ACTIVE | UC-107, UC-108, UC-109, UC-110, UC-111, UC-112, UC-132 (Administrator initiates reset) |
 | SC-03 | Products and Packaging | ACTIVE | UC-17, UC-18, UC-19, UC-20, UC-21, UC-22, UC-23 |
 | SC-04 | Product Lots | ACTIVE | UC-24, UC-25, UC-26, UC-27 |
 | SC-05 | Suppliers | ACTIVE | UC-28, UC-29, UC-30, UC-31, UC-32 |
@@ -911,7 +917,7 @@ Sign in→scoped worklists. RR→PO→inspection/GR→put-away; copied SO→link
 5.2 External API Inventory
 | ID | Interface | Contract |
 |---|---|---|
-| API-01 | Server-side SMTP | Queued warehouse status→delivery/failure after commit; no invoice/refund workflow email. |
+| API-01 | Server-side SMTP | Queued warehouse notifications after commit. Planned use for password recovery OTPs sent to the account's registered email address (UC-131, UC-132). |
 | API-02 | Controlled evidence storage | Authorized upload/fetch→private asset reference/hash/result; document/warehouse scope and server-side credentials. Implemented with authenticated Cloudinary assets and short-lived signed download URLs. Missing mandatory evidence blocks confirmation. |
 No MISA, Zalo, payment or tax-authority API in selected scope.
 
@@ -2778,15 +2784,14 @@ UC-110: Update Staff Account Information
 Status: ACTIVE. Feature: FE-09.
 Primary actors and operations: Administrator — Perform.
 Screen(s): SC-02.
-Description: Update permitted account profile/credentials with audit and historical actor references. Exclude status and access assignment UC-112.
-Trigger: Authorized actor starts update staff account information on the permitted screen.
-Preconditions / required inputs: Active account with exactly one authorized role; operation, warehouse/record/evidence scope and current source/document version. The state/source-specific conditions stated below are mandatory.
+Description: Update permitted profile and contact details for a selected staff account.
+Trigger: The Administrator opens the edit form from the staff account details.
+Preconditions / required inputs: The Administrator is signed in and authorized to edit the selected account.
 Normal flow:
-1. Select the scoped record/source and enter the operation-specific fields and evidence.
-2. Update permitted account profile/credentials with audit and historical actor references. Exclude status and access assignment UC-112.
-3. Validate required state/source/quantity and commit only this authorized operation with actor/time/version/history; display the saved result.
-Alternate/exception flows: EX-01 permission/identity/scope rejects without disclosure; EX-02 stale version/source or quantity conflict preserves input for review; EX-03 unknown commit requires same-key lookup before retry; EX-04 freeze blocks unauthorized mutation; EX-05 evidence/output failure preserves valid state and retries output only. No direct editing of posted history.
-Postconditions / exact inventory effect: Update permitted account profile/credentials with audit and historical actor references. Exclude status and access assignment UC-112. Related business rules and source guards remain mandatory; no authority is inherited from a sibling UC.
+1. The Administrator edits the permitted profile or contact fields and saves the form.
+2. WMSD validates the fields, saves the account updates and records the actor and time.
+Alternate/exception flows: WMSD rejects unauthorized requests (MSG-04) and identifies invalid fields for correction (MSG-02). Account status, access assignment and password reset follow UC-111, UC-112 and UC-132, respectively.
+Postconditions / exact inventory effect: The updated profile is visible and historical records retain the original actor ID. Inventory is unchanged.
 
 UC-111: Change Staff Account Status
 Status: ACTIVE. Feature: FE-09.
@@ -2912,28 +2917,68 @@ Normal flow:
 Alternate/exception flows: EX-01 permission/identity/scope rejects without disclosure; EX-02 stale version/source or quantity conflict preserves input for review; EX-03 unknown commit requires same-key lookup before retry; EX-04 freeze blocks unauthorized mutation; EX-05 evidence/output failure preserves valid state and retries output only. No direct editing of posted history.
 Postconditions / exact inventory effect: Record verified external kind/number/date/line/source/matched quantity/evidence and NOT_RECORDED/PENDING_EXTERNAL/RECORDED_EXTERNAL status. Financial follow-up is independent of warehouse closure and does not execute payment/refund or replace UC-130. Related business rules and source guards remain mandatory; no authority is inherited from a sibling UC.
 
+UC-131: Reset Own Password by Email
+Status: ACTIVE. Feature: FE-09. Implementation: Pending.
+Primary actor: Staff account holder of any role, including custom roles.
+Supporting actor: Email delivery service.
+Screen(s): SC-01.
+Trigger: The account holder selects Forgot Password at Sign In.
+Preconditions / required inputs: For WMSD to issue an OTP, the account must be active and the submitted address must uniquely match its registered email. The account holder needs access to that inbox.
+Normal flow:
+1. The account holder enters their registered email and requests a code.
+2. WMSD returns the generic acknowledgement (MSG-19). For an eligible account, WMSD sends a time-limited OTP to its registered address.
+3. The account holder enters the email, OTP, new password and password confirmation.
+4. WMSD checks that the account is still active, the address still uniquely matches and the OTP is valid for that account. WMSD validates the password and confirmation, then saves the new password hash and consumes the OTP in the same operation.
+5. WMSD confirms the reset and returns the account holder to Sign In.
+Alternate/exception flows:
+- 2a. An unknown, missing or shared registered email, a locked account or an email delivery failure produces the same public acknowledgement. The current password remains valid subject to the existing account status.
+- 4a. A wrong, expired or already-used code is rejected (MSG-20). The account holder can request a new code. Once a new code is issued, it supersedes the previous one. WMSD limits repeated requests and verification attempts.
+- 4b. An invalid password or mismatched confirmation is rejected (MSG-02). The account holder can correct the form while the OTP remains valid.
+Postconditions / exact inventory effect: The new password is usable at Sign In, the old password is replaced and the OTP cannot be reused. Inventory is unchanged.
+
+UC-132: Initiate User Password Reset as Administrator
+Status: ACTIVE. Feature: FE-09. Implementation: Pending.
+Primary actors and operations: Administrator initiates the reset for another staff account. The account holder completes their own reset.
+Supporting actor: Email delivery service.
+Screen(s): SC-02 to initiate, SC-01 to complete.
+Trigger: The Administrator selects Reset Password in the target account's details.
+Preconditions / required inputs: The Administrator is signed in and authorized to initiate the reset. The target account is active and has an email registered to that account alone.
+Normal flow:
+1. The Administrator selects the target account and confirms the request.
+2. WMSD verifies the Administrator's authorization and the target account's eligibility, then sends a time-limited OTP to the target's registered email address.
+3. WMSD shows the Administrator the outcome and records the initiating actor, target account, time and outcome. WMSD keeps the OTP and password out of the administrative screen, its response and the audit log.
+4. The account holder opens the verification form at Sign In and enters their registered email, OTP, new password and password confirmation. WMSD applies UC-131 steps 4–5.
+Alternate/exception flows:
+- 2a. WMSD rejects an unauthorized request (MSG-04). If the target is locked, has no registered email or shares it with another account, WMSD reports the eligibility issue to the authorized Administrator (MSG-21) and records the rejected request.
+- 2b. WMSD reports and records a confirmed email delivery failure (MSG-22). The Administrator can retry after resolving the delivery issue. The current password remains in effect.
+- 4a. WMSD applies the OTP and password validation paths in UC-131. The account holder can request a fresh code at Sign In if needed.
+Postconditions / exact inventory effect: Sending an OTP leaves the current password in effect. A successful verification replaces it with the password chosen by the account holder and consumes the OTP. Account status, access assignments and inventory are unchanged.
+
 III. Functional Requirements
 The screen layouts and field contracts below support responsive phone use for actual carton/piece/m² quantities, location references and photos. Native mobile applications, offline use and automatic barcode capture are outside scope.
 Shared field contract: external provider version is optional if unavailable; internal document/verification version and stable nonblank correlation are retained without inventing a provider revision. ObjectId references, Decimal128 quantities/factors, whole actual pieces for whole-base-unit products, immutable conversion snapshots, UTC Date events displayed in Vietnam time. Required fields are those at the linked UC stage. No invented quantity/factor/deadline/warehouse defaults. Filters optional/nonpersistent; derived balances/approval actor/time/before-after read-only. Positive execution quantity, zero count allowed, blank uncounted, signed nonzero adjustment. Finite states use String enums; version/attempt uses positive Int32, active/found flags Boolean, identifiers/text are trimmed nonblank String where required, evidence uses controlled object-key/hash references.
 
 SC-01: Sign In
-State: ACTIVE. Linked UCs: UC-106.
-Layout: scoped worklist/filter→source-linked detail→authorized entry/review/confirmation→committed result/history. Distinguish Save, approval, physical posting and Print.
-Field contract: username required; password masked input-only/hash verification; active/role/scope derived.
+State: ACTIVE. Linked UCs: UC-106, UC-131, UC-132 (account holder completes reset).
+Layout: Sign In offers Forgot Password and Enter Reset Code. Forgot Password opens the email request form. Enter Reset Code opens the verification form for an OTP requested by the account holder or an Administrator.
+Field contract: Sign In requires username and masked password. A reset request requires the registered email address. Reset verification requires email, OTP, masked new password and masked confirmation.
 Actions/outcomes:
-- UC-106: Session created; business stock unchanged.
-Validation/recovery: exact linked UC source/version/qty/identity/scope/freeze guards. Keep valid draft inputs on validation failure; unknown commit looks up existing result before retry. Private evidence, mandatory evidence before confirmation.
+- UC-106: WMSD creates a session after successful authentication.
+- UC-131, UC-132: WMSD returns the account holder to Sign In after a successful reset.
+Validation/recovery: Show a generic acknowledgement for a public request (MSG-19). If the OTP cannot be used, offer a new request (MSG-20). Identify password and confirmation errors on the form (MSG-02).
 
 SC-02: Accounts and Permissions
-State: ACTIVE. Linked UCs: UC-107, UC-108, UC-109, UC-110, UC-111, UC-112.
+State: ACTIVE. Linked UCs: UC-107, UC-108, UC-109, UC-110, UC-111, UC-112, UC-132 (Administrator initiates reset).
 Layout: scoped worklist/filter→source-linked detail→authorized entry/review/confirmation→committed result/history. Distinguish Save, approval, physical posting and Print.
-Field contract: userId/warehouseIds references; username/email unique; fullName/phone; active and lockReason (required when locking); one default or custom role; permissions ticked from the fixed catalogue; audit actor/time.
+Field contract: userId and warehouseIds references, unique username, fullName, phone, optional email, active status and lockReason (required when locking). Each account has one default or custom role. Permission choices come from the fixed catalogue. Audit records include actor and time. Password recovery requires an email address registered to this account alone.
 Actions/outcomes:
 - UC-107: Read-only scoped list/detail; no state or stock effect.
 - UC-108: Read-only scoped list/detail; no state or stock effect.
 - UC-109, UC-110, UC-111: Account saved; stock/history unchanged.
 - UC-112: Access configuration saved; no business/stock posting.
+- UC-132: Show Reset Password on the account details for the authorized Administrator. Confirm the target account before requesting the OTP. Show the send outcome. The account holder completes verification at SC-01.
 Validation/recovery: exact linked UC source/version/qty/identity/scope/freeze guards. Keep valid draft inputs on validation failure; unknown commit looks up existing result before retry. Private evidence, mandatory evidence before confirmation.
+Password reset validation: show an actionable eligibility or delivery error to the authorized Administrator (MSG-21, MSG-22). The action uses the registered email of the selected account.
 
 SC-03: Products and Packaging
 State: ACTIVE. Linked UCs: UC-17, UC-18, UC-19, UC-20, UC-21, UC-22, UC-23.
@@ -3216,13 +3261,14 @@ Actual boxes/loose pieces, visible conversion, warehouse/location/lot identity, 
 No signed-off numeric response SLA, concurrency count, volume or availability percentage supplied. Verify scoped list/report behavior on representative store-approved datasets; agree numeric targets before acceptance.
 2.3 Security
 Active personal accounts, exactly one role per user (five default roles or Administrator-created custom roles built from the fixed permission catalogue) and server-side operation/warehouse/record/evidence scope, including direct requests/exports. Distinct requester for Owner approvals and independent transfer dispatcher/receiver; C2 Sales own ordinary CR acceptance is explicitly allowed, BF-08 Owner approval is absent. Administrator no default business rights. Protect credentials/server secrets, private evidence retrieval and administrative audit; changed access never rewrites past decisions.
+For UC-131 and UC-132, WMSD binds each OTP to the target account, expires it and allows it to be consumed once. Passwords and OTPs are excluded from application logs.
 2.4 Reliability and Data Integrity
 Integrity controls include a shared source guard across POD/FD/CR claims and receipts; atomic GR-FD stock/net reopening/version and replacement OD commitment; B1 balance-neutral holds, current approved plan plus Warehouse execution, delta/RECLASS batch and no early unlock. No Owner supplier-return approval route is in scope.
 Atomically commit source/version, batch, movements, balance, reservations, status, audit and outbox. Stable operation/idempotency key and hash prevent duplicate stock effects; changed payload conflicts. Unknown commit resolved by lookup; transient retry uses same identity. Concurrent holds/receipts/returns respect eligible source ceilings. All in-scope quantity/quality/ownership/location changes and backdated corrections coordinate with stocktake activation/freeze; only authorized clearing changes counted balance before unlock. Interrupted session retains freeze/history. Snapshot, count attempts, posted documents/assessments remain immutable; corrections append links. New documents receive _id = documentNo ([type]-[warehouse/department]-[YYMMDD]-[6-digit sequence]) inside the same transaction, retrying on collision; IDs never change after save.
 POD/PAY-CFM use stable business-operation IDs/hash, not posting_batch/movement. Atomically commit confirmation/VOIDED correction with SO version/progress, audit/outbox. Competing PODs contend on shared source/SO guards, not merely snapshot sums. PAY-CFM binds current delivered SO version; correction invalidates stale completion conditions.
 RR saves re-evaluate advisory warnings inside the transaction and use stable command identities; the shared coverage guard was removed on 11/11/2026 and duplicate purchasing is controlled by confirmed explanations and independent Owner review. Form opening/cancellation has no persistence effect. Post-commit Notification retries preserve existing readAt and deduplicate event/type/recipient/warehouse without creating RR. Output/notification retry never repeats stock posting. SMTP uncertain timeout requires delivery reconciliation, not a claim of exactly-once email. Transit/received/resolved reconcile; custody never silently becomes owned stock.
 2.5 Maintainability and Traceability
-129 active UCs (UC-11 retired) map to feature/permission/screen/inputs/alternates/exact inventory effect. SC-25–27 are historical screens only. Trace external system/document/line/version→SO→WIR→OD→GI-S→POD→PAY-CFM and PO→GR/transfer→return/disposition/adjustment, with actor/time/evidence. Reconcile closing=opening+ledger delta in consistent dimensions including OPENING; no silent balance initialization/overwrite. Business branches and EX-01–05 define acceptance cases for source validity, permissions, retries and inventory consistency.
+131 active UCs (UC-11 retired) map to feature/permission/screen/inputs/alternates/exact inventory effect. SC-25–27 are historical screens only. Trace external system/document/line/version→SO→WIR→OD→GI-S→POD→PAY-CFM and PO→GR/transfer→return/disposition/adjustment, with actor/time/evidence. Reconcile closing=opening+ledger delta in consistent dimensions including OPENING; no silent balance initialization/overwrite. Business branches and EX-01–05 define acceptance cases for source validity, permissions, retries and inventory consistency.
 
 V. Requirement Appendix
 1. Business Rules
@@ -3287,6 +3333,10 @@ Historical GB mapping: GB-01/GB-NEW-01→BR-05 and I.4.4; GB-02→BR-24; GB-03�
 | MSG-16 | Delivery photo/source | Valid posted GI-S and stored POD photo required; effective POD plus posted GR-FD and OPEN FD claims cannot exceed valid PGI. |
 | MSG-17 | Completion | Current full delivery and Sales full external receipt required; cancelled/partially paid orders cannot complete. |
 | MSG-18 | Replenishment warning | Open RR, incoming PO or sufficient stock detected; confirm the independent need with an explanation before saving or submitting. |
+| MSG-19 | Public password reset request | If the account is eligible, a reset code will be sent to the registered email address. |
+| MSG-20 | Invalid reset code | This code is invalid or has expired. Check the code or request a new one. |
+| MSG-21 | Administrative reset eligibility | The account must be active and have its own registered email address. Check the account details before retrying. |
+| MSG-22 | Administrative reset delivery failure | WMSD could not send the reset code. The current password remains in effect. |
 
 3. Other Requirements
 Independent commercial price-list management, internal-tax invoices/refund workflows, payment execution/debt/accounting, live MISA, dynamic delegation and arbitrary policy editors excluded. D1–D8 and the five default roles retained; custom roles only select existing permissions. Do not invent warehouse names/staffing, SKU factors, lot carton specifications or return-day values.

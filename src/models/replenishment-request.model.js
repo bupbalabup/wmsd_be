@@ -59,6 +59,8 @@ export function createReplenishmentRequestSchema() {
       default: undefined,
     },
   });
+  // List scope always filters by kind and warehouse, newest first.
+  schema.index({ documentKind: 1, "header.warehouseId": 1, createdAt: -1, _id: -1 });
 
   return schema;
 }

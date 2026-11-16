@@ -497,7 +497,7 @@ Model: [inventory-balance.model.js](../../../../src/models/inventory-balance.mod
 | `packagingPortions[]._id` | ObjectId | false |  |
 | `packagingPortions[].createdAt` | Date | false |  |
 | `packagingPortions[].updatedAt` | Date | false |  |
-| `packagingPortions[].measuredVolumeMm3` | Decimal128 | false |  |
+| `packagingPortions[].measuredVolumeMm3` | Decimal128 | false | Thể tích chiếm chỗ thực đo hoặc BE ước tính (mm³). |
 | `packagingPortions[].extraOccupiedVolumeMm3` | Decimal128 | false |  |
 
 Indexes:
@@ -739,7 +739,7 @@ Model: [approval-history.model.js](../../../../src/models/approval-history.model
 | `itemDecisions[].itemId` | ObjectId | true |  |
 | `itemDecisions[].approvedQtyBase` | Decimal128 | true |  |
 | `itemDecisions[].outcome` | String | true |  |
-| `itemDecisions[].reason` | String | false |  |
+| `itemDecisions[].reason` | String | false | Tối đa 2.000 ký tự (16/11/2026, khớp lý do API). |
 | `requestedBy` | ObjectId | true | User |
 | `decidedBy` | ObjectId | true | User |
 | `decidedAt` | Date | true |  |
@@ -1577,6 +1577,15 @@ Indexes:
       "createdAt": -1
     },
     {}
+  ],
+  [
+    {
+      "documentKind": 1,
+      "header.warehouseId": 1,
+      "createdAt": -1,
+      "_id": -1
+    },
+    {}
   ]
 ]
 ```
@@ -1698,7 +1707,7 @@ Model: [purchase-order.model.js](../../../../src/models/purchase-order.model.js)
 | `totalAmount` | Decimal128 | true |  |
 | `currency` | String | true |  |
 | `_id` | DocumentIdentity | false |  |
-| `replenishmentRequestId` | DocumentIdentity | true |  |
+| `replenishmentRequestId` | DocumentIdentity | false | ReplenishmentRequest. Gỡ khi PO bị hủy để RR lập được PO mới; unique index một phần giữ một RR một PO còn hiệu lực. |
 
 Indexes:
 
@@ -1830,7 +1839,7 @@ Model: [goods-arrival.model.js](../../../../src/models/goods-arrival.model.js).
 | `items[].expectedProductId` | ObjectId | false | Product |
 | `items[].observedLabel` | String | false |  |
 | `items[].lotLabelSnapshot` | String | false |  |
-| `items[].packagingCondition` | String | false |  |
+| `items[].packagingCondition` | String | false | Tình trạng ghi trên dòng hàng đến. API kiểm nhận dùng SEALED, OPENED, TORN, UNKNOWN hoặc LOOSE (hàng lẻ). |
 | `items[].{DocumentLine_REPLENISHMENT}.details` | Embedded | true |  |
 | `items[].{DocumentLine_SALES_ORDER}.details` | Embedded | true |  |
 | `items[].{DocumentLine_OUTBOUND_DELIVERY}.details` | Embedded | true |  |
@@ -5034,7 +5043,7 @@ Model: [customer-return.model.js](../../../../src/models/customer-return.model.j
 | `inspections[].inspectedAt` | Date | true |  |
 | `inspections[].portions` | Array | false |  |
 | `inspections[].portions[].quantityBase` | Decimal128 | true |  |
-| `inspections[].portions[].packagingCondition` | String | true |  |
+| `inspections[].portions[].packagingCondition` | String | true | SEALED, OPENED, TORN, UNKNOWN hoặc LOOSE (hàng lẻ). |
 | `inspections[].portions[].installationStatus` | String | true |  |
 | `inspections[].portions[].damageCause` | String | true |  |
 | `inspections[].portions[].deadlineStatus` | String | true |  |
