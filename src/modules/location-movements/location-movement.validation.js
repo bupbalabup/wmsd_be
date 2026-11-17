@@ -31,7 +31,7 @@ export const createBody = z.object({
 export const createSchema = z.object({ body: createBody });
 export const detailSchema = z.object({ params: z.object({ id: documentIdentifier }).strict() });
 export const listSchema = z.object({ query: z.object({
-  warehouseId: objectId.optional(), status: z.enum(['OPEN', 'CONFIRMED', 'CANCELLED']).optional(),
+  warehouseId: objectId.optional(), status: z.enum(['OPEN', 'PARTIAL', 'CONFIRMED', 'CANCELLED']).optional(),
   ...movementListFields,
   page: z.coerce.number().int().min(1).max(100000).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
