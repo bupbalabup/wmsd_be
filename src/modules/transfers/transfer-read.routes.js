@@ -17,7 +17,7 @@ router.get('/', catchAsync(async (req, res) => {
 router.get('/options', catchAsync(async (req,res) => {
   const parsed=optionsQuery.safeParse(req.query);
   if(!parsed.success)throw new ApiError(400,'Bộ lọc lựa chọn điều chuyển không hợp lệ');
-  formatApiResponse(res,{data:await service.transferOptions(req.user,parsed.data.warehouseId)});
+  formatApiResponse(res,{data:await service.transferOptions(req.user,parsed.data.warehouseId,parsed.data.mode)});
 }));
 router.get('/dispatches', catchAsync(async (req, res) => {
   const parsed = dispatchListQuery.safeParse(req.query);
