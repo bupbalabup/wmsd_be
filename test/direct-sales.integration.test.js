@@ -71,7 +71,7 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
  const sources=await lookup(seller,{kind:'sources',purpose:'customer-returns',customerId:String(customer._id),warehouseId:String(warehouse._id),page:1,limit:10});
  assert.equal(sources.items.find(r=>r._id===String(issue.items[0]._id)).availableQty,'4');
  const cr=await returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),customerId:String(customer._id),lines:[{salesIssueLineId:String(issue.items[0]._id),qtyBase:'4',reason:'Not needed'}]});
- let doc=await m.CustomerReturn.findById(cr.id);const ev=await attach(doc);
+ let doc=await m.CustomerReturn.findById(cr.id);assert.equal(doc.header.intakeMode,'DIRECT');const claim=await m.ReturnQuantityClaim.findOne({requestLineId:doc.items[0]._id});assert.equal(claim.sourceKind,'GOODS_ISSUE');const ev=await attach(doc);
  await assert.rejects(returns.inspectCustomerReturn(worker,doc._id,{idempotencyKey:key(),expectedVersion:doc.version,evidenceIds:[String(ev._id)],lines:[{returnLineId:String(doc.items[0]._id),qtyReceived:'1.5',packagingCondition:'LOOSE',installationStatus:'UNUSED',damageCause:'NONE',deadlineStatus:'WITHIN',deadlineReference:'Store policy',assessmentReason:'Invalid fractional pieces'}]}));
  await returns.inspectCustomerReturn(worker,doc._id,{idempotencyKey:key(),expectedVersion:doc.version,evidenceIds:[String(ev._id)],lines:[{returnLineId:String(doc.items[0]._id),qtyReceived:'4',packagingCondition:'SEALED',installationStatus:'UNUSED',damageCause:'NONE',deadlineStatus:'WITHIN',deadlineReference:'Store policy',assessmentReason:'Good'}]});
  assert.equal(await m.CustodyReceipt.countDocuments(),0);

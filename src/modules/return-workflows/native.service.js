@@ -69,18 +69,19 @@ async function returnSource(input,user,session){
   const {doc,item}=await s.itemById(m.ExternalReference,input.historicalExternalLineId,user,session);
   if(doc.referenceKind!=='HISTORICAL_DELIVERY'||doc.status!=='VERIFIED'||!doc.verifiedBy||!doc.verifiedAt||!doc.evidenceIds.length||!item.lotId||!item.baseUnitsPerUnit)throw validationError('Nguồn lịch sử chưa xác minh');
   const competing=await m.SalesOrder.exists({'header.externalReferenceId':doc._id}).session(session);if(competing)throw validationError('Nguồn đã có chuỗi WMS, dùng nguồn giao thực tế');
-  await s.lockSource(doc,item,session);return {doc,item:{...item.toObject(),qtyBase:String(item.eligibleQty),enteredQty:exact(item.eligibleQty).div(String(item.baseUnitsPerUnit)).toFixed(),productNameSnapshot:'Historical source'},customerId:doc.customerId,warehouseId:doc.warehouseId,allowance:exact(item.eligibleQty).minus(String(item.previouslyReturnedQty)),sourceKind:'EXTERNAL'};
+  await s.lockSource(doc,item,session);return {doc,item:{...item.toObject(),qtyBase:String(item.eligibleQty),enteredQty:exact(item.eligibleQty).div(String(item.baseUnitsPerUnit)).toFixed(),productNameSnapshot:'Historical source'},customerId:doc.customerId,warehouseId:doc.warehouseId,allowance:exact(item.eligibleQty).minus(String(item.previouslyReturnedQty)),sourceKind:'EXTERNAL',intakeMode:'LEGACY'};
  }
- const c=await s.issueSource(input.salesIssueLineId,user,session);return {...c,customerId:c.so.header.customerId,warehouseId:c.doc.header.warehouseId,allowance:c.delivered,sourceKind:'DELIVERY_CONFIRMATION'};
+ const c=await s.issueSource(input.salesIssueLineId,user,session),direct=c.doc.header.fulfillmentMode==='DIRECT';return {...c,customerId:c.so.header.customerId,warehouseId:c.doc.header.warehouseId,allowance:c.delivered,sourceKind:direct?'GOODS_ISSUE':'DELIVERY_CONFIRMATION',intakeMode:direct?'DIRECT':'LEGACY'};
 }
 export async function createCustomerReturn(user,input){return command(user,'CREATE_CR','customer_return:create',null,input,replay(m.CustomerReturn),async(session,actor,operationId)=>{
  requireWarehouseAccess(actor,input.warehouseId);if(!await m.Customer.exists({_id:input.customerId}).session(session))throw validationError('Khách không hoạt động');
- const doc=await envelope(m.CustomerReturn,actor,{warehouseId:input.warehouseId,customerId:input.customerId,intakeMode:'DIRECT',openedBy:actor._id,openedAt:new Date()},[]);
- for(const row of input.lines){const c=await returnSource(row,actor,session);await s.assertWholeQuantity(c.item.productId,row.qtyBase,session);if(!same(c.customerId,input.customerId)||!same(c.warehouseId,input.warehouseId))throw validationError('Nguồn sai khách hoặc kho');
+ const doc=await envelope(m.CustomerReturn,actor,{warehouseId:input.warehouseId,customerId:input.customerId,openedBy:actor._id,openedAt:new Date()},[]);let intakeMode;
+ for(const row of input.lines){const c=await returnSource(row,actor,session);if(intakeMode&&intakeMode!==c.intakeMode)throw validationError('Không thể kết hợp nguồn trả hàng trực tiếp và nguồn giao hàng cũ');intakeMode=c.intakeMode;await s.assertWholeQuantity(c.item.productId,row.qtyBase,session);if(!same(c.customerId,input.customerId)||!same(c.warehouseId,input.warehouseId))throw validationError('Nguồn sai khách hoặc kho');
   if(exact(row.qtyBase).plus(await s.claimTotal(c.item._id,'CR',session)).gt(c.allowance))throw validationError('Vượt lượng khách đã nhận còn được trả');
   const item=copy(c.item,row.qtyBase,doc.items.length+1,{lineKind:'CUSTOMER_RETURN',details:{...(row.historicalExternalLineId?{historicalExternalLineId:row.historicalExternalLineId}:{originalIssueLineId:row.salesIssueLineId}),reason:row.reason},sources:[source(c.doc,c.item,'RETURN_SOURCE',row.qtyBase)]});doc.items.push(item);
   await new m.ReturnQuantityClaim({claimKind:'CR',requestLineId:item._id,sourceKind:c.sourceKind,sourceLineId:c.item._id,claimedQtyBase:row.qtyBase,createdBy:actor._id,operationId,version:1,events:[]}).save({session});
  }
+ if(intakeMode==='DIRECT')doc.header.intakeMode='DIRECT';
  await doc.save({session});return {document:doc};
 });}
 export function eligibility(row){
