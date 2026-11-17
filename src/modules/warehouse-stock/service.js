@@ -6,7 +6,7 @@ import { isOwner, requirePermission, requireWarehouseAccess, hasPermission } fro
 import { currentRole } from '../../shared/utils/userRole.js';
 import { dto, serialize, page, transaction } from '../../shared/utils/persistence.js';
 import { command, checkVersion, same, saveVersion } from '../../shared/utils/document-command.js';
-import { freeQuantity, heldQuantity, unreservedPendingTaskQuantity, remainingReservation, verifyCapacity } from '../../shared/utils/stock.js';
+import { freeQuantity, heldQuantity, unreservedPendingTaskQuantity, remainingReservation, verifyCapacity, guardWarehouses } from '../../shared/utils/stock.js';
 import { notFoundError, validationError } from '../../shared/utils/ApiError.js';
 const escape = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export const warehouseScope = user => isOwner(user) ? {} : { _id: { $in: user.warehouseIds || [] } };
@@ -111,6 +111,7 @@ const locationReplay = (id,user,session) => getLocation(user,id,session);
 export function saveLocation(user,id,input) {
   return command(user,id?'UPDATE_STORAGE_LOCATION':'CREATE_STORAGE_LOCATION',id?'warehouse_location:update':'warehouse_location:create',id,input,locationReplay,async(session,actor)=>{
     requireWarehouseAccess(actor,input.warehouseId);
+    await guardWarehouses([input.warehouseId], session);
     const warehouse=await m.Warehouse.findOne({_id:input.warehouseId,isActive:true}).session(session);if(!warehouse)throw validationError('Kho không hoạt động');
     const {idempotencyKey,expectedVersion,...fields}=input;
     let row;

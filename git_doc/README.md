@@ -59,3 +59,7 @@ Phiếu duyệt, thiết kế, hướng dẫn chuyển DB và API đã tập tru
 Model runtime hiện hành dùng 59 file collection `src/models/*.model.js` và 96 schema nhúng `src/models/*.schema.js`, cùng một registry. Ba thư mục model cũ đã được bỏ theo quyết định ngày 06/11/2026. DB Atlas/v8 là bằng chứng có ngày, không phải đích runtime hiện tại. Xem [hợp đồng runtime](docs/08_api/NATIVE_MODEL_RUNTIME.md) và [hướng dẫn local](docs/09_phat_trien/DB_REBUILD.md).
 
 [Category v8: phân loại, dọn model và triển khai](docs/09_phat_trien/CATEGORIES_V8.md). Bản v7 trước là mốc lịch sử.
+
+Current feature contract: [Excel exports and opening stock](docs/08_api/EXCEL_AND_OPENING_STOCK.md), including [local additive setup](docs/09_phat_trien/EXCEL_OPENING_SETUP.md) (16 November 2026).
+
+Current simplified sales: [API](docs/08_api/GOODS_ISSUES.md) · [local setup](docs/09_phat_trien/SIMPLIFIED_SALES_SETUP.md).

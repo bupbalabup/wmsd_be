@@ -6,7 +6,7 @@ The BachDoAn workspace provides Claude Code and Pi configuration without changin
 
 Run `claude` or `pi` from the workspace root, `frontend/`, `building-material-management/` or `docs_bach/`. Review project trust; no global permissions or provider settings are changed.
 
-The canonical setup guide is workspace [`.agents/SETUP.md`](../../../../.agents/SETUP.md). Shared policy lives in root `CLAUDE.md` with `AGENTS.md` pointing to it. Scoped rules and skills live under `.agents/`; Claude uses scoped pointers and skill links, while Pi uses a project extension. Repository-local settings reference those workspace resources.
+The canonical setup guide is the workspace file `.agents/SETUP.md`. Shared policy lives in root `CLAUDE.md` with `AGENTS.md` pointing to it. Scoped rules and skills live under `.agents/`; Claude uses scoped pointers and skill links, while Pi uses a project extension. Repository-local settings reference those workspace resources.
 
 From the workspace root, run:
 

@@ -226,6 +226,7 @@ Model: [warehouse.model.js](../../../../src/models/warehouse.model.js).
 | `layout3dApplied` | Mixed/Object | false | Snapshot áp dụng gần nhất cùng cấu trúc layout3d; lưu nháp không thay snapshot. |
 | `layout3dAppliedAt` | Date | false | Thời điểm áp dụng snapshot; chưa có ở dữ liệu cũ. |
 | `isActive` | Boolean | true |  |
+| `stockOperationVersion` | Number | true (default 0) | Technical warehouse stock-command guard; does not change catalogue updatedAt. |
 | `_id` | ObjectId | false |  |
 | `createdAt` | Date | false |  |
 | `updatedAt` | Date | false |  |
@@ -2050,6 +2051,8 @@ Indexes:
 
 ## goods_receipts
 
+17 November 2026: FAILED_DELIVERY variant adds optional header.goodsIssueId (DocumentIdentity → SalesGoodsIssue) for direct undelivered receipts. Its item details require salesIssueLineId; failedDeliveryLineId and inspectionLineId are optional only for direct mode at command boundaries. Existing legacy header references remain valid. See [current contract](../../08_api/GOODS_ISSUES.md). No collection/backfill.
+
 Model: [goods-receipt.model.js](../../../../src/models/goods-receipt.model.js).
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
@@ -3571,7 +3574,7 @@ Indexes:
 
 ## sales_goods_issues
 
-16/11/2026: SalesGoodsIssue stores GI_SALE and GI_OTHER. New manual issues record referenceNo text; Sales creates PENDING_APPROVAL and a different Owner changes the same ID to DRAFT. No SO/WIR/OD or stock mutation on creation/approval. Legacy OD links remain supported; physical lots are chosen on PICK TO. See [current Goods Issue contract](../../08_api/GOODS_ISSUES.md) for state, scope, field defaults, stock rules and the updated relationship diagram. No collection/index/backfill is added.
+17 November 2026: New DIRECT mode links SalesOrder and Customer, actual InventoryBalance per item and embedded customerReceipts; no picking. Legacy manual/OD-backed modes retain their old rules. See [current contract](../../08_api/GOODS_ISSUES.md). No collection/backfill.
 
 Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.model.js).
 
@@ -3597,15 +3600,19 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `sources[].documentId` | DocumentIdentity | true |  |
 | `header` | Embedded | true |  |
 | `header.warehouseId` | ObjectId | true | Warehouse |
-| `header.issueKind` | String | true | SALE (default) or OTHER |
+| `header.issueKind` | String | true |  |
+| `header.fulfillmentMode` | String | false |  |
+| `header.customerId` | ObjectId | false | Customer |
+| `header.referenceNo` | String | false |  |
+| `header.reasonText` | String | false |  |
+| `header.issuedToName` | String | false |  |
 | `header.issuedAt` | Date | false |  |
 | `header.issuedBy` | ObjectId | false | User |
-| `header.deliveryOrderId` | DocumentIdentity | false | DeliveryOrder, legacy source |
-| `header.referenceNo` | String <=160 | false | Manual external reference; no FK/unique constraint |
-| `header.reasonText` | String <=500 | false | Required by command for OTHER |
-| `approvedBy` | ObjectId | false | User; 1 approver : n issues |
-| `approvedAt` | Date | false | Status approval time; no stock effect |
+| `header.salesOrderId` | DocumentIdentity | false | SalesOrder |
+| `header.deliveryOrderId` | DocumentIdentity | false | DeliveryOrder |
 | `updatedBy` | ObjectId | false | User |
+| `approvedBy` | ObjectId | false | User |
+| `approvedAt` | Date | false |  |
 | `evidenceIds` | Array | false |  |
 | `cancelledBy` | ObjectId | false | User |
 | `cancelledAt` | Date | false |  |
@@ -3613,6 +3620,15 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `stockTransactionId` | ObjectId | false | StockTransaction |
 | `postedBy` | ObjectId | false | User |
 | `postedAt` | Date | false |  |
+| `customerReceipts` | Array | false |  |
+| `customerReceipts[]._id` | ObjectId | false | Stable embedded event ID |
+| `customerReceipts[].issueLineId` | ObjectId | true |  |
+| `customerReceipts[].quantityBase` | Decimal128 | true |  |
+| `customerReceipts[].recipientName` | String | true |  |
+| `customerReceipts[].receivedAt` | Date | true |  |
+| `customerReceipts[].recordedBy` | ObjectId | true | User |
+| `customerReceipts[].recordedAt` | Date | true |  |
+| `customerReceipts[].evidenceIds` | Array | false |  |
 | `createdAt` | Date | false |  |
 | `updatedAt` | Date | false |  |
 | `items` | Array | false |  |
@@ -3648,6 +3664,7 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `items[].note` | String | false |  |
 | `items[].evidenceIds` | Array | false |  |
 | `items[].salesOrderItemId` | ObjectId | false |  |
+| `items[].sourceBalanceId` | ObjectId | false | InventoryBalance |
 | `items[].salePriceSnapshot` | Embedded | false |  |
 | `items[].salePriceSnapshot.saleUnit` | String | true |  |
 | `items[].salePriceSnapshot.baseUnitsPerSaleUnit` | Decimal128 | true |  |
@@ -3656,8 +3673,7 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `items[].{DocumentLine_REPLENISHMENT}.details` | Embedded | true |  |
 | `items[].{DocumentLine_SALES_ORDER}.details` | Embedded | true |  |
 | `items[].{DocumentLine_OUTBOUND_DELIVERY}.details` | Embedded | true |  |
-| `items[].{DocumentLine_SALES_GOODS_ISSUE}.details` | Embedded | true | Empty object for manual planned rows |
-| `items[].details.outboundDeliveryLineId` | ObjectId | false | Required by legacy OD-backed commands only |
+| `items[].{DocumentLine_SALES_GOODS_ISSUE}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DELIVERY_CONFIRMATION}.details` | Embedded | true |  |
 | `items[].{DocumentLine_FAILED_DELIVERY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_FAILED_DELIVERY_RECEIPT}.details` | Embedded | true |  |
@@ -4949,6 +4965,8 @@ Indexes:
 
 ## customer_returns
 
+17 November 2026: New intakeMode DIRECT and embedded handbacks record physical facts/handback without custody stock; only accepted receipts post STORE stock. Older requests preserve custody semantics. See [current contract](../../08_api/GOODS_ISSUES.md). No collection/backfill.
+
 Model: [customer-return.model.js](../../../../src/models/customer-return.model.js).
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
@@ -4974,6 +4992,7 @@ Model: [customer-return.model.js](../../../../src/models/customer-return.model.j
 | `header` | Embedded | true |  |
 | `header.warehouseId` | ObjectId | true | Warehouse |
 | `header.customerId` | ObjectId | true | Customer |
+| `header.intakeMode` | String | false |  |
 | `header.financialFollowupStatus` | String | true |  |
 | `header.openedBy` | ObjectId | false | User |
 | `header.openedAt` | Date | false |  |
@@ -5047,6 +5066,14 @@ Model: [customer-return.model.js](../../../../src/models/customer-return.model.j
 | `decisions[].reviewedAt` | Date | true |  |
 | `decisions[].decision` | String | true |  |
 | `decisions[].reason` | String | true |  |
+| `handbacks` | Array | false |  |
+| `handbacks[]._id` | ObjectId | false | Stable embedded event ID |
+| `handbacks[].returnLineId` | ObjectId | true |  |
+| `handbacks[].quantityBase` | Decimal128 | true |  |
+| `handbacks[].recipientName` | String | true |  |
+| `handbacks[].recordedBy` | ObjectId | true | User |
+| `handbacks[].recordedAt` | Date | true |  |
+| `handbacks[].evidenceIds` | Array | false |  |
 | `inspections` | Array | false |  |
 | `inspections[].returnLineId` | ObjectId | true |  |
 | `inspections[].inspectionNo` | Number | true |  |
@@ -5056,7 +5083,7 @@ Model: [customer-return.model.js](../../../../src/models/customer-return.model.j
 | `inspections[].inspectedAt` | Date | true |  |
 | `inspections[].portions` | Array | false |  |
 | `inspections[].portions[].quantityBase` | Decimal128 | true |  |
-| `inspections[].portions[].packagingCondition` | String | true | SEALED, OPENED, TORN, UNKNOWN hoặc LOOSE (hàng lẻ). |
+| `inspections[].portions[].packagingCondition` | String | true |  |
 | `inspections[].portions[].installationStatus` | String | true |  |
 | `inspections[].portions[].damageCause` | String | true |  |
 | `inspections[].portions[].deadlineStatus` | String | true |  |
@@ -6240,6 +6267,7 @@ Model: [opening-stock.model.js](../../../../src/models/opening-stock.model.js).
 | `sources[].documentId` | DocumentIdentity | true |  |
 | `header` | Embedded | true |  |
 | `header.warehouseId` | ObjectId | false | Warehouse |
+| `header.openingImportSource` | String | false | `FILE` marks file-imported opening stock for once-per-warehouse uniqueness. |
 | `header.cutoverKey` | String | false |  |
 | `header.openingAt` | Date | false |  |
 | `header.coveredLocationIds` | Array | false |  |
@@ -6296,6 +6324,8 @@ Model: [opening-stock.model.js](../../../../src/models/opening-stock.model.js).
 | `items[].ownerType` | String | false |  |
 | `items[].ownerId` | ObjectId | false |  |
 | `items[].qualityStatus` | String | false |  |
+| `items[].packagingState` | String | false | SEALED / OPEN / LOOSE; required by new opening import service. |
+| `items[].measuredVolumeMm3` | Decimal128 | false | Positive measured total volume for an OPEN/LOOSE portion. |
 | `items[].{DocumentLine_REPLENISHMENT}.details` | Embedded | true |  |
 | `items[].{DocumentLine_SALES_ORDER}.details` | Embedded | true |  |
 | `items[].{DocumentLine_OUTBOUND_DELIVERY}.details` | Embedded | true |  |
@@ -6321,6 +6351,8 @@ Model: [opening-stock.model.js](../../../../src/models/opening-stock.model.js).
 | `soThuTu` | Number | false |  |
 | `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
+
+One-time file import: unique partial index on `header.warehouseId` where `workflowStatus=POSTED` and `header.openingImportSource=FILE`. Install or replace the prior broad index using [opening setup](../../09_phat_trien/EXCEL_OPENING_SETUP.md); never silently rebuild indexes on existing data.
 
 Indexes:
 
@@ -6359,6 +6391,19 @@ Indexes:
       "createdAt": -1
     },
     {}
+  ],
+  [
+    {
+      "header.warehouseId": 1
+    },
+    {
+      "name": "opening_stock_file_import_once",
+      "unique": true,
+      "partialFilterExpression": {
+        "workflowStatus": "POSTED",
+        "header.openingImportSource": "FILE"
+      }
+    }
   ]
 ]
 ```

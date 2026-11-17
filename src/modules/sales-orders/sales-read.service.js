@@ -40,7 +40,8 @@ export async function orderSource(user,id,session,{ replay = false } = {}) {
   if (replay && hasCustomSalesScope(user)) {
     if (!same(order.createdBy, user._id)) throw notFoundError();
   } else if (!hasNamedSalesScope(user) &&
-    !await WarehouseIssueRequest.exists({ 'header.salesOrderId': id, ...assignedRequests(user) }).session(session)) {
+    !await WarehouseIssueRequest.exists({ 'header.salesOrderId': id, ...assignedRequests(user) }).session(session) &&
+    !await SalesGoodsIssue.exists({ 'header.salesOrderId': id, 'header.warehouseId': { $in: user.warehouseIds || [] } }).session(session)) {
     throw notFoundError();
   }
   return order;
@@ -113,14 +114,14 @@ export async function getSalesOrder(user,id){
     const requests=await WarehouseIssueRequest.find({'header.salesOrderId':id,...(scoped && assignedRequests(user))}).session(session).lean();
     const deliveries=await DeliveryOrder.find({'header.issueRequestId':{$in:requests.map(row=>row._id)},...(scoped&&{'header.warehouseId':{$in:user.warehouseIds||[]}})}).session(session).lean();
     const deliveryIds=deliveries.map(d=>d._id);
-    const issues=await SalesGoodsIssue.find({'header.deliveryOrderId':{$in:deliveryIds}}).session(session);
+    const issues=await SalesGoodsIssue.find({$or:[{'header.deliveryOrderId':{$in:deliveryIds}},{'header.salesOrderId':order._id,...(scoped&&{'header.warehouseId':{$in:user.warehouseIds||[]}})}]}).session(session);
     const issueIds=issues.flatMap(d=>d.items.map(i=>i._id));
     const returns=await FailedDeliveryReceipt.find({'items.details.salesIssueLineId':{$in:issueIds}}).session(session);
     const tasks=await TransferOrder.find({'sources.subjectCollection':'sales_goods_issues','sources.documentId':{$in:issues.map(i=>i._id)}}).session(session);
     const confirmations=(order.deliveryConfirmations||[]).map(c=>({...dto(c),items:c.items.filter(i=>issueIds.some(id=>same(id,i.details.salesIssueLineId))).map(dto)})).filter(c=>c.items.length);
     const result={...dto(order),issueRequests:requests.map(dto),outboundDeliveries:deliveries.map(dto),goodsIssues:issues.map(dto),failedDeliveryReceipts:returns.map(dto),tasks:tasks.map(dto),deliveryConfirmations:confirmations};
     if(scoped){
-      const allowed=new Set(requests.flatMap(row=>row.items.map(item=>String(item.details.salesOrderLineId))));
+      const allowed=new Set([...requests.flatMap(row=>row.items.map(item=>String(item.details.salesOrderLineId))), ...issues.flatMap(row=>row.items.map(item=>String(item.salesOrderItemId)))]);
       result.items=result.items.filter(item=>allowed.has(String(item._id)));
       delete result.paymentConfirmations;delete result.evidenceIds;delete result.externalReferenceIds;
       return scopedSalesDto(user, result);
