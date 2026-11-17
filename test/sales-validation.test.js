@@ -16,7 +16,7 @@ test('sales read validation rejects malformed and unsupported filters', () => {
 
 test('SO creation validates source identity, decimal strings and strict business input', () => {
   const id = 'abcdef123456789012345678';
-  const valid = { idempotencyKey: 'test', customerId: id, neededOn: '2026-11-01T08:00:00+07:00', deliveryAddress: 'Address',
+  const valid = { idempotencyKey: 'test', customerName: 'Nguyễn Văn An', customerPhone: '0900000000', neededOn: '2026-11-01T08:00:00+07:00', deliveryAddress: 'Address',
     evidenceReceipt: 'signed-receipt', currencyCode:'VND', source: { sourceSystem: 'PAPER', referenceNo: 'ORDER-01' },
     lines: [{ sourceLineKey: '1', productId: id, enteredUnit:'PIECE', unitSellingPrice:'1000', quantity: '2' }] };
   assert.equal(createOrderBody.safeParse(valid).success, true);
@@ -24,7 +24,7 @@ test('SO creation validates source identity, decimal strings and strict business
     assert.equal(createOrderBody.safeParse({ ...valid, lines: [{ ...valid.lines[0], quantity }] }).success, false);
   }
   for (const change of [{ lines: [] }, { lines: [valid.lines[0], valid.lines[0]] }, { evidenceReceipt: '' },
-    { price: '100' }, { workflowStatus: 'COMPLETED' }, { customerId: 'bad' }, { neededOn: '2026-02-30T08:00:00Z' },
+    { price: '100' }, { workflowStatus: 'COMPLETED' }, { customerName: '' }, { customerName: ' '.repeat(10) }, { customerPhone: '1'.repeat(31) }, { customerId: id }, { neededOn: '2026-02-30T08:00:00Z' },
     { lines: [{ ...valid.lines[0], requiredTone: 'a'.repeat(61) }] }]) {
     assert.equal(createOrderBody.safeParse({ ...valid, ...change }).success, false);
   }

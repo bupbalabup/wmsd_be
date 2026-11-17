@@ -6,7 +6,7 @@ import { heldOnBalance } from '../src/shared/utils/stock.js';
 const id='a'.repeat(24),base={expectedVersion:1,idempotencyKey:'operation-test-000001',note:'Verified actual facts'};
 test('customer request parts and defect outcomes can share a source while supplier proposals stay unique',()=>{
  const part={salesIssueLineId:id,qtyBase:'2',reason:'Inspect separately'};
- assert.equal(v.customerCreateSchema.safeParse({body:{idempotencyKey:base.idempotencyKey,warehouseId:id,customerId:id,lines:[part,part]}}).success,true);
+ assert.equal(v.customerCreateSchema.safeParse({body:{idempotencyKey:base.idempotencyKey,warehouseId:id,lines:[part,part]}}).success,true);
  assert.equal(v.proposalSchema.safeParse({params:{id},body:{...base,evidenceIds:[id],lines:[{lineId:id,qtyBase:'2',outcome:'SCRAP'},{lineId:id,qtyBase:'2',outcome:'RELEASE',targetQuality:'GOOD'}]}}).success,true);
 });
 test('native commands reject numeric/negative/duplicate quantities and evidence-free posting',()=>{
@@ -25,4 +25,11 @@ test('return eligibility never treats unknown terms or installed/customer-damage
 test('quantity holds leave the unaffected stock available and retain partial-resolution history',()=>{
  const holds=[{_id:'hold',status:'ACTIVE',allocations:[{balanceId:id,quantityBase:'10'}],events:[{kind:'CONSUMED',quantityBase:'4'}]}];
  assert.equal(heldOnBalance([{holds}],id).toFixed(),'6');assert.equal(heldOnBalance([{holds}],id,'hold').toFixed(),'0');assert.equal(heldOnBalance([{holds:[{...holds[0],status:'RESOLVED'}]}],id).toFixed(),'0');
+});
+
+test('historical delivery records customer text without a customer catalogue reference',()=>{
+ const body={idempotencyKey:base.idempotencyKey,sourceSystem:'PAPER',referenceNo:'OLD-01',referenceDate:'2026-11-01T00:00:00Z',correlationId:'historic-source',customerName:'Nguyễn Văn An',warehouseId:id,note:'Verified source',lines:[{productId:id,lotId:id,qtyBase:'4',enteredUnit:'PIECE',baseUnitsPerUnit:'1'}]};
+ assert.equal(v.historicalSchema.safeParse({body}).success,true);
+ assert.equal(v.historicalSchema.safeParse({body:{...body,customerName:''}}).success,false);
+ assert.equal(v.historicalSchema.safeParse({body:{...body,customerId:id}}).success,false);
 });

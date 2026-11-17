@@ -6,7 +6,9 @@ export function createSalesOrderHeaderSchema() {
   const schema = new Schema(
     {
       externalReferenceId: ref("ExternalReference"),
-      customerId: ref("Party"),
+      customerId: ref("Party", false),
+      customerName: opt(160),
+      customerPhone: opt(30),
       neededOn: date(),
       deliveryAddressSnapshot: text(500),
     },

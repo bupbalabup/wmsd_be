@@ -1273,6 +1273,8 @@ Indexes:
 
 ## external_references
 
+17/11/2026: new documents use customerName (text, max 160) and customerPhone (optional text, max 30), nested under header for orders/returns and top-level for historical external references. customerId is optional for legacy records. New return snapshots are resolved server-side from a single source document. Customer catalogue lookup is not required.
+
 Model: [external-reference.model.js](../../../../src/models/external-reference.model.js).
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
@@ -2912,6 +2914,8 @@ Indexes:
 ```
 
 ## sales_orders
+
+17/11/2026: new documents use customerName (text, max 160) and customerPhone (optional text, max 30), nested under header for orders/returns and top-level for historical external references. customerId is optional for legacy records. New return snapshots are resolved server-side from a single source document. Customer catalogue lookup is not required.
 
 Model: [sales-order.model.js](../../../../src/models/sales-order.model.js).
 
@@ -4964,6 +4968,8 @@ Indexes:
 ```
 
 ## customer_returns
+
+17/11/2026: new documents use customerName (text, max 160) and customerPhone (optional text, max 30), nested under header for orders/returns and top-level for historical external references. customerId is optional for legacy records. New return snapshots are resolved server-side from a single source document. Customer catalogue lookup is not required.
 
 17 November 2026: New intakeMode DIRECT and embedded handbacks record physical facts/handback without custody stock; only accepted receipts post STORE stock. Older requests preserve custody semantics. See [current contract](../../08_api/GOODS_ISSUES.md). No collection/backfill.
 
