@@ -1,8 +1,11 @@
 # Goods Issue — UC-69–72
 
-Decision source: user confirmation on 16/11/2026. UC-71 creates a goods issue;
-UC-72 updates its information and supported workflow states. The latest decision
-replaces the mandatory SO → WIR → OD prerequisite for new sale issues.
+- **UC-69:** View goods issue list (`GET /api/goods-issues`)
+- **UC-70:** View goods issue details (`GET /api/goods-issues/:id`)
+- **UC-71:** Create goods issue (`POST /api/goods-issues`)
+- **UC-72:** Update goods issue (`PUT /api/goods-issues/:id`, `POST /api/goods-issues/:id/approve|picking-tasks|cancel|post`)
+
+Decision source: user confirmation on 16/11/2026 & 17/11/2026. UC-71 is Create goods issue and UC-72 is Update goods issue. The latest decision replaces the mandatory SO → WIR → OD prerequisite for new sale issues.
 
 ## One create form, five reasons
 
