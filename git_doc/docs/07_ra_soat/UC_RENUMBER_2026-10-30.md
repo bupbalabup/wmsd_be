@@ -71,8 +71,8 @@ Catalogue hiện hành gồm **130 UC ACTIVE**, đánh số liên tục **UC-01�
 | UC-55 | UC-68 | Confirm Picking Task | FE-06 |
 | UC-56 | UC-69 | View goods issue list | FE-06 |
 | UC-57 | UC-70 | View goods issue details | FE-06 |
-| UC-58 | UC-71 | Post Actual Goods Issue | FE-06 |
-| UC-129 | UC-72 | Prepare Goods Issue Draft | FE-06 |
+| UC-58 | UC-71 | Create goods issue | FE-06 |
+| UC-129 | UC-72 | Update goods issue | FE-06 |
 | UC-63 | UC-73 | View defective goods list | FE-07 |
 | UC-64 | UC-74 | View defective goods details | FE-07 |
 | UC-65 | UC-75 | Record Defect Inspection and Immediate Hold | FE-07 |
