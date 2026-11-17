@@ -13592,6 +13592,18 @@
         "target": ""
       },
       {
+        "path": "header.fulfillmentMode",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.customerId",
+        "type": "ObjectId",
+        "required": false,
+        "target": "Customer"
+      },
+      {
         "path": "header.referenceNo",
         "type": "String",
         "required": false,
@@ -13599,6 +13611,12 @@
       },
       {
         "path": "header.reasonText",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.issuedToName",
         "type": "String",
         "required": false,
         "target": ""
@@ -13614,6 +13632,12 @@
         "type": "ObjectId",
         "required": false,
         "target": "User"
+      },
+      {
+        "path": "header.salesOrderId",
+        "type": "DocumentIdentity",
+        "required": false,
+        "target": "SalesOrder"
       },
       {
         "path": "header.deliveryOrderId",
@@ -13678,6 +13702,54 @@
       {
         "path": "postedAt",
         "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "customerReceipts",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "customerReceipts[].issueLineId",
+        "type": "ObjectId",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "customerReceipts[].quantityBase",
+        "type": "Decimal128",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "customerReceipts[].recipientName",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "customerReceipts[].receivedAt",
+        "type": "Date",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "customerReceipts[].recordedBy",
+        "type": "ObjectId",
+        "required": true,
+        "target": "User"
+      },
+      {
+        "path": "customerReceipts[].recordedAt",
+        "type": "Date",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "customerReceipts[].evidenceIds",
+        "type": "Array",
         "required": false,
         "target": ""
       },
@@ -13890,6 +13962,12 @@
         "type": "ObjectId",
         "required": false,
         "target": ""
+      },
+      {
+        "path": "items[].sourceBalanceId",
+        "type": "ObjectId",
+        "required": false,
+        "target": "InventoryBalance"
       },
       {
         "path": "items[].salePriceSnapshot",
@@ -14560,6 +14638,12 @@
       {
         "path": "_id",
         "type": "DocumentIdentity",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "customerReceipts[]._id",
+        "type": "ObjectId",
         "required": false,
         "target": ""
       }
@@ -19927,6 +20011,12 @@
         "target": "Customer"
       },
       {
+        "path": "header.intakeMode",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "header.financialFollowupStatus",
         "type": "String",
         "required": true,
@@ -20365,6 +20455,48 @@
         "target": ""
       },
       {
+        "path": "handbacks",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "handbacks[].returnLineId",
+        "type": "ObjectId",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "handbacks[].quantityBase",
+        "type": "Decimal128",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "handbacks[].recipientName",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "handbacks[].recordedBy",
+        "type": "ObjectId",
+        "required": true,
+        "target": "User"
+      },
+      {
+        "path": "handbacks[].recordedAt",
+        "type": "Date",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "handbacks[].evidenceIds",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "inspections",
         "type": "Array",
         "required": false,
@@ -20487,6 +20619,12 @@
       {
         "path": "_id",
         "type": "DocumentIdentity",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "handbacks[]._id",
+        "type": "ObjectId",
         "required": false,
         "target": ""
       }

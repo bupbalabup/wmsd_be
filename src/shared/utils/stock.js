@@ -7,7 +7,17 @@ import { newId, same, hash } from './document-command.js';
 
 export const remainingReservation = row => exact(row.reservedQty).minus(String(row.consumedQty)).minus(String(row.releasedQty)).minus(String(row.movedQty));
 
+// Initialization and ordinary stock commands serialize on the same warehouse.
+// This also covers newly created bins outside an opening draft's original scope.
+export async function guardWarehouses(ids, session) {
+  for (const warehouseId of [...new Set(ids.filter(Boolean).map(String))].sort()) {
+    const warehouse = await Warehouse.findOneAndUpdate({ _id: warehouseId, isActive: true }, { $inc: { stockOperationVersion: 1 } }, { session, returnDocument: 'after', timestamps: false });
+    if (!warehouse) throw validationError('Kho đã ngừng hoạt động');
+  }
+}
 export async function guardLocations(ids, session) {
+  const scoped = await WarehouseLocation.find({ _id: { $in: ids.filter(Boolean) } }).select('warehouseId').session(session);
+  await guardWarehouses(scoped.map(location => location.warehouseId), session);
   for (const locationId of [...new Set(ids.filter(Boolean).map(String))].sort()) {
     const location = await WarehouseLocation.findOneAndUpdate({ _id: locationId, isActive: true }, { $inc: { operationVersion: 1 } }, { session, returnDocument: 'after' });
     if (!location || !await Warehouse.exists({ _id: location.warehouseId, isActive: true }).session(session)) throw validationError('Kho hoặc vị trí đã ngừng hoạt động');

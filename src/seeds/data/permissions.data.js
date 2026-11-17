@@ -32,6 +32,9 @@ const BUSINESS_ROLES = [OWNER, ACCOUNTANT, WAREHOUSE, SALES];
  *  - roles: vai trò được cấp mặc định.
  */
 export const PERMISSION_CATALOGUE = [
+  { code: 'opening_stock:read', description: 'Xem tồn đầu kỳ', uc: [], roles: [OWNER] },
+  { code: 'opening_stock:create', description: 'Nhập và lập tồn đầu kỳ', uc: [], roles: [OWNER] },
+  { code: 'opening_stock:post', description: 'Chủ cửa hàng xác nhận và ghi tồn đầu kỳ một lần', uc: [], roles: [OWNER] },
  ...['read','create','update','activate'].map(action=>({code:'uom:'+action,description:'UOM '+action,uc:[],roles:action==='read'?BUSINESS_ROLES:[OWNER]})),
  {code:'purchase_custody:decide',description:'Chốt thỏa thuận hàng giữ hộ NCC',uc:[],roles:[ACCOUNTANT]},
  {code:'purchase_custody:execute',description:'Thực hiện xử lý giữ hộ NCC',uc:[],roles:[WAREHOUSE]},
@@ -127,7 +130,7 @@ export const PERMISSION_CATALOGUE = [
   { code: 'fulfilment_option:select', description: 'Chọn phương án tồn / xác nhận với khách', uc: ['UC-103'], roles: [WAREHOUSE, SALES] },
 
   { code: 'delivery_confirmation:read', description: 'Xem xác nhận giao hàng (POD)', uc: ['UC-110'], roles: BUSINESS_ROLES },
-  { code: 'delivery_confirmation:confirm', description: 'Xác nhận/sửa POD kèm ảnh tại kho được giao', uc: ['UC-110'], roles: [WAREHOUSE] },
+  { code: 'delivery_confirmation:confirm', description: 'Sales xác nhận khách nhận theo phiếu xuất; POD cũ giữ quyền kho', uc: ['UC-110'], roles: [WAREHOUSE, SALES] },
 
   { code: 'payment_confirmation:read', description: 'Xem xác nhận thu tiền (PAY-CFM)', uc: ['UC-111'], roles: BUSINESS_ROLES },
   { code: 'payment_confirmation:confirm', description: 'Xác nhận đã thu đủ tiền ngoài sau DELIVERED', uc: ['UC-111'], roles: [SALES] },

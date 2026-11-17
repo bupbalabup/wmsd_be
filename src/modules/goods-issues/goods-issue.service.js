@@ -1,3 +1,4 @@
+import * as direct from './direct-sales.service.js';
 import * as m from '../../models/runtime.js';
 import { exact } from '../../models/model-utils.js';
 import { command, checkVersion, saveVersion, same, hash, newId } from '../../shared/utils/document-command.js';
@@ -30,6 +31,7 @@ async function deliverySource(actor, id, session, write = false) {
 export async function issueSource(actor, id, session, write = false) {
   const issue = await m.SalesGoodsIssue.findById(id).session(session);
   if (!issue) throw notFoundError();
+  if (issue.header.fulfillmentMode === 'DIRECT') return direct.access(actor, id, session, write);
   if (manual(issue)) {
     if (sales(actor)) {
       if (!same(issue.createdBy, actor._id) || issue.header.issueKind !== 'SALE') throw notFoundError();
@@ -76,6 +78,7 @@ async function moveReservation(parent, document, item, quantity, actor, session)
   }).save({ session });
 }
 export function createIssue(user, input) {
+  if (input.salesOrderId) return direct.create(user, input);
   if (input.issueKind) return createManualIssue(user, input);
   return command(user, 'CREATE_GOODS_ISSUE', 'goods_issue:create', input.deliveryOrderId, input, replay, async (session, actor) => {
     if (sales(actor)) throw forbiddenError('Sales phải tạo phiếu chờ duyệt bằng mã đơn tham chiếu');
@@ -146,6 +149,7 @@ export function approveIssue(user, id, input) {
 export function updateIssue(user, id, input) {
   return command(user, 'UPDATE_GOODS_ISSUE', 'goods_issue:update', id, input, replay, async (session, actor) => {
     const { issue, delivery } = await issueSource(actor, id, session, true);
+    if (issue.header.fulfillmentMode === 'DIRECT') throw validationError('Hủy và lập lại phiếu để đổi nguồn tồn');
     checkVersion(issue, input.expectedVersion);
     if (!(manual(issue) && sales(actor) ? issue.workflowStatus === 'PENDING_APPROVAL' : issue.workflowStatus === 'DRAFT') || (await tasksFor(id, session)).length) throw validationError('Chỉ sửa phiếu trước khi lập lệnh soạn và đúng trạng thái');
     if (input.lines.length !== issue.items.length) throw validationError('Cập nhật đủ các dòng đã lập');
@@ -290,6 +294,11 @@ export function postIssue(user, id, input) {
     if (sales(actor)) throw forbiddenError('Sales không xác nhận xuất kho');
     requireWarehouseAccess(actor, issue.header.warehouseId);
     checkVersion(issue, input.expectedVersion);
+    if (issue.header.fulfillmentMode === 'DIRECT') {
+      const posting = await direct.post(issue, order, actor, input, session);
+      await saveVersion(issue, input.expectedVersion, session);
+      return { document: issue, versionBefore: input.expectedVersion, stockTransactionId: posting._id };
+    }
     const tasks = await tasksFor(id, session);
     if (issue.workflowStatus !== 'PICKED' || !tasks.length || tasks.some(t => t.workflowStatus !== 'CONFIRMED')) throw validationError('Cần soạn xong trước khi ghi xuất');
     const reservations = await reservationsFor(id, session);
@@ -346,7 +355,9 @@ export async function listIssues(user, query) {
       ...(sales(user) ? { createdBy: user._id, 'header.issueKind': 'SALE' } : !['OWNER', 'ACCOUNTANT'].includes(currentRole(user)?.code) ? { 'header.warehouseId': { $in: user.warehouseIds || [] } } : {}),
       ...(query.sourceRequest && { 'header.referenceNo': new RegExp(escapeRegex(query.sourceRequest), 'i') }),
       ...((query.deliveryOrderId || query.salesOrderId || query.issueRequestId) && { _id: { $in: [] } }) };
-    const filter = { $or: [{ 'header.deliveryOrderId': { $in: deliveries.map(d => d._id) } },
+    const directOrders = await m.SalesOrder.find({ ...(sales(user) && { createdBy: user._id }), ...(query.salesOrderId && { _id: query.salesOrderId }), ...(query.sourceRequest && { documentNo: new RegExp(escapeRegex(query.sourceRequest), 'i') }) }).session(session).distinct('_id');
+    const directFilter = { 'header.fulfillmentMode': 'DIRECT', 'header.salesOrderId': { $in: directOrders }, ...(!['OWNER', 'ACCOUNTANT', 'SALES'].includes(currentRole(user)?.code) && { 'header.warehouseId': { $in: user.warehouseIds || [] } }), ...((query.deliveryOrderId || query.issueRequestId) && { _id: { $in: [] } }) };
+    const filter = { $or: [directFilter,{ 'header.deliveryOrderId': { $in: deliveries.map(d => d._id) } },
       { 'header.deliveryOrderId': { $exists: false }, 'header.referenceNo': { $exists: false }, 'items.details.outboundDeliveryLineId': { $in: deliveries.flatMap(d => d.items.map(i => i._id)) } }, manualFilter],
       ...(query.warehouseId && { 'header.warehouseId': query.warehouseId }) };
     if (query.status) filter.workflowStatus = query.status;
@@ -371,13 +382,13 @@ export async function getIssue(user, id) {
     const lots = await m.ProductBatch.find({ _id: { $in: [...issue.items.map(i => i.lotId), ...tasks.flatMap(t => t.items.map(i => i.lotId))].filter(Boolean) } }).session(session);
     const locationIds = tasks.flatMap(t => t.items.flatMap(i => [i.details.fromLocationId, i.details.toLocationId]));
     const reservations = await reservationsFor(id, session);
-    const balances = await m.InventoryBalance.find({ _id: { $in: [...reservations.map(r => r.balanceId), ...issuePostings.flatMap(p => p.movements.map(v => v.fromBalanceId))] } }).session(session);
+    const balances = await m.InventoryBalance.find({ _id: { $in: [...issue.items.map(i => i.sourceBalanceId).filter(Boolean), ...reservations.map(r => r.balanceId), ...issuePostings.flatMap(p => p.movements.map(v => v.fromBalanceId))] } }).session(session);
     const points = await m.StockHoldingPoint.find({ _id: { $in: balances.map(b => b.holdingPointId) } }).session(session);
     const locations = await m.WarehouseLocation.find({ _id: { $in: [...locationIds, ...points.map(p => p.locationId)] } }).session(session);
     const rows = issue.items.map(item => {
       const work = tasks.flatMap(t => t.items).filter(i => i.sources.some(s => same(s.documentId, issue._id) && same(s.itemId, item._id)));
       const picked = postings.flatMap(p => p.movements).filter(v => work.some(i => same(i._id, v.sourceLineId)));
-      const sourceBalances = [...reservations.filter(r => same(r.executionRef.itemId, item._id)).map(r => r.balanceId), ...issuePostings.flatMap(p => p.movements.filter(v => same(v.sourceLineId, item._id)).map(v => v.fromBalanceId))];
+      const sourceBalances = [...(item.sourceBalanceId ? [item.sourceBalanceId] : []), ...reservations.filter(r => same(r.executionRef.itemId, item._id)).map(r => r.balanceId), ...issuePostings.flatMap(p => p.movements.filter(v => same(v.sourceLineId, item._id)).map(v => v.fromBalanceId))];
       const sourceLocations = work.length ? work.map(i => i.details.fromLocationId) : sourceBalances.map(balanceId => points.find(p => same(p._id, balances.find(b => same(b._id, balanceId))?.holdingPointId))?.locationId);
       const labels = ids => [...new Set(ids.map(id => locations.find(l => same(l._id, id))?.code).filter(Boolean))];
       // Historical full confirmations may predate SALES_PICK ledger records.
@@ -386,6 +397,18 @@ export async function getIssue(user, id) {
       return { ...redactPrices(dto(item)), lotLabel: [...new Set(lots.filter(l => same(l._id, item.lotId) || work.some(w => same(w.lotId, l._id))).map(l => l.manufacturerLot))].join(', ') || 'Chọn khi soạn',
         sourceLocations: labels(sourceLocations), stagingLocations: labels(work.map(i => i.details.toLocationId)), preparedQtyBase: prepared, issuedQtyBase: issued.get(String(item._id))?.toFixed() ?? '0' };
     });
+    if (issue.header.fulfillmentMode === 'DIRECT') {
+      for (const row of rows) {
+        row.customerReceivedQtyBase = direct.confirmedQuantity(issue, row.id || row._id).toFixed();
+        row.undeliveredReturnedQtyBase = (await direct.returnedQuantity(row.id || row._id, session)).toFixed();
+        row.unconfirmedQtyBase = exact(row.issuedQtyBase).minus(row.customerReceivedQtyBase).minus(row.undeliveredReturnedQtyBase).toFixed();
+      }
+      const operate = isOwner(user) || (user.warehouseIds || []).some(w => same(w, issue.header.warehouseId));
+      const receipts = await m.FailedDeliveryReceipt.find({ 'items.details.salesIssueLineId': { $in: issue.items.map(i => i._id) }, workflowStatus: 'POSTED' }).session(session);
+      return { ...await present(issue, context, session), items: rows, tasks: [], stagingLocations: [], undeliveredReceipts: receipts.map(dto),
+        capabilities: { canEdit: false, canCancel: operate && issue.workflowStatus === 'DRAFT' && hasPermission(user, 'goods_issue:update'), canCreatePicking: false, canPost: operate && issue.workflowStatus === 'DRAFT' && hasPermission(user, 'goods_issue:post'),
+          canConfirmCustomer: rows.some(row => exact(row.unconfirmedQtyBase).gt(0)) && sales(user) && hasPermission(user, 'delivery_confirmation:confirm') && issue.workflowStatus === 'POSTED', canReceiveUndelivered: rows.some(row => exact(row.unconfirmedQtyBase).gt(0)) && operate && !sales(user) && hasPermission(user, 'failed_delivery:post') && issue.workflowStatus === 'POSTED' } };
+    }
     const operate = isOwner(user) || (user.warehouseIds || []).some(w => same(w, issue.header.warehouseId));
     const mayEdit = manual(issue) && sales(user) ? same(issue.createdBy, user._id) && issue.workflowStatus === 'PENDING_APPROVAL' : operate && issue.workflowStatus === 'DRAFT';
     const canEdit = mayEdit && hasPermission(user, 'goods_issue:update') && !tasks.length;
