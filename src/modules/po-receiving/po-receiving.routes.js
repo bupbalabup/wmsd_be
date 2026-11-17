@@ -11,7 +11,6 @@ import { objectIdString as oid, decimalStringSchema } from '../../shared/utils/d
 import { PACKAGING_CONDITIONS } from '../../models/constants.js';
 import * as service from './po-receiving.service.js';
 import * as reads from './purchase-read.service.js';
-import * as tasks from './purchase-putaway.service.js';
 import * as correction from './purchase-correction.service.js';
 import * as custody from './purchase-custody.service.js';
 import * as evidence from './purchase-evidence.service.js';
@@ -47,8 +46,6 @@ const packaging=z.array(z.object({lineId:oid,portions:z.array(portion).min(1).ma
 export const receiptRouter = Router(); receiptRouter.use(authenticate);
 receiptRouter.post('/:id/cancel', validate(schema(z.object({ ...commandBody, expectedPoVersion: ver, reason }).strict())), handle((u,v) => service.cancelDraft(u,v.params.id,'GR_PURCHASE',v.body)));
 receiptRouter.patch('/:id/destinations', validate(schema(z.object({ ...commandBody, reason, lines: z.array(z.object({ lineId: oid, receivingLocationId: oid }).strict()).min(1).max(100) }).strict())), handle((u,v) => service.changeDestinations(u,v.params.id,v.body)));
-receiptRouter.get('/:id/putaway-context', validate(schema()), handle((u,v) => tasks.putawayContext(u,v.params.id)));
-receiptRouter.post('/:id/putaway-tasks', validate(schema(z.object({ expectedVersion: ver, creationKey: key, lines: z.array(z.object({ receiptLineId: oid, expectedPlacementVersion: z.number().int().min(0).optional(), expectedSourceVersion: z.number().int().min(0), qtyBase: qty, toLocationId: oid }).strict()).min(1).max(100) }).strict())), handle((u,v) => tasks.createPutaway(u,v.params.id,v.body)));
 receiptRouter.get('/:id/reversal-preflight', validate(schema()), handle((u,v) => correction.reversalPreflight(u,v.params.id)));
 receiptRouter.post('/:id/reverse', validate(schema(z.object({ ...commandBody, expectedPoVersion: ver, reason, evidenceIds }).strict())), handle((u,v) => correction.reverseReceipt(u,v.params.id,v.body)));
 receiptRouter.get('/', validate(schema(empty,empty,query(['DRAFT','POSTED','REVERSED','CANCELLED']))), handle((u,v) => reads.listDocuments(u,'GR_PURCHASE',v.query)));
@@ -60,21 +57,12 @@ purchaseReceivingRouter.get('/:id/receiving-summary', validate(schema()), handle
 purchaseReceivingRouter.get('/:id/receiving-trips', validate(schema(empty,undefined,paged({ status: z.enum(['DRAFT','CONFIRMED','CANCELLED']).optional() }))), handle((u,v) => reads.receivingTrips(u,v.params.id,v.query)));
 purchaseReceivingRouter.get('/:id/inspection-context', validate(schema()), handle((u,v) => service.inspectionContext(u,v.params.id)));
 purchaseReceivingRouter.post('/:id/inspections', validate(schema(z.object({ ...form, creationKey: key }).strict())), handle((u,v) => service.createInspection(u,v.params.id,v.body)));
-export const putawayRouter = Router(); putawayRouter.use(authenticate);
-putawayRouter.get('/', validate(schema(empty, empty, paged({
-  q: searchText,
-  status: z.enum(['OPEN', 'PARTIAL', 'CONFIRMED', 'CANCELLED']).optional(),
-  warehouseId: oid.optional(), receiptId: documentIdentifier.optional(), purchaseOrderId: documentIdentifier.optional(),
-}))), handle((u, v) => tasks.listPutaway(u, v.query)));
-putawayRouter.get('/:id', validate(schema()), handle((u,v) => tasks.getPutaway(u,v.params.id)));
-putawayRouter.post('/:id/confirm', validate(schema(z.object({ ...commandBody, lines: z.array(z.object({ taskLineId: oid, actualQtyBase: qty }).strict()).min(1).max(100) }).strict())), handle((u,v) => tasks.confirmPutaway(u,v.params.id,v.body)));
-putawayRouter.post('/:id/cancel-remainder', validate(schema(z.object({ ...commandBody, reason }).strict())), handle((u,v) => tasks.cancelPutaway(u,v.params.id,v.body)));
 export const queueRouter = Router(); queueRouter.use(authenticate);
 queueRouter.get('/', validate(schema(empty, empty, paged({
   q: searchText,
   warehouseId: oid.optional(),
   purchaseOrderId: documentIdentifier.optional(),
-  stage: z.enum(['DRAFT_INSPECTION', 'AWAITING_POST', 'AWAITING_PUTAWAY', 'CORRECTION']),
+  stage: z.enum(['DRAFT_INSPECTION', 'AWAITING_POST', 'CORRECTION']),
 }))), handle((u, v) => reads.receivingQueue(u, v.query)));
 export const purchaseDocumentRouter = Router(); purchaseDocumentRouter.use(authenticate);
 purchaseDocumentRouter.get('/:id/history', validate(schema(empty,undefined,paged({}))), handle((u,v) => reads.receivingHistory(u,v.params.id,v.query)));

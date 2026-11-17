@@ -12,6 +12,12 @@ Historical verification requires customer name text and optional phone from the 
 
 Validation: focused sales/return contract tests and the local direct-sales transaction test passed using an isolated database on the local rs0 replica set (port 27017). The transaction fixture creates a new sale and return with no Customer record, and separately verifies legacy custody compatibility. No Atlas write or migration was performed.
 
+## Phạm vi hiện hành
+
+Theo quyết định người dùng ngày 17/11/2026, bỏ danh mục khách hàng và delivery riêng; giữ đơn bán và khách trả. Xem [phạm vi và nguồn yêu cầu](git_doc/PROJECT_GUIDE.md#phạm-vi-chức-năng-hiện-hành). Mô tả triển khai cũ bên dưới không tự mở lại các chức năng đã loại khỏi phạm vi. Đây là thay đổi tài liệu; code/DB chưa được thay đổi trong lượt này.
+
+17/11/2026. Phiếu nhập mua hoàn tất khi ghi nhập. Chuyển hàng từ bãi tiếp nhận lên kệ dùng BF03. Xem [API phiếu nhập](git_doc/docs/08_api/GOODS_RECEIPTS.md#chi-tiết-phiếu-nhập-mua) và [rollout local](git_doc/docs/09_phat_trien/MONGODB_LOCAL.md#ngừng-lệnh-cất-hàng-mua).
+
 ## 17 November 2026 — simplified sales and returns
 
 Latest explicit user decision supersedes manual-sale and custody requirements for new records. Sales Order → direct Goods Issue; Sales confirms evidenced customer receipt; Warehouse receives undelivered goods inline. New CR inspection records facts only, acceptance authorizes receipt, and only receipt posts STORE stock. Legacy mode markers are absent and retain original ledgers. Optional issue header/order/customer/sourceBalance and embedded customerReceipts, CR intakeMode/handbacks, and FAILED_DELIVERY receipt goodsIssueId add no collection. See [current contract](git_doc/docs/08_api/GOODS_ISSUES.md) for permissions, exact caps, schema, compatibility and setup.

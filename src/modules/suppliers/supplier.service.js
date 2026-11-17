@@ -2,7 +2,7 @@ import { Supplier, PurchaseOrder, PurchaseReceipt, SupplierReturn, AuditLog } fr
 import { requirePermission, canAccessWarehouse, isOwner } from '../../shared/utils/access.js';
 import { currentRole } from '../../shared/utils/userRole.js';
 import { escapeRegex } from '../../shared/utils/domain.js';
-import { notFoundError } from '../../shared/utils/ApiError.js';
+import { ApiError, ERROR_CODES, notFoundError } from '../../shared/utils/ApiError.js';
 import { appendAudit, changedFields } from '../../shared/utils/audit.js';
 import { dto, page, transaction, updateCatalogue } from '../../shared/utils/persistence.js';
 
@@ -25,11 +25,22 @@ export async function getSupplier(user, id) {
 }
 export async function createSupplier(user, input) {
   requirePermission(user, 'supplier:create');
-  return transaction(async session => {
-    const row = await new Supplier({ ...input, status: 'ACTIVE' }).save({ session });
-    await appendAudit({ actorId: user._id, action: 'CREATE_SUPPLIER', entityType: 'suppliers', entityId: row._id, session });
-    return dto(row);
-  });
+  try {
+    return await transaction(async session => {
+      const row = await new Supplier({ ...input, status: 'ACTIVE' }).save({ session });
+      await appendAudit({ actorId: user._id, action: 'CREATE_SUPPLIER', entityType: 'suppliers', entityId: row._id, session });
+      return dto(row);
+    });
+  } catch (error) {
+    if (error.code === 11000 && (error.keyPattern?.code || error.keyValue?.code != null)) {
+      const message = 'Mã nhà cung cấp đã tồn tại';
+      throw new ApiError(409, message, {
+        code: ERROR_CODES.DUPLICATE,
+        fieldErrors: [{ path: 'body.code', message }],
+      });
+    }
+    throw error;
+  }
 }
 export async function updateSupplier(user, id, input) {
   requirePermission(user, 'supplier:update');
