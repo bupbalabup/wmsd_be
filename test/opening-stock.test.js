@@ -78,7 +78,7 @@ test('Owner alone initializes each warehouse once, with replay and atomic stock 
     await assert.rejects(service.get(overGrantedWorker, draft.id), /quyền/);
     const posted = await service.act(owner, draft.id, 'post', postBody);
     assert.equal(posted.workflowStatus, 'POSTED');
-    assert.equal(posted.header.openingImportSource, 'FILE');
+    assert.equal((await m.OpeningStock.findById(posted.id)).header.openingImportSource, 'FILE');
     assert.equal((await service.act(owner, draft.id, 'post', postBody)).replayed, true);
     assert.equal(String((await m.InventoryBalance.findOne()).quantityBase), '8');
     assert.equal(await m.StockTransaction.countDocuments({ operation: 'OPENING' }), 1);
