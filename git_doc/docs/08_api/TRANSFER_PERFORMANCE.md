@@ -1,0 +1,34 @@
+# BF03/BF04 read performance — 17 November 2026
+
+Source: user reports slow online database loading across relocation and inter-warehouse transfers. Optimizations preserve permissions, assigned-warehouse scope, decimal arithmetic, partial-trip/reversal history and all transactional write validation. No schema, index, migration, shared-database write or remote rollout.
+
+## Availability selection
+
+BF04 stock options use `freeQuantities` in `src/shared/utils/stock-availability-read.js`, a read-only selection helper. It reads reservations, open/draft/partial transfer orders and active defect holds in parallel, then the relevant orders' ledger transactions. Data are grouped by balance, task and line. Reservation-backed pending quantities are subtracted once, partial ledger quantities are deducted from pending, and resolved hold amounts retain existing semantics.
+
+Before: `freeQuantity` performs six queries per balance; stock options invoked it for every balance concurrently. After: at most four availability queries per request regardless of balance count (three without pending orders, zero for no balances). A synthetic 1,000-balance query-budget test verifies this bound and compares results with the existing scalar helper. This is a query-count result, not an online latency benchmark.
+
+The transaction helpers in `stock.js` and every posting/create/confirm command remain unchanged. Never use the read-side result to bypass source versions, locks, reservations, capacity, ownership/quality, quantity caps or independent receiver checks.
+
+## Options and detail payloads
+
+`GET /api/warehouse-transfers/options` accepts optional `mode=stock|locations`, default `stock`. `locations` still requires `stock_transfer:read` and warehouse access, and returns the normal envelope with warehouses/sourceWarehouseIds/locations; holdingPoints, balances, batches, products, units and conversions are empty arrays. It never queries stock. FE uses this for destination put-away locations. Unknown modes are rejected. Existing calls without mode keep stock selection behavior.
+
+Both BF03/BF04 warehouse option catalogues select only `_id/code/name/isActive`, excluding layout3d snapshots and other unused master fields. BF04 deduplicates sorted current conversions using a Set instead of repeated scans. BF03 unit reads use compact projections. No field used by the paired FE selection forms is removed.
+
+BF04 detail reads independent requirements, approvals, differences, transit points and effective receipt quantities in parallel after request authorization; task and transit balance reads then run in parallel. BF03 detail resolves display references alongside ledger reads and searches product/lot references in parallel. Empty lists avoid unnecessary display-reference queries. These reads do not run parallel operations on a MongoDB write transaction/session.
+
+`GET /warehouse-transfers/dispatches/:id` validates the parent request's authorized scope directly and reads only that dispatch's transit balances for receipt limits. It no longer calls the full transfer-detail expansion or enumerates all scoped requests. Sales still receives not-found; unauthorized parent scope still receives not-found. Independent sender/receiver, assigned destination, permission and workflow checks remain unchanged. Transit totals use indexed Maps while retaining exact decimal arithmetic.
+
+## Frontend
+
+- Only approved requests with source dispatch permission/access load stock options. Completed/cancelled/rejected/read-only detail views do not load source stock.
+- Destination options use `mode=locations`, only for approved requests with receiver permission/access. They do not load destination balances or conversion history.
+- BF03 presentation indexes products, lots, locations, holding points and conversions with Maps; ledger totals are grouped by line once. Decimal totals, first/latest conversion precedence and packaging restrictions remain unchanged.
+- Existing RTK mutation invalidation, explicit command refresh, version conflicts and uncertain-command retry are retained. No global stock cache or longer stale-stock TTL is introduced.
+
+## Verification and rollout limits
+
+Tests compare batch/scalar availability, partial execution, covered reservations and resolved holds; verify a constant query budget for 1,000 balances; check locations-only scope/payload and stock-query absence; verify scoped transfer detail progress. FE tests cover the completed-request skip behavior plus existing relocation, transfer, receipt and 3D flows. Exact results are in [change log](../../change_logs.md).
+
+Deploy the paired BE mode validation/service and FE caller together. No index installation is required. Online p50/p95, `explain('executionStats')` and index existence have not been measured in this task. The isolated localhost replica set on port 27018 was unavailable, so transaction integration tests are not claimed as passed. Remote indexes must be reviewed against execution plans before rollout; do not run `syncIndexes` or change production data as a performance experiment.
