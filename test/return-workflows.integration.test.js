@@ -94,7 +94,7 @@ run('historical delivery verification has evidence, exact claims and concurrent 
  await assert.rejects(reads.createHistoricalSource(users.WAREHOUSE,body,stored));
  const result=await reads.createHistoricalSource(users.ACCOUNTANT,body,stored);assert.equal((await reads.createHistoricalSource(users.ACCOUNTANT,body,stored)).id,result.id);const external=await m.ExternalReference.findById(result.id);assert.equal(external.status,'VERIFIED');assert.equal(external.evidenceIds.length,1);
  const make=()=>service.createCustomerReturn(users.SALES,{...input(),warehouseId:warehouse.id,customerId:customer.id,lines:[{historicalExternalLineId:sid(external.items[0]),qtyBase:'8',reason:'Historical unused return'}]});
- const outcomes=await Promise.allSettled([make(),make()]);assert.equal(outcomes.filter(r=>r.status==='fulfilled').length,1);assert.equal(await m.StockTransaction.countDocuments(),before);
+ const outcomes=await Promise.allSettled([make(),make()]);assert.equal(outcomes.filter(r=>r.status==='fulfilled').length,1);assert.equal(await m.StockTransaction.countDocuments(),before);const created=await m.CustomerReturn.findOne({'items.details.historicalExternalLineId':external.items[0]._id});assert.notEqual(created.header.intakeMode,'DIRECT');assert.equal((await m.ReturnQuantityClaim.findOne({requestLineId:created.items[0]._id})).sourceKind,'EXTERNAL');
  const operation=await m.OperationRecord.findOne({operationCode:'VERIFY_HISTORICAL_DELIVERY',subjectId:external._id});assert.equal(operation.actorId.toString(),users.ACCOUNTANT.id);
 });
 run('failed stocktake posting rolls back every write and stale operations cannot bypass permission',async()=>{

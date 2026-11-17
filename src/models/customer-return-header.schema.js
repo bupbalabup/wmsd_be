@@ -1,4 +1,4 @@
-import { Schema, embeddedOptions, ref, date } from "./model-utils.js";
+import { Schema, embeddedOptions, ref, date, code } from "./model-utils.js";
 import { warehouse, financialStatus } from "./schema-helpers.js";
 
 // Embedded schema; no standalone collection.
@@ -7,6 +7,7 @@ export function createCustomerReturnHeaderSchema() {
     {
       ...warehouse(),
       customerId: ref("Party"),
+      intakeMode: code(['DIRECT'], { required: false }),
       financialFollowupStatus: financialStatus(),
     },
     embeddedOptions,

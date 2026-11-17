@@ -1,8 +1,16 @@
+## Direct sales / returns — 17 November 2026
+
+Latest explicit user decision supersedes manual-sale and custody requirements for new records. Sales Order → direct Goods Issue; Sales confirms evidenced customer receipt; Warehouse receives undelivered goods inline. New CR inspection records facts only, acceptance authorizes receipt, and only receipt posts STORE stock. Legacy mode markers are absent and retain original ledgers. Optional issue header/order/customer/sourceBalance and embedded customerReceipts, CR intakeMode/handbacks, and FAILED_DELIVERY receipt goodsIssueId add no collection. See [current contract](docs/08_api/GOODS_ISSUES.md) for permissions, exact caps, schema, compatibility and setup.
+
 # Bản đồ model WMSD
 
 Mốc schema 12/11/2026. Có 58 collection nghiệp vụ, gồm `conversions` theo sản phẩm và lô; không còn collection kỹ thuật bộ đếm. Năm loại phiếu nhập dùng chung `goods_receipts`. Không quản lý danh mục đội xe. Biển số xe được ghi trực tiếp trên lần bàn giao. Không có collection marker kỹ thuật.
 
 [Từ điển dữ liệu](docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Data_Dictionary.md) · [Rà trường từng bảng](docs/03_thiet_ke/DB_Rebuild_Review/38_Ra_soat_truong_58_bang.md) · [Phiếu duyệt](docs/03_thiet_ke/DB_Rebuild_Review/01_Danh_muc_duyet.md)
+
+## Excel and opening stock — 16 November 2026
+
+[Current contract](docs/08_api/EXCEL_AND_OPENING_STOCK.md): opening_stocks uses its existing document/item relationships. New optional item packagingState and measuredVolumeMm3 preserve physical packaging for opening imports; a unique partial index on header.warehouseId for POSTED enforces one initialization per warehouse. warehouses.stockOperationVersion (integer, default zero) serializes shared stock commands and location edits against opening posting without changing catalogue updatedAt. No collection or relationship was added. Legacy data needs the additive [local setup](docs/09_phat_trien/EXCEL_OPENING_SETUP.md) before exposing the feature. No remote rollout was performed.
 
 ## Registry và các file cùng tác động
 

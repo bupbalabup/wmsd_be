@@ -1,3 +1,7 @@
+## 17 November 2026 — direct sales and no-custody customer returns
+
+User explicitly restored Sales Order and requested removal of picking/delivery/custody complexity. Added direct order-backed issue creation/posting, Sales-only evidenced customer receipt and inline undelivered goods receipt. New CR inspections have no inventory effect; accepted receipt posts STORE stock; rejected handback is an embedded event. Preserved legacy flows and history through optional mode markers. Added embedded customer receipt/handback schemas, issue stock/order/customer references and FAILED_DELIVERY receipt direct issue reference. No collection, backfill, stored identity change, commit/push or remote write. Updated current API, model map, dictionary, relationship view, contexts and local setup. Tests: isolated direct/legacy integration and standard backend suites; focused frontend tests and production build. Broader frontend verification limitations are tracked in setup/hand-off rather than claimed as passing.
+
 ## 17/11/2026 — Outbound carton opening
 
 User permits fractional cartons and carton opening for issues. Embedded packaging portions add optional Decimal128 volumeUpperBoundMm3 (mm³), absent by default, for OPEN/LOOSE fragments. Capacity uses actual measurement first, then the conservative bound; splitting retains safe bounds without inventing measured volume. Quantities, whole cartons and residual identity remain exact. No collection/index change, backfill or remote DB write. Default relocation/receiving splitting is unchanged. Unit and isolated issue transaction tests cover opening, loose-first reuse, unknown-volume rejection and capacity overflow. Current contract: ../../git_doc/docs/08_api/GOODS_ISSUES.md.
@@ -17,6 +21,15 @@ User explicitly replaces the mandatory internal sale-order prerequisite with man
 ## 16/11/2026 — PO hủy được và giải phóng RR; index danh sách RR
 
 `purchase_orders.replenishmentRequestId` chuyển từ bắt buộc sang tùy chọn. Hủy PO (`DRAFT`, hoặc `OPEN` chưa có chứng từ nhận) gỡ trường này để RR lập PO mới; unique index một phần trên trường giữ nguyên nên vẫn chỉ một PO còn hiệu lực cho mỗi RR. `sources[]` và `items[].requestItemId` giữ liên kết lịch sử. Dữ liệu cũ hợp lệ, không cần migration. `replenishment_requests` thêm index `{documentKind:1, "header.warehouseId":1, createdAt:-1, _id:-1}` cho danh sách; `createIndexes` khi triển khai sẽ tạo index này.
+
+## 16 November 2026 — Opening-stock authorization correction
+
+The latest explicit user decision makes opening stock Owner-only with Owner self-confirmation, once per warehouse, superseding the preparer/verifier split in the earlier entry below. No schema/index changes in this correction. Existing opening records retain their history; posted warehouses cannot be initialized again. See [current contract](../../git_doc/docs/08_api/EXCEL_AND_OPENING_STOCK.md).
+
+## 16 November 2026 — Opening-stock import and concurrent warehouse guard
+
+User requested Excel list exports and Owner-accessible opening-stock file import. Added optional opening item packagingState and positive measuredVolumeMm3; new service requires exact packaging and independently verifies before posting. Added a unique partial POSTED file-import index on opening_stocks.header.warehouseId and warehouses.stockOperationVersion (integer default zero), incremented transactionally by shared stock/location guards without changing catalogue updatedAt. The local setup replaces the earlier broad warehouse index while preserving historical opening documents. No collections/relationships changed. Existing legacy records remain readable. Setup is additive and local-only; no live data was migrated. See [contract](../../git_doc/docs/08_api/EXCEL_AND_OPENING_STOCK.md), [setup](../../git_doc/docs/09_phat_trien/EXCEL_OPENING_SETUP.md) and [dictionary](../../git_doc/docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Data_Dictionary.md). Isolated opening transaction and reviewed-demo model tests pass; full verification is recorded in the documentation log.
+
 
 ## 14/11/2026 — Ràng buộc qtyBase của dòng chứng từ
 

@@ -80,6 +80,13 @@ export async function effectivePosted(doc,itemId,session) {
 }
 export async function issueSource(itemId,user,session) {
  const {doc,item}=await itemById(m.SalesGoodsIssue,itemId,user,session);
+ if(doc.header.fulfillmentMode==='DIRECT'){
+  const so=await m.SalesOrder.findById(doc.header.salesOrderId).session(session),soItem=so?.items.id(item.salesOrderItemId);
+  if(!soItem||!same(soItem.productId,item.productId))throw validationError('Dòng phiếu xuất không khớp đơn bán');
+  if(user.roleId?.code==='SALES'&&!same(so.createdBy,user._id))throw notFoundError();
+  await lockSource(doc,item,session);
+  return {doc,item,so,soItem,issued:await effectivePosted(doc,itemId,session),delivered:sum((doc.customerReceipts||[]).filter(r=>same(r.issueLineId,itemId)),'quantityBase')};
+ }
  const od=await m.DeliveryOrder.findOne({'items._id':item.details.outboundDeliveryLineId}).session(session);
  const odItem=od?.items.id(item.details.outboundDeliveryLineId);
  const wir=odItem&&await m.WarehouseIssueRequest.findOne({'items._id':odItem.details.issueRequestLineId}).session(session);
