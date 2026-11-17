@@ -47,10 +47,12 @@ export async function orderSource(user,id,session,{ replay = false } = {}) {
   return order;
 }
 export async function effectiveQuantities(documents,session) {
-  const roots=await StockTransaction.find({sourceId:{$in:documents.map(row=>row._id)},reversedTransactionId:{$exists:false}}).session(session).lean();
+  if(!documents.length)return new Map();
+  const fields='_id reversedTransactionId movements.sourceLineId movements.quantityBase';
+  const roots=await StockTransaction.find({sourceId:{$in:documents.map(row=>row._id)},reversedTransactionId:{$exists:false}}).select(fields).session(session).lean();
   const all=[...roots];let frontier=roots;
   while(frontier.length){
-    const next=await StockTransaction.find({reversedTransactionId:{$in:frontier.map(row=>row._id)}}).session(session).lean();
+    const next=await StockTransaction.find({reversedTransactionId:{$in:frontier.map(row=>row._id)}}).select(fields).session(session).lean();
     const seen=new Set(all.map(row=>String(row._id)));
     if(next.some(row=>seen.has(String(row._id))))throw validationError('Lịch sử đảo giao dịch có vòng lặp');
     all.push(...next);frontier=next;
