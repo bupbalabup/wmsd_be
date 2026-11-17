@@ -11,6 +11,7 @@ import {
 import { objectId, opt, version, embedRecordArray } from "./schema-helpers.js";
 
 import { createReviewDecisionSchema } from "./review-decision.schema.js";
+import { createReturnHandbackSchema } from './return-handback.schema.js';
 import { createDocumentSourceSchema } from "./document-source.schema.js";
 import { createReturnInspectionSchema } from "./return-inspection.schema.js";
 import { createDocumentItemSchema } from "./document-item.schema.js";
@@ -47,7 +48,7 @@ export function createCustomerReturnSchema() {
   attachDocumentItems(schema, item);
   addDocumentIndexesAndRules(schema);
 
-  schema.add({ decisions: [createReviewDecisionSchema()] });
+  schema.add({ decisions: [createReviewDecisionSchema()], handbacks: { type: [createReturnHandbackSchema()], default: undefined } });
   embedRecordArray(
     schema,
     "return_inspections",

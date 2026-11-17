@@ -1,3 +1,4 @@
+import { receiveDirect } from './direct-customer-return.js';
 import { nextDocumentFields } from '../../shared/utils/document-number.js';
 import { attachStored } from './native.read.js';
 import * as s from './native.shared.js';
@@ -74,7 +75,7 @@ async function returnSource(input,user,session){
 }
 export async function createCustomerReturn(user,input){return command(user,'CREATE_CR','customer_return:create',null,input,replay(m.CustomerReturn),async(session,actor,operationId)=>{
  requireWarehouseAccess(actor,input.warehouseId);if(!await m.Customer.exists({_id:input.customerId}).session(session))throw validationError('Khách không hoạt động');
- const doc=await envelope(m.CustomerReturn,actor,{warehouseId:input.warehouseId,customerId:input.customerId,openedBy:actor._id,openedAt:new Date()},[]);
+ const doc=await envelope(m.CustomerReturn,actor,{warehouseId:input.warehouseId,customerId:input.customerId,intakeMode:'DIRECT',openedBy:actor._id,openedAt:new Date()},[]);
  for(const row of input.lines){const c=await returnSource(row,actor,session);await s.assertWholeQuantity(c.item.productId,row.qtyBase,session);if(!same(c.customerId,input.customerId)||!same(c.warehouseId,input.warehouseId))throw validationError('Nguồn sai khách hoặc kho');
   if(exact(row.qtyBase).plus(await s.claimTotal(c.item._id,'CR',session)).gt(c.allowance))throw validationError('Vượt lượng khách đã nhận còn được trả');
   const item=copy(c.item,row.qtyBase,doc.items.length+1,{lineKind:'CUSTOMER_RETURN',details:{...(row.historicalExternalLineId?{historicalExternalLineId:row.historicalExternalLineId}:{originalIssueLineId:row.salesIssueLineId}),reason:row.reason},sources:[source(c.doc,c.item,'RETURN_SOURCE',row.qtyBase)]});doc.items.push(item);
@@ -87,12 +88,13 @@ export function eligibility(row){
  if(row.installationStatus==='UNKNOWN'||row.damageCause==='UNKNOWN'||row.deadlineStatus==='UNKNOWN'||!row.deadlineReference)return 'PENDING';return 'CASE_REVIEW';
 }
 export const inspectCustomerReturn=(user,id,input,reassess=false)=>operation(m.CustomerReturn,user,id,input,reassess?'REASSESS_CR':'INSPECT_CR','customer_return:inspect',async(doc,session,actor)=>{
+ if(reassess&&doc.header.intakeMode==='DIRECT'&&((doc.handbacks||[]).length||await m.CustomerReturnReceipt.exists({'header.returnId':doc._id,workflowStatus:'POSTED'}).session(session)))throw validationError('Đã nhận hoặc trả lại hàng; không thể kiểm lại quyết định');
  requireState(doc,reassess?['INSPECTED','ACCEPTED','PARTIAL','REJECTED']:['OPEN']);await evidence(doc,input.evidenceIds,session);
  if(input.lines.length!==doc.items.length||!doc.items.every(i=>input.lines.some(r=>same(r.returnLineId,i._id))))throw validationError('Phải kiểm đủ các dòng');
- let receipt,posting;if(!reassess){await s.locationAt(input.custodyLocationId,doc.header.warehouseId,['CUSTODY'],session);receipt=await envelope(m.CustodyReceipt,actor,{warehouseId:doc.header.warehouseId,ownerType:'CUSTOMER',ownerId:doc.header.customerId,receivedAt:new Date(),receivedBy:actor._id},[],'DRAFT',input.note);posting=beginStock(receipt,actor,'CR_CUSTODY',input);}
- for(const row of input.lines){const item=rowOf(doc,row.returnLineId),quantity=exact(row.qtyReceived);if(quantity.gt(String(item.qtyBase)))throw validationError('Vượt lượng yêu cầu');
+ let receipt,posting;if(!reassess&&doc.header.intakeMode!=='DIRECT'){await s.locationAt(input.custodyLocationId,doc.header.warehouseId,['CUSTODY'],session);receipt=await envelope(m.CustodyReceipt,actor,{warehouseId:doc.header.warehouseId,ownerType:'CUSTOMER',ownerId:doc.header.customerId,receivedAt:new Date(),receivedBy:actor._id},[],'DRAFT',input.note);posting=beginStock(receipt,actor,'CR_CUSTODY',input);}
+ for(const row of input.lines){const item=rowOf(doc,row.returnLineId),quantity=exact(row.qtyReceived);await s.assertWholeQuantity(item.productId,row.qtyReceived,session);if(quantity.gt(String(item.qtyBase)))throw validationError('Vượt lượng yêu cầu');
   const old=doc.inspections.filter(i=>same(i.returnLineId,item._id)).at(-1);if(reassess&&(!old||!quantity.eq(sum(old.portions,'quantityBase'))))throw validationError('Kiểm lại không được nhận vật lý lần nữa');
-  if(!reassess&&quantity.gt(0)){const r=copy(item,quantity,receipt.items.length+1,{sources:[source(doc,item,'CUSTOMER_CUSTODY',quantity)]});receipt.items.push(r);await postIn(receipt,receipt.items.at(-1),actor,session,posting,{locationId:input.custodyLocationId,qualityCode:'PENDING',ownerType:'CUSTOMER',ownerId:doc.header.customerId,portions:row.portions});}
+  if(receipt&&quantity.gt(0)){const r=copy(item,quantity,receipt.items.length+1,{sources:[source(doc,item,'CUSTOMER_CUSTODY',quantity)]});receipt.items.push(r);await postIn(receipt,receipt.items.at(-1),actor,session,posting,{locationId:input.custodyLocationId,qualityCode:'PENDING',ownerType:'CUSTOMER',ownerId:doc.header.customerId,portions:row.portions});}
   doc.inspections.push({_id:newId(),returnLineId:item._id,inspectionNo:(old?.inspectionNo??0)+1,returnVersion:doc.version+1,warehouseId:doc.header.warehouseId,inspectedBy:actor._id,inspectedAt:new Date(),portions:quantity.gt(0)?[{quantityBase:quantity.toFixed(),packagingCondition:row.packagingCondition,installationStatus:row.installationStatus,damageCause:row.damageCause,deadlineStatus:row.deadlineStatus,deadlineReference:row.deadlineReference,eligibilityStatus:eligibility(row),reason:row.assessmentReason,evidenceIds:input.evidenceIds}]:[]});
  }
  if(receipt?.items.length){receipt.evidenceIds=input.evidenceIds;await savePosted(receipt,posting,actor,session);}
@@ -120,6 +122,7 @@ async function custodyBalance(doc,item,session){
 export const receiveCustomerReturn=(user,id,input,handback=false)=>operation(m.CustomerReturn,user,id,input,handback?'HANDBACK_CR':'RECEIVE_CR','customer_return:post',async(doc,session,actor,operationId)=>{
  requireState(doc,handback?['REJECTED','ACCEPTED','PARTIAL','COMPLETED']:['ACCEPTED','PARTIAL']);await evidence(doc,input.evidenceIds,session);
  const approval=await m.ApprovalHistory.findById(doc.decisions.at(-1)?.decisionId).session(session);if(!handback&&!approval)throw validationError('Thiếu quyết định');
+ if(doc.header.intakeMode==='DIRECT')return receiveDirect(doc,actor,input,session,operationId,approval,handback);
  const receipt=await envelope(handback?m.CustodyRelease:m.CustomerReturnReceipt,actor,handback?{warehouseId:doc.header.warehouseId,ownerType:'CUSTOMER',ownerId:doc.header.customerId,recipientName:input.recipientName,releasedBy:actor._id,releasedAt:new Date()}:{warehouseId:doc.header.warehouseId,returnId:doc._id,receivedAt:new Date(),operationId},[],'DRAFT',input.note);
  if(handback&&!input.recipientName)throw validationError('Cần tên người nhận bàn giao');const posting=beginStock(receipt,actor,handback?'CR_HANDBACK':'GR_CR',input);
  for(const row of input.lines){const item=rowOf(doc,row.lineId),inspection=doc.inspections.filter(i=>same(i.returnLineId,item._id)).at(-1);
@@ -136,7 +139,7 @@ export const receiveCustomerReturn=(user,id,input,handback=false)=>operation(m.C
 export async function createFailedDelivery(user,input,stored){if(stored)input={...input,evidenceChecksum:stored.checksum};return command(user,'CREATE_FD','failed_delivery:inspect',null,input,replay(m.FailedDelivery),async(session,actor,operationId)=>{
  requireWarehouseAccess(actor,input.warehouseId);const doc=await envelope(m.FailedDelivery,actor,{warehouseId:input.warehouseId,reason:input.note},[],'OPEN',input.note);
  if(!stored)throw validationError('Cần bằng chứng giao thất bại');const attachment=await attachStored(doc,stored,actor,session);doc.header.failureEvidenceId=attachment._id;
- for(const row of input.lines){const c=await s.issueSource(row.salesIssueLineId,actor,session);await s.assertWholeQuantity(c.item.productId,row.qtyBase,session);if(!same(c.doc.header.warehouseId,input.warehouseId))throw validationError('Sai kho nguồn');
+ for(const row of input.lines){const c=await s.issueSource(row.salesIssueLineId,actor,session);if(c.doc.header.fulfillmentMode==='DIRECT')throw validationError('Dùng Nhận lại hàng chưa giao trên phiếu xuất');await s.assertWholeQuantity(c.item.productId,row.qtyBase,session);if(!same(c.doc.header.warehouseId,input.warehouseId))throw validationError('Sai kho nguồn');
   if(exact(row.qtyBase).plus(c.delivered).plus(await s.claimTotal(c.item._id,'FD',session)).gt(c.issued))throw validationError('Vượt lượng đã xuất chưa khách nhận');
   const item=copy(c.item,row.qtyBase,doc.items.length+1,{lineKind:'FAILED_DELIVERY',details:{salesIssueLineId:c.item._id},holderName:row.holderName,sources:[source(c.doc,c.item,'FAILED_DELIVERY',row.qtyBase)]});doc.items.push(item);
   await new m.ReturnQuantityClaim({claimKind:'FD',requestLineId:item._id,sourceKind:'GOODS_ISSUE',sourceLineId:c.item._id,claimedQtyBase:row.qtyBase,createdBy:actor._id,operationId,version:1,events:[]}).save({session});

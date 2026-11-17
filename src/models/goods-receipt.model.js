@@ -58,6 +58,7 @@ export function createGoodsReceiptSchema() {
   rules(schema, function () {
     const expected = { PURCHASE: 'STANDARD', CUSTOMER_RETURN: 'STANDARD', FAILED_DELIVERY: 'FAILED_DELIVERY_RECEIPT', TRANSFER: 'TRANSFER_RECEIPT', OTHER: 'STANDARD' }[this.documentKind];
     if (expected && this.items.some(row => row.lineKind !== expected)) this.invalidate('items', 'Line kind does not match receipt kind');
+    if (this.documentKind === 'FAILED_DELIVERY' && this.header?.goodsIssueId && (this.header.failedDeliveryId || this.items.some(row => !row.sources?.some(src => String(src.documentId) === String(this.header.goodsIssueId))))) this.invalidate('header.goodsIssueId', 'Direct undelivered receipt must link its original issue');
     const purchaseOnly = ['purchaseOrderItemId', 'arrivalItemId', 'inspectionResultId', 'custodyReceiptRef', 'supplierScheduleId'];
     for (const item of this.items) {
       if (this.documentKind !== 'PURCHASE' && purchaseOnly.some(field => item[field] != null)) this.invalidate('items', 'Purchase line fields belong only to purchase receipts');

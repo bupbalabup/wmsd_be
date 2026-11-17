@@ -9,7 +9,7 @@ import { requirePermission, requireWarehouseAccess, isOwner, hasPermission } fro
 import { currentRole } from '../../shared/utils/userRole.js';
 import { notFoundError } from '../../shared/utils/ApiError.js';
 import { dto } from '../../shared/utils/persistence.js';
-import { GoodsReceipt, Warehouse, WarehouseLocation, ProductBatch, Supplier, TransferDispatch, StockTransaction, InventoryBalance, StockHoldingPoint, PurchaseReceipt, CustomerReturnReceipt, FailedDeliveryReceipt, TransferReceipt, OtherGoodsReceipt, CustomerReturn, WarehouseTransferRequest } from '../../models/runtime.js';
+import { GoodsReceipt, Warehouse, WarehouseLocation, ProductBatch, Supplier, TransferDispatch, StockTransaction, InventoryBalance, StockHoldingPoint, PurchaseReceipt, CustomerReturnReceipt, FailedDeliveryReceipt, TransferReceipt, OtherGoodsReceipt, CustomerReturn, WarehouseTransferRequest, SalesGoodsIssue, SalesOrder } from '../../models/runtime.js';
 import { receiptRouter as purchaseRouter, empty, schema, pagination, ver, key, qty, reason, evidenceIds, handle } from '../po-receiving/po-receiving.routes.js';
 import { GOODS_RECEIPT_KINDS } from '../../models/goods-receipt.model.js';
 import { databaseId } from '../../models/document-identity.js';
@@ -123,6 +123,10 @@ async function scopedDetail(user, receipt) {
   requireWarehouseAccess(user, receipt.header.warehouseId);
   if (receipt.documentKind === 'CUSTOMER_RETURN' && currentRole(user)?.code === 'SALES'
     && !await CustomerReturn.exists({ _id: receipt.header.returnId, createdBy: user._id })) throw notFoundError();
+  if (receipt.documentKind === 'FAILED_DELIVERY' && receipt.header.goodsIssueId && currentRole(user)?.code === 'SALES') {
+    const issue = await SalesGoodsIssue.findById(receipt.header.goodsIssueId);
+    if (!issue || !await SalesOrder.exists({ _id: issue.header.salesOrderId, createdBy: user._id })) throw notFoundError();
+  }
   const value = response(receipt, user);
   const warehouse = await Warehouse.findById(receipt.header.warehouseId).select('name').lean();
   value.header.warehouseName = warehouse?.name;
@@ -180,6 +184,11 @@ router.get('/', validate(schema(empty, empty, unifiedQuery)), handle(async (user
       : global ? {} : { 'header.warehouseId': { $in: (user.warehouseIds ?? []).map(id => databaseId(String(id))) } };
     if (value === 'CUSTOMER_RETURN' && role === 'SALES') {
       scope['header.returnId'] = { $in: await CustomerReturn.find({ createdBy: user._id }).distinct('_id') };
+    }
+    if (value === 'FAILED_DELIVERY' && role === 'SALES') {
+      const orders = await SalesOrder.find({ createdBy: user._id }).distinct('_id');
+      const issues = await SalesGoodsIssue.find({ 'header.salesOrderId': { $in: orders } }).distinct('_id');
+      scope.$or = [{ 'header.goodsIssueId': { $exists: false } }, { 'header.goodsIssueId': { $in: issues } }];
     }
     if (purchaseOrderId) scope['header.purchaseOrderId'] = databaseId(purchaseOrderId);
     clauses.push({ documentKind: value, ...scope });

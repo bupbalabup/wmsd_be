@@ -1,3 +1,7 @@
+## Current sales and returns — 17 November 2026
+
+Latest explicit user decision supersedes manual-sale and custody requirements for new records. Sales Order → direct Goods Issue; Sales confirms evidenced customer receipt; Warehouse receives undelivered goods inline. New CR inspection records facts only, acceptance authorizes receipt, and only receipt posts STORE stock. Legacy mode markers are absent and retain original ledgers. Optional issue header/order/customer/sourceBalance and embedded customerReceipts, CR intakeMode/handbacks, and FAILED_DELIVERY receipt goodsIssueId add no collection. See [current contract](docs/08_api/GOODS_ISSUES.md) for permissions, exact caps, schema, compatibility and setup.
+
 17/11/2026 — Xuất hàng được mở thùng và nhập lẻ số thùng theo quyết định người dùng. Ví dụ 1,5 thùng × 4 viên = 6 viên; vẫn kiểm lượng nguyên theo ĐVT gốc. Lưu snapshot quy đổi hiện hành và phần OPEN còn lại; volumeUpperBoundMm3 là giới hạn thể tích bảo thủ, không giả số đo. Chỉ bật cho xuất bán/xuất khác, BF04 picking/dispatch, trả NCC và thực hủy; BF03/nhập kho giữ quy tắc cũ. Xem docs/08_api/GOODS_ISSUES.md.
 
 16/11/2026 — Quyết định mới UC-69–72: form tạo chung 5 lý do xuất; Xuất bán và Xuất khác nhập mã tham chiếu tay, sản phẩm/số lượng/ghi chú, không bắt buộc SO/WIR/OD. SALES chỉ Xuất bán, tạo PENDING_APPROVAL; Owner khác creator duyệt đúng phiếu sang DRAFT, không sinh SO/phiếu mới/giữ hàng/trừ tồn. Kho chọn lô/ô khi tạo TO, PGI mới trừ tồn. Điều chuyển/trả NCC/hủy dùng chứng từ nguồn và native command trong form chung. Seed quyền bổ sung create/update cho SALES, approve cho OWNER, giữ các quyền khác. Hợp đồng chính: docs/08_api/GOODS_ISSUES.md.
@@ -72,6 +76,8 @@ Không tạo general policy editor. Danh mục quyền được định nghĩa b
 | BF08 trả NCC | Warehouse đề nghị → Accountant xác minh thỏa thuận → Warehouse xuất thực tế → Accountant ghi NCC nhận/đối chiếu/đóng. Không thêm Owner duyệt bắt buộc cho luồng này. |
 
 Đọc phiếu H06–H11, H18–H36 và C01–C08 trong [bộ duyệt](docs/03_thiet_ke/DB_Rebuild_Review/01_Danh_muc_duyet.md) trước sửa nhóm tương ứng.
+
+Opening stock exception — explicit user decision, 16 November 2026: only Owner may import and confirm opening stock, including their own draft, once per warehouse. This supersedes the older H36 preparer/verifier split for opening stock only. Other workflows retain their separation-of-duties rules. See [current contract](docs/08_api/EXCEL_AND_OPENING_STOCK.md).
 
 ## 5. Quy tắc dữ liệu dùng chung
 

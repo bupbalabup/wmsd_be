@@ -1,4 +1,4 @@
-import { Schema, options, text, code } from "./model-utils.js";
+import { Schema, options, text, code, integer } from "./model-utils.js";
 import {
   optionalText,
   active,
@@ -19,6 +19,7 @@ export function createWarehouseSchema() {
       widthMm: dimension(),
       clearHeightMm: dimension(),
       isActive: active(),
+      stockOperationVersion: integer(0, { default: 0 }),
       layout3d: { type: Schema.Types.Mixed, default: undefined },
       layout3dApplied: { type: Schema.Types.Mixed, default: undefined },
       layout3dAppliedAt: { type: Date, default: undefined },

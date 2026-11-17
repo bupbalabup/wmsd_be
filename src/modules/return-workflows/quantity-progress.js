@@ -30,7 +30,7 @@ export function quantityProgress(resource, doc, related = [], approval) {
     const acceptedItem = approval?.reviewedContent?.items?.find(row => matches(row._id, item._id));
     const accepted = exact(acceptedItem?.approvedQtyBase ?? '0');
     const received = total(linked(posted.filter(row => row.documentKind === 'CUSTOMER_RETURN').flatMap(row => row.items), item._id));
-    const handedBack = total(linked(posted.filter(row => row.documentKind === 'CUSTODY_RELEASE').flatMap(row => row.items), item._id));
+    const handedBack = total(linked(posted.filter(row => row.documentKind === 'CUSTODY_RELEASE').flatMap(row => row.items), item._id)).plus(total((doc.handbacks || []).filter(row => matches(row.returnLineId, item._id)), 'quantityBase'));
     return { lineId: String(item._id), requested: requested.toFixed(), inspected: inspection ? inspected.toFixed() : undefined, accepted: acceptedItem ? accepted.toFixed() : undefined, received: received.toFixed(), handedBack: handedBack.toFixed(), handbackAvailable: acceptedItem ? positive(inspected.minus(accepted).minus(handedBack)) : '0', remaining: positive(accepted.minus(received)), custodyRemaining: positive(inspected.minus(received).minus(handedBack)) };
   });
 }
