@@ -56,7 +56,7 @@ Mỗi hàng là một movements[] đã ghi trong StockTransaction: id dòng, tra
 
 ## BF03/BF04
 
-Chi tiết giữ tại [BF03](location-movements/README.md) và [BF04](transfers/BF04_API.md). BF03 q tìm cả sản phẩm/SKU/lô; xác nhận chuyển nguyên tử giữ nguyên lô/chất lượng/chủ hàng và reservation, kiểm freeze/capacity. Tạo/sửa/xác nhận/tìm kiếm dùng native API, không seed UI.
+Chi tiết giữ tại [BF03](location-movements/README.md) và [BF04](transfers/BF04_API.md). BF03 cho xác nhận nhiều lần OPEN/PARTIAL theo lượng thực chuyển, hủy phần chưa chuyển và giữ lịch sử từng chuyến (quyết định17/11); q tìm cả sản phẩm/SKU/lô; xác nhận chuyển nguyên tử giữ nguyên lô/chất lượng/chủ hàng và reservation, kiểm freeze/capacity. Tạo/sửa/xác nhận/tìm kiếm dùng native API, không seed UI.
 
 BF04 options của Sales chỉ trả catalogue kho, không trả locations/holdingPoints/balances/batches/products hoặc sourceWarehouseIds tác nghiệp; đã xác minh đọc trên DB review local. BF04 trả REVISE -> REVISION_REQUIRED; chỉ người lập có quyền update và kho nguồn được sửa/gửi lại chưa duyệt, giữ ID dòng tương ứng. Phiếu xuất DRAFT giữ nguồn thật ngay lúc tạo, chuyển reservation sang PICK task khi sinh TO. Xác nhận PICK + bàn giao là giao dịch nguyên tử đã duyệt; không tạo GI thứ hai. Hủy draft do người lập giải phóng reservation, hủy task/requirement mở, trả hạn mức dòng TR, giữ lịch sử và không ghi tồn.
 
