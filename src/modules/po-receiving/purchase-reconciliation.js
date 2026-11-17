@@ -2,7 +2,6 @@ import { InventoryBalance, StockTransaction, PurchaseOrder, ReplenishmentRequest
 import { exact } from '../../models/model-utils.js';
 import { same } from '../../shared/utils/document-command.js';
 import { purchaseOrderQuantities } from '../purchase-orders/purchase-order.service.js';
-import { placementQuantities } from './purchase-putaway.service.js';
 // Read-only diagnostics use the same native records as the application.
 export async function reconcilePurchasing(session=null){
   const issues=[],balances=await InventoryBalance.find().session(session),transactions=await StockTransaction.find().session(session);
@@ -14,6 +13,6 @@ export async function reconcilePurchasing(session=null){
     for(const [id,qty]of totals){const source=request?.items.id(id);if(!source||qty.gt(String(source.approvedQtyBase??'0')))issues.push({code:'RR_ALLOWANCE',poId:String(po._id),lineId:id});}
     for(const q of await purchaseOrderQuantities(po,session))if(exact(q.outstandingQtyBase).lt(0)||exact(q.acceptanceHeadroomQtyBase).lt(0))issues.push({code:'PO_ALLOWANCE',poId:String(po._id),lineId:q.lineId});
   }
-  const receipts=await PurchaseReceipt.find({workflowStatus:'POSTED'}).session(session);for(const receipt of receipts)for(const q of await placementQuantities(receipt,session))if(exact(q.unplannedQtyBase).lt(0))issues.push({code:'PLACEMENT_CAP',receiptId:String(receipt._id),lineId:q.lineId});
-  return {ok:!issues.length,checked:{balances:balances.length,movements,purchaseOrders:orders.length,receipts:receipts.length},issues};
+  const receipts = await PurchaseReceipt.countDocuments({ workflowStatus: 'POSTED' }).session(session);
+  return {ok:!issues.length,checked:{balances:balances.length,movements,purchaseOrders:orders.length,receipts},issues};
 }

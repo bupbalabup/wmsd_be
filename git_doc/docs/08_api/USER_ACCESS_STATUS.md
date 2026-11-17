@@ -2,7 +2,7 @@
 
 `PATCH /api/users/:id/status` cần quyền `user:update`. Payload `{ "isActive": false, "reason": "Lý do khoá" }` bắt buộc lý do sau khi cắt khoảng trắng (1–2000 ký tự). Mở khoá dùng `{ "isActive": true }`. Không được tự khoá tài khoản hiện tại.
 
-Backend lưu `users.lockReason` khi khoá và trả trường này trong danh sách/chi tiết người dùng. Mở khoá xoá lý do hiện tại; audit giữ sự kiện LOCK_USER/UNLOCK_USER và lý do. Dữ liệu khoá từ trước có thể chưa có lý do. `PUT /api/users/:id` chỉ sửa thông tin, role và kho; không đổi trạng thái.
+Backend lưu `users.lockReason` khi khoá và trả trường này trong danh sách/chi tiết người dùng. Backend ghi `LOCK_USER` khi tài khoản chuyển sang trạng thái khoá hoặc khi lý do sau khi cắt khoảng trắng thay đổi trên tài khoản đang khoá. Mở khoá xoá lý do hiện tại và ghi `UNLOCK_USER` khi trạng thái đổi. Dữ liệu khoá từ trước có thể chưa có lý do. `PUT /api/users/:id` chỉ sửa thông tin, role và kho.
 
 FE có button Xem, Khoá/Mở khoá tại bảng tài khoản; sửa thông tin trong trang chi tiết. Bảng không hiển thị kho phân công. Nội dung dài xuống dòng trong cột cố định; dưới 768px chuyển thành thẻ tài khoản có phân trang, bộ lọc co theo màn hình. Điều hướng và thao tác trên danh sách dùng button có icon, không dùng liên kết bọc button. Tại trang vai trò, admin có thể tick nhiều tài khoản trên một trang và gán cùng role. FE gọi `PUT /api/users/:id` theo từng tài khoản, báo số ca thành công/thất bại; đây chưa phải giao dịch hàng loạt nguyên tử. Quyền role tiếp tục dùng `PUT /api/roles/:code/permissions` với danh sách mã quyền đang hoạt động. BE kiểm quyền ở từng request; không suy quyền từ checkbox FE.
 

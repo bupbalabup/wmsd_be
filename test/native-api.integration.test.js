@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import mongoose from 'mongoose';
 import * as m from '../src/models/runtime.js';
 import { PERMISSION_CATALOGUE, ROLE_PERMISSIONS } from '../src/seeds/data/permissions.data.js';
@@ -7,14 +10,14 @@ import * as rr from '../src/modules/replenishments/replenishment.commands.js';
 import * as po from '../src/modules/purchase-orders/purchase-order.commands.js';
 import * as receiving from '../src/modules/po-receiving/po-receiving.service.js';
 import { getDocument, listDocuments, receivingQueue, receivingSummary } from '../src/modules/po-receiving/purchase-read.service.js';
-import * as putaway from '../src/modules/po-receiving/purchase-putaway.service.js';
+import { createLocationMovement, confirmLocationMovement } from '../src/modules/location-movements/location-movement.service.js';
 import * as correction from '../src/modules/po-receiving/purchase-correction.service.js';
 import * as productService from '../src/modules/products/product.service.js';
 import { createLot, getLot, getLotMovements, listLots, updateLot } from '../src/modules/lots/lot.service.js';
 import { backfillConversions } from '../src/migrations/conversions.js';
 import { makeItem } from '../src/shared/utils/document-items.js';
 import { transaction } from '../src/shared/utils/persistence.js';
-import { moveStock } from '../src/shared/utils/stock.js';
+import { pendingTaskQuantity } from '../src/shared/utils/stock.js';
 import { reconcilePurchasing } from '../src/modules/po-receiving/purchase-reconciliation.js';
 const enabled=process.env.RUN_NATIVE_API_TESTS==='1';
 const run=(name,fn)=>test(name,{skip:!enabled},fn);
@@ -286,8 +289,8 @@ run('product image URLs create, list, detail, update, audit and legacy defaults'
  const legacyList=await productService.listProducts(owner,{page:1,limit:100,sortBy:'createdAt',sortOrder:'desc'});
  assert.deepEqual(legacyList.items.find(item=>item.id===String(product._id)).imageUrls,[]);
 });
-run('native RR → PO → inspection → receipt → partial putaway preserves stock, sources and replay',async()=>{
- const receipt=await postedReceipt();const context=await putaway.putawayContext(worker,receipt._id);
+run('posting a purchase receipt updates the PO and exposes its balance for relocation', async () => {
+ const receipt = await postedReceipt();
  const detail = await getDocument(worker, receipt._id, 'GR_PURCHASE');
  assert.equal(detail.header.supplierName, supplier.name);
  assert.equal(detail.header.warehouseName, warehouse.name);
@@ -302,134 +305,110 @@ run('native RR → PO → inspection → receipt → partial putaway preserves s
  });
  assert.equal(detail.items[0].inspectionResult.qualityCode, 'GOOD');
  assert.equal(detail.items[0].lotLabelSnapshot, batch.manufacturerLot);
- const task=await putaway.createPutaway(worker,receipt._id,{creationKey:key(),expectedVersion:receipt.version,lines:[{receiptLineId:String(receipt.items[0]._id),expectedSourceVersion:context.items[0].sourceBalanceVersion,qtyBase:'8',toLocationId:String(storageLocation._id)}]});
- const taskDetail=await putaway.getPutaway(worker,task.id);assert.equal(taskDetail.header.receiptId,String(receipt._id));assert.deepEqual([taskDetail.items[0].actualQtyBase,taskDetail.items[0].remainingQtyBase],['0','8']);
- let taskDoc=await m.TransferOrder.findById(task.id);
- // Same line in two spellings must not pass the remaining-quantity check twice.
- await assert.rejects(putaway.confirmPutaway(worker,task.id,{...input(),expectedVersion:taskDoc.version,lines:[{taskLineId:String(taskDoc.items[0]._id),actualQtyBase:'8'},{taskLineId:String(taskDoc.items[0]._id).toUpperCase(),actualQtyBase:'8'}]}),/trùng/);
-  const partialInput={...input(),expectedVersion:taskDoc.version,lines:[{taskLineId:String(taskDoc.items[0]._id),actualQtyBase:'4'}]};
-  const partial=await putaway.confirmPutaway(worker,task.id,partialInput);
-  const replay=await putaway.confirmPutaway(worker,task.id,partialInput);
-  assert.equal(replay.operationId,partial.operationId);
-  assert.equal(replay.replayed,true);
-  assert.equal(await m.StockTransaction.countDocuments({sourceId:task.id}),1);
- const taskQuery = { page: 1, limit: 1, status: 'PARTIAL', purchaseOrderId: String(receipt.header.purchaseOrderId) };
- const taskList = await putaway.listPutaway(worker, { ...taskQuery, q: taskDoc.documentNo.slice(0, -1).toLowerCase() });
- assert.equal(taskList.total, 1);
- assert.deepEqual([taskList.items[0].plannedQtyBase, taskList.items[0].actualQtyBase, taskList.items[0].remainingQtyBase], ['8','4','4']);
- assert.equal(taskList.items[0].sourceReceipt.id, String(receipt._id));
- assert.equal((await putaway.listPutaway(worker, { ...taskQuery, q: '.*' })).total, 0);
- const queueQuery = { page: 1, limit: 1, stage: 'AWAITING_PUTAWAY', purchaseOrderId: taskQuery.purchaseOrderId };
- const queue = await receivingQueue(worker, { ...queueQuery, q: receipt.documentNo.slice(0, -1).toLowerCase() });
- assert.equal(queue.total, 1);
- assert.equal(queue.items[0]._id, String(receipt._id));
- assert.equal((await receivingQueue(worker, { ...queueQuery, q: '.*' })).total, 0);
- assert.ok((await receivingSummary(worker, String(receipt.header.purchaseOrderId))).documents.some(row => row.kind === 'PUTAWAY' && row.id === task.id));
- taskDoc=await m.TransferOrder.findById(task.id);assert.equal(taskDoc.workflowStatus,'PARTIAL');await putaway.confirmPutaway(worker,task.id,{...input(),expectedVersion:taskDoc.version,lines:[{taskLineId:String(taskDoc.items[0]._id),actualQtyBase:'4'}]});
- assert.equal((await m.TransferOrder.findById(task.id)).workflowStatus,'CONFIRMED');assert.equal((await putaway.placementQuantities(receipt))[0].unplacedQtyBase,'0');const report=await reconcilePurchasing();assert.deepEqual(report.issues,[]);
- const preflight=await correction.reversalPreflight(worker,receipt._id);assert.equal(preflight.eligible,false);
+ const summary = await receivingSummary(worker, String(receipt.header.purchaseOrderId));
+ assert.equal(summary.quantities[0].receivedQtyBase, '8');
+ assert.equal(summary.purchaseOrder.workflowStatus, 'COMPLETED');
+ assert.ok(summary.documents.some(row => row.kind === 'GR_PURCHASE' && row.id === String(receipt._id)));
+ assert.deepEqual(summary.openWork, { draftInspections: 0, draftReceipts: 0 });
+ const posting = await m.StockTransaction.findById(receipt.stockTransactionId);
+ const sourceBalanceId = String(posting.movements[0].toBalanceId);
+ assert.equal(detail.items[0].receivingBalanceId, sourceBalanceId);
+ assert.equal(detail.capabilities.relocate, true);
+ assert.equal((await getDocument(accountant, receipt._id, 'GR_PURCHASE')).capabilities.relocate, false);
+
+ const balance = await m.InventoryBalance.findById(sourceBalanceId);
+ const created = await createLocationMovement(worker, {
+   idempotencyKey: key(), warehouseId: String(warehouse._id), reason: 'Put stock on the shelf',
+   lines: [{ sourceBalanceId, sourceBalanceVersion: balance.version, enteredUnit: 'PIECE',
+     enteredQty: '8', toLocationId: String(storageLocation._id) }],
+ });
+ assert.match((await correction.reversalPreflight(worker, receipt._id)).reason, /Đã lập lệnh/);
+ const task = await m.TransferOrder.findById(created.id);
+ assert.equal(task.header.taskKind, 'RELOCATE');
+ await confirmLocationMovement(worker, created.id, { idempotencyKey: key(), expectedVersion: task.version,
+   lines: [{ lineId: String(task.items[0]._id), actualQtyBase: '8' }] });
+ const relocation = await m.StockTransaction.findOne({ sourceId: created.id, operation: 'RELOCATE' });
+ assert.equal(String(relocation.movements[0].fromBalanceId), sourceBalanceId);
+ assert.equal(String(relocation.movements[0].quantityBase), '8');
+ assert.equal(String((await m.InventoryBalance.findById(sourceBalanceId)).quantityBase), '0');
+ assert.match((await correction.reversalPreflight(worker, receipt._id)).reason, /Đã có giao dịch phụ thuộc/);
+ assert.deepEqual((await reconcilePurchasing()).issues, []);
 });
-run('locked products can finish open purchase putaway but cannot start a new task', async () => {
-  const receipt = await postedReceipt();
-  const unplannedReceipt = await postedReceipt();
-  async function plan(receipt) {
-    const context = await putaway.putawayContext(worker, receipt._id);
-    const row = context.items[0];
-    return putaway.createPutaway(worker, receipt._id, {
-      creationKey: key(),
-      expectedVersion: context.receiptVersion,
-      lines: [{
-        receiptLineId: row.lineId,
-        expectedSourceVersion: row.sourceBalanceVersion,
-        qtyBase: '8',
-        toLocationId: String(storageLocation._id),
-      }],
-    });
-  }
-  const task = await plan(receipt);
-  const before = await m.Product.findById(product._id);
-  const locked = await productService.changeProductStatus(owner, String(product._id), {
-    expectedUpdatedAt: before.updatedAt.toISOString(),
-    isActive: false,
-    reason: 'Stop sales',
-  });
-  try {
-    await assert.rejects(plan(unplannedReceipt), /đã ngừng kinh doanh/);
-    for (const [version, expectedStatus] of [[1, 'PARTIAL'], [2, 'CONFIRMED']]) {
-      const current = await m.TransferOrder.findById(task.id);
-      await putaway.confirmPutaway(worker, task.id, {
-        ...input(),
-        expectedVersion: version,
-        lines: [{ taskLineId: String(current.items[0]._id), actualQtyBase: '4' }],
-      });
-      assert.equal((await m.TransferOrder.findById(task.id)).workflowStatus, expectedStatus);
-    }
-    const postings = await m.StockTransaction.find({ sourceId: task.id });
-    assert.deepEqual(postings.flatMap(row => row.movements.map(move => String(move.quantityBase))), ['4', '4']);
-    for (const { movements: [move] } of postings) {
-      assert.notEqual(String(move.fromBalanceId), String(move.toBalanceId));
-      assert.equal(Number(move.fromBefore) - Number(move.fromAfter), 4);
-      assert.equal(Number(move.toAfter) - Number(move.toBefore), 4);
-    }
-    assert.equal((await m.Product.findById(product._id)).isActive, false);
-  } finally {
-    await productService.changeProductStatus(owner, String(product._id), {
-      expectedUpdatedAt: locked.updatedAt,
-      isActive: true,
-      reason: 'Restore shared test fixture',
-    });
-  }
+
+run('receiving queue lists only draft receipts awaiting post, by PO and search text', async () => {
+ const [draft, posted] = [await postedReceipt(), await postedReceipt()];
+ // Only the queue filter is under test, so reuse a full fixture and mark it unposted.
+ await m.PurchaseReceipt.updateOne({ _id: draft._id }, { $set: { workflowStatus: 'DRAFT' } });
+ const query = { page: 1, limit: 1, stage: 'AWAITING_POST', warehouseId: String(warehouse._id) };
+ const byPo = await receivingQueue(worker, { ...query, purchaseOrderId: String(draft.header.purchaseOrderId) });
+ assert.equal(byPo.total, 1);
+ assert.equal(byPo.stage, 'AWAITING_POST');
+ assert.equal(byPo.items[0]._id, String(draft._id));
+ assert.equal(byPo.items[0].capabilities.relocate, false);
+ assert.equal((await receivingQueue(worker, { ...query, purchaseOrderId: String(posted.header.purchaseOrderId) })).total, 0);
+ assert.equal((await receivingQueue(worker, { ...query, q: draft.documentNo })).items[0]._id, String(draft._id));
 });
-run('purchase putaway uses each receipt line’s measured portions and blocks missing provenance',async()=>{
-  const location=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'IN-PORTIONS',locationType:'RECEIVING',usableLengthMm:'5000',usableWidthMm:'5000'});
-  const shelf=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'ST-PORTIONS',locationType:'STORAGE',usableLengthMm:'5000',usableWidthMm:'5000'});
-  const a=await postedReceipt('OPENED',false,'GOOD',{qtyBase:'2',location});
-  const b=await postedReceipt('OPENED',false,'GOOD',{qtyBase:'3',location});
-  const contextLine=async receipt=>(await putaway.putawayContext(worker,receipt._id)).items[0];
-  const plan=async(receipt,qtyBase)=>{
-    const row=await contextLine(receipt);
-    const current=await m.PurchaseReceipt.findById(receipt._id);
-    return putaway.createPutaway(worker,receipt._id,{creationKey:key(),expectedVersion:current.version,lines:[{receiptLineId:row.lineId,expectedSourceVersion:row.sourceBalanceVersion,qtyBase,toLocationId:String(shelf._id)}]});
-  };
-  const confirm=async(task,qty)=>{
-    const detail=await putaway.getPutaway(worker,task.id);
-    return putaway.confirmPutaway(worker,task.id,{...input(),expectedVersion:detail.version,lines:[{taskLineId:String(detail.items[0]._id),actualQtyBase:qty}]});
-  };
-  const [rowA,rowB]=await Promise.all([contextLine(a),contextLine(b)]);
-  assert.equal(rowA.sourceBalanceId,rowB.sourceBalanceId);
-  assert.deepEqual([rowA.looseQtyBase,rowB.looseQtyBase],['2','3']);
-  const taskA=await plan(a,'2');
-  await assert.rejects(plan(b,'1'),/Phần hàng mở\/lẻ/);
-  const taskB=await plan(b,'3');
-  assert.equal(taskB.workflowStatus,'OPEN');
-  const postingA=await m.StockTransaction.findById(a.stockTransactionId);
-  const postingB=await m.StockTransaction.findById(b.stockTransactionId);
-  const c=await postedReceipt('OPENED',false,'GOOD',{qtyBase:'3',location});
-  const taskC=await plan(c,'3');
-  await m.StockTransaction.collection.updateOne({_id:c.stockTransactionId},{$unset:{'movements.0.packagingPortionIds':1}});
-  const blocked='Thiếu thông tin kiện của dòng phiếu nhập. Cần đối chiếu trước khi cất.';
-  const before=await m.InventoryBalance.findById(rowA.sourceBalanceId).lean();
-  const oldRow=await contextLine(c);
-  assert.equal(oldRow.putawayBlockedReason,blocked);
-  assert.equal(oldRow.looseQtyBase,undefined);
-  assert.equal((await putaway.getPutaway(worker,taskC.id)).items[0].putawayBlockedReason,blocked);
-  await assert.rejects(plan(c,'3'),{statusCode:400,message:blocked});
-  await assert.rejects(confirm(taskC,'3'),{statusCode:400,message:blocked});
-  assert.equal(await m.StockTransaction.countDocuments({sourceId:taskC.id}),0);
-  assert.equal((await m.TransferOrder.findById(taskC.id)).workflowStatus,'OPEN');
-  assert.deepEqual(await m.InventoryBalance.findById(rowA.sourceBalanceId).lean(),before);
-  await confirm(taskA,'2');
-  const move=await m.StockTransaction.findOne({sourceId:taskA.id});
-  const target=await m.InventoryBalance.findById(move.movements[0].toBalanceId);
-  const source=await m.InventoryBalance.findById(rowA.sourceBalanceId);
-  const [portionA]=postingA.movements[0].packagingPortionIds;
-  const [portionB]=postingB.movements[0].packagingPortionIds;
-  assert.ok(target.packagingPortions.id(portionA));
-  assert.ok(!source.packagingPortions.id(portionA));
-  assert.ok(source.packagingPortions.id(portionB));
-  await assert.rejects(transaction(session=>moveStock(source._id,target._id,'3',b.items[0]._id,{movements:[]},worker,session,
-    {excludeTaskId:taskB.id,portionIds:[]})),/Quy cách tồn không đủ số lượng/);
+
+run('retiring purchase putaway previews changes and preserves partially moved stock', async () => {
+ const location = await m.WarehouseLocation.create({
+   warehouseId: warehouse._id, code: 'RETIRE-IN', locationType: 'RECEIVING',
+   usableLengthMm: '5000', usableWidthMm: '5000',
+ });
+ const receipt = await postedReceipt('SEALED', false, 'GOOD', { location });
+ const posting = await m.StockTransaction.findById(receipt.stockTransactionId);
+ const sourceBalanceId = posting.movements[0].toBalanceId;
+ const create = async () => {
+   const balance = await m.InventoryBalance.findById(sourceBalanceId);
+   const result = await createLocationMovement(worker, {
+     idempotencyKey: key(), warehouseId: String(warehouse._id), reason: 'Legacy task fixture',
+     lines: [{ sourceBalanceId: String(sourceBalanceId), sourceBalanceVersion: balance.version, enteredUnit: 'PIECE',
+       enteredQty: '4', toLocationId: String(storageLocation._id) }],
+   });
+   return m.TransferOrder.findById(result.id);
+ };
+ const partial = await create();
+ const open = await create();
+ await confirmLocationMovement(worker, String(partial._id), { idempotencyKey: key(), expectedVersion: partial.version,
+   lines: [{ lineId: String(partial.items[0]._id), actualQtyBase: '4' }] });
+ await m.TransferOrder.updateMany({ _id: { $in: [partial._id, open._id] } }, {
+   $set: { 'header.taskKind': 'PUTAWAY' },
+   $push: { sources: { subjectCollection: 'goods_receipts', documentId: receipt._id, relationCode: 'PURCHASE_PUTAWAY' } },
+ });
+ await m.TransferOrder.updateOne({ _id: partial._id }, {
+   $set: { workflowStatus: 'PARTIAL', 'items.0.qtyBase': '8', 'items.0.enteredQty': '8' },
+ });
+ const legacyPermission = await m.Permission.create({ code: 'putaway_task:create', name: 'Retired permission' });
+ const runScript = async (...args) => {
+   const script = fileURLToPath(new URL('../scripts/retire-purchase-putaway.mjs', import.meta.url));
+   const port = process.env.RUN_HIEUDT_TESTS === '1' ? 27018 : 27017;
+   const { stdout } = await promisify(execFile)(process.execPath, [script,
+     `--uri=mongodb://127.0.0.1:${port}/${mongoose.connection.name}`, ...args]);
+   return JSON.parse(stdout);
+ };
+ assert.equal((await pendingTaskQuantity(sourceBalanceId)).toFixed(), '8');
+ const preview = await runScript();
+ assert.equal(preview.applied, false);
+ assert.deepEqual(preview.tasks.map(row => row.previousStatus).sort(), ['OPEN', 'PARTIAL']);
+ assert.ok(preview.tasks.every(row => row.lines[0].releasedQtyBase === '4'));
+ assert.equal((await m.TransferOrder.findById(open._id)).workflowStatus, 'OPEN');
+ assert.equal((await m.Permission.findById(legacyPermission._id)).isActive, true);
+ assert.equal(await m.AuditLog.countDocuments({ action: 'RETIRE_PURCHASE_PUTAWAY' }), 0);
+
+ const applied = await runScript('--apply');
+ assert.equal(applied.applied, true);
+ assert.deepEqual(applied.tasks, preview.tasks);
+ const cancelled = await m.TransferOrder.findById(open._id);
+ assert.equal(cancelled.workflowStatus, 'CANCELLED');
+ assert.equal(cancelled.version, open.version + 1);
+ assert.ok(cancelled.cancelledAt && cancelled.cancelReason);
+ assert.equal((await m.TransferOrder.findById(partial._id)).workflowStatus, 'CANCELLED');
+ assert.equal(await m.StockTransaction.countDocuments({ sourceId: partial._id }), 1);
+ assert.equal((await pendingTaskQuantity(sourceBalanceId)).toFixed(), '0');
+ assert.equal(await m.AuditLog.countDocuments({ action: 'RETIRE_PURCHASE_PUTAWAY', actorType: 'SYSTEM' }), 2);
+ assert.equal((await m.Permission.findById(legacyPermission._id)).isActive, false);
+ assert.deepEqual((await runScript('--apply')).tasks, []);
 });
+
 run('BF03 confirms one complete relocation only and an idempotent retry posts once',async()=>{
  const relocations=await import('../src/modules/location-movements/location-movement.service.js');
  const overflow=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'BF03-ALT',locationType:'STORAGE',usableLengthMm:'5000',usableWidthMm:'5000'});
@@ -460,6 +439,9 @@ run('Warehouse reversal restores PO headroom once without separate approval',asy
  const order=await m.PurchaseOrder.findById(receipt.header.purchaseOrderId);const payload={...input(),expectedVersion:receipt.version,expectedPoVersion:order.version,reason:'Wrong entry',evidenceIds:[String(attachment._id)]};
  const reversal=await correction.reverseReceipt(worker,receipt._id,payload);await correction.reverseReceipt(worker,receipt._id,payload);
  assert.equal((await m.StockReversal.findById(reversal.id)).workflowStatus,'POSTED');assert.equal(await m.StockTransaction.countDocuments({reversedTransactionId:receipt.stockTransactionId}),1);assert.equal((await m.PurchaseReceipt.findById(receipt._id)).workflowStatus,'REVERSED');assert.deepEqual((await reconcilePurchasing()).issues,[]);
+ const detail = await getDocument(worker, receipt._id, 'GR_PURCHASE');
+ assert.equal(detail.capabilities.relocate, false);
+ assert.equal(detail.items[0].receivingBalanceId, undefined);
 });
 run('reversal reopens a COMPLETED PO but keeps a CLOSED PO terminal',async()=>{
  const reverse=async(status)=>{
@@ -524,10 +506,7 @@ run('native transfer dispatch, independent receipt and putaway reconcile all mov
  assert.equal((await reads.listDispatches(actor, eligible)).total, 0);
  const receivingDoc=await m.TransferReceipt.findById(received.id);
  const putting=await transfers.createRequirement(actor,received.id,{idempotencyKey:key(),expectedVersion:1,destinations:[{receiptLineId:String(receivingDoc.items[0]._id),locationId:String(target._id)}]});
- // Transfer putaway is readable through the purchase endpoint but confirmed/cancelled only by BF04.
- assert.equal((await putaway.getPutaway(actor,putting.id)).header.receiptId,received.id);
- await assert.rejects(putaway.cancelPutaway(actor,putting.id,{...input(),expectedVersion:1,reason:'Wrong module'}),e=>e.statusCode===404);
- await assert.rejects(putaway.confirmPutaway(actor,putting.id,{...input(),expectedVersion:1,lines:[{taskLineId:String(new mongoose.Types.ObjectId()),actualQtyBase:'1'}]}),e=>e.statusCode===404);
+ assert.equal((await m.TransferOrder.findById(putting.id)).header.taskKind, 'PUTAWAY');
  await transfers.confirmTask(actor,putting.id,{idempotencyKey:key(),expectedVersion:1});
  const current=await m.WarehouseTransferRequest.findById(request.id);await transfers.closeRequest(actor,request.id,{idempotencyKey:key(),expectedVersion:current.version});
  assert.equal((await m.WarehouseTransferRequest.findById(request.id)).workflowStatus,'COMPLETED');assert.deepEqual((await reconcilePurchasing()).issues,[]);

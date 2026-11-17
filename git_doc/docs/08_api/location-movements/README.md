@@ -30,6 +30,12 @@ frontend role name.  Warehouse access is still checked on every command.
 
 Select warehouse, then source location. Search the table by product name, SKU or manufacturer lot. Select individual balances, enter a positive whole number of cartons/pieces, and choose one destination location. The whole-location action selects every eligible row at the source, including rows hidden by search; it resets the search so all selected lines are visible. Source and destination must differ. One command is limited to 100 rows; oversized selections are rejected without silently truncating. The table retains separate lot, quality and owner rows. Active UOMs and current lot-specific carton conversions come from the server; no assumed BOX conversion is invented by FE. Network/5xx retries retain the original full payload and idempotency key.
 
+## Purchase receipt shortcut
+
+The purchase receipt detail links to `/location-moves/create` for users with `stock_relocation:create` when the receipt allows relocation. The link passes `warehouseId`, `fromLocationId`, comma-separated `balanceIds`, and `reason`. It uses the first receiving location with a linked GOOD balance. For other locations, select the source separately.
+
+The editor selects the referenced balances that are still available in the options for that source. It prefills their current quantities. A balance can include stock from several receipts of the same lot, quality and owner. Adjust quantities and choose a destination before saving. To move in batches, create one order per batch or edit the quantity on the open order.
+
 ## Create or edit
 
 `POST /` body (use the same line structure for `PATCH /:id`, plus

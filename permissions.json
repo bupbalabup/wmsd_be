@@ -122,39 +122,6 @@
     ]
   },
   {
-    "code": "putaway_task:read",
-    "description": "Xem nhiệm vụ cất hàng",
-    "uc": [
-      "UC-32",
-      "UC-33"
-    ],
-    "roles": [
-      "OWNER",
-      "ACCOUNTANT",
-      "WAREHOUSE"
-    ]
-  },
-  {
-    "code": "putaway_task:create",
-    "description": "Tạo nhiệm vụ cất hàng",
-    "uc": [
-      "UC-32"
-    ],
-    "roles": [
-      "WAREHOUSE"
-    ]
-  },
-  {
-    "code": "putaway_task:confirm",
-    "description": "Xác nhận cất hàng thực tế",
-    "uc": [
-      "UC-33"
-    ],
-    "roles": [
-      "WAREHOUSE"
-    ]
-  },
-  {
     "code": "product:read",
     "description": "Xem sản phẩm",
     "uc": [
