@@ -4,6 +4,7 @@ import { exact } from '../../models/model-utils.js';
 import { freeQuantities } from '../../shared/utils/stock-availability-read.js';
 import mongoose from 'mongoose';
 import { movementList } from '../../shared/utils/movement-list.js';
+import { optionFields,movementDetailFields,requirementFields,executionFields,differenceFields,approvalFields } from '../../shared/utils/movement-read-fields.js';
 import { WarehouseTransferRequest, TransferDispatch, TransferReceipt, InternalTransferRequirement, TransferOrder, ApprovalHistory, SalesOrder, WarehouseIssueRequest, SupplyAllocation, Warehouse, WarehouseLocation, StockHoldingPoint, InventoryBalance, ProductBatch, Product, Uom, Conversion, StockDiscrepancy } from '../../models/runtime.js';
 import { requirePermission, requireWarehouseAccess, isOwner, hasPermission } from '../../shared/utils/access.js';
 import { currentRole } from '../../shared/utils/userRole.js';
@@ -74,9 +75,9 @@ export async function listDispatches(user, query) {
 export async function getDispatch(user, id) {
   requirePermission(user, 'stock_transfer:read');
   if(currentRole(user)?.code === 'SALES')throw notFoundError();
-  const dispatch = await TransferDispatch.findOne({_id:id}).lean();
+  const dispatch = await TransferDispatch.findOne({_id:id}).select(movementDetailFields).lean();
   if(!dispatch)throw notFoundError();
-  const request=await WarehouseTransferRequest.findOne({$and:[await scope(user),{_id:dispatch.header.requestId}]}).select('header workflowStatus').lean();
+  const request=await WarehouseTransferRequest.findOne({$and:[await scope(user),{_id:dispatch.header.requestId}]}).select('header.sourceWarehouseId header.destinationWarehouseId workflowStatus').lean();
   if(!request)throw notFoundError();
   const [transfer]=await transferWarehouseDisplay([dto(request)]);
   const canReceive = hasPermission(user, 'stock_transfer:receive') && dispatch.workflowStatus === 'POSTED'
@@ -105,19 +106,19 @@ function transitProgress(dispatches,points,balances){
 
 export async function getTransfer(user,id){
   requirePermission(user,'stock_transfer:read');
-  const request=await WarehouseTransferRequest.findOne({$and:[await scope(user),{_id:id}]}).lean();if(!request)throw notFoundError();
-  const [[display],dispatches]=await Promise.all([transferWarehouseDisplay([dto(request)]),TransferDispatch.find({'header.requestId':id}).lean()]);
-  const receipts=await TransferReceipt.find({'header.dispatchId':{$in:dispatches.map(row=>row._id)}}).lean();
+  const request=await WarehouseTransferRequest.findOne({$and:[await scope(user),{_id:id}]}).select(movementDetailFields).lean();if(!request)throw notFoundError();
+  const [[display],dispatches]=await Promise.all([transferWarehouseDisplay([dto(request)]),TransferDispatch.find({'header.requestId':id}).select(movementDetailFields).lean()]);
+  const receipts=await TransferReceipt.find({'header.dispatchId':{$in:dispatches.map(row=>row._id)}}).select(movementDetailFields).lean();
   if(currentRole(user)?.code==='SALES')return {...display,dispatches:dispatches.map(row=>({id:String(row._id),workflowStatus:row.workflowStatus})),receipts:receipts.map(row=>({id:String(row._id),workflowStatus:row.workflowStatus}))};
   const [requirements,approvals,differences,points,effective]=await Promise.all([
-    InternalTransferRequirement.find({'header.sourceDocumentId':{$in:[...dispatches,...receipts].map(row=>row._id)}}).lean(),
-    ApprovalHistory.find({subjectType:'warehouse_transfer_requests',subjectId:id}).lean(),
-    StockDiscrepancy.find({'header.sourceRef.documentId':{$in:dispatches.map(d=>d._id)}}).lean(),
+    InternalTransferRequirement.find({'header.sourceDocumentId':{$in:[...dispatches,...receipts].map(row=>row._id)}}).select(requirementFields).lean(),
+    ApprovalHistory.find({subjectType:'warehouse_transfer_requests',subjectId:id}).select(approvalFields).lean(),
+    StockDiscrepancy.find({'header.sourceRef.documentId':{$in:dispatches.map(d=>d._id)}}).select(differenceFields).lean(),
     StockHoldingPoint.find({dispatchLineId:{$in:dispatches.flatMap(d=>d.items.map(i=>i._id))}}).select('_id dispatchLineId').lean(),
     effectiveQuantities(receipts.filter(r=>r.workflowStatus==='POSTED')),
   ]);
   const [tasks,transitBalances]=await Promise.all([
-    TransferOrder.find({'header.requirementId':{$in:requirements.map(row=>row._id)}}).lean(),
+    TransferOrder.find({'header.requirementId':{$in:requirements.map(row=>row._id)}}).select(executionFields).lean(),
     InventoryBalance.find({holdingPointId:{$in:points.map(p=>p._id)}}).select('holdingPointId quantityBase').lean(),
   ]);
   const progress=transitProgress(dispatches,points,transitBalances);
@@ -135,15 +136,15 @@ export async function transferOptions(user, warehouseId, mode='stock') {
   const sourceWarehouseIds=warehouses.filter(row=>isOwner(user)||(user.warehouseIds||[]).some(id=>String(id)===String(row._id))).map(row=>String(row._id));
   if(!warehouseId)return {warehouses:warehouses.map(dto),sourceWarehouseIds,locations:[],holdingPoints:[],balances:[],batches:[],products:[]};
   requireWarehouseAccess(user,warehouseId);
-  const locations=await WarehouseLocation.find({warehouseId,isActive:true}).lean();
+  const locations=await WarehouseLocation.find({warehouseId,isActive:true}).select(optionFields.location).lean();
   if(mode==='locations')return {warehouses:warehouses.map(dto),sourceWarehouseIds,locations:locations.map(dto),holdingPoints:[],balances:[],batches:[],products:[],units:[],conversions:[]};
-  const holdingPoints=await StockHoldingPoint.find({locationId:{$in:locations.map(row=>row._id)}}).lean();
-  const balances=await InventoryBalance.find({holdingPointId:{$in:holdingPoints.map(row=>row._id)},quantityBase:{$gt:0}}).lean();
+  const holdingPoints=await StockHoldingPoint.find({locationId:{$in:locations.map(row=>row._id)}}).select(optionFields.point).lean();
+  const balances=await InventoryBalance.find({holdingPointId:{$in:holdingPoints.map(row=>row._id)},quantityBase:{$gt:0}}).select(optionFields.balance).lean();
   const [batches,products,units,available]=await Promise.all([
-    ProductBatch.find({_id:{$in:balances.map(row=>row.batchId)},identificationStatus:'VERIFIED'}).lean(),
-    Product.find({isActive:true}).lean(),Uom.find({isActive:true}).select('code name isCarton').lean(),freeQuantities(balances),
+    ProductBatch.find({_id:{$in:balances.map(row=>row.batchId)},identificationStatus:'VERIFIED'}).select(optionFields.batch).lean(),
+    Product.find({isActive:true}).select(optionFields.product).lean(),Uom.find({isActive:true}).select('code name isCarton').lean(),freeQuantities(balances),
   ]);
-  const conversions=await Conversion.find({productId:{$in:products.map(row=>row._id)},validFrom:{$lte:new Date()}}).sort({validFrom:-1}).lean();
+  const conversions=await Conversion.find({productId:{$in:products.map(row=>row._id)},validFrom:{$lte:new Date()}}).select(optionFields.conversion).sort({validFrom:-1}).lean();
   const seenConversions=new Set();
   const currentConversions=conversions.filter(row=>{const key=JSON.stringify([String(row.productId),String(row.productBatchId||''),String(row.uomId)]);if(seenConversions.has(key))return false;seenConversions.add(key);return true;});
   const unitById=new Map(units.map(unit=>[String(unit._id),dto(unit)]));
