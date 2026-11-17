@@ -29,8 +29,8 @@ Catalogue hiện hành có **130 UC ACTIVE, mã liên tục UC-01–UC-130**. Đ
 | UC-29 | UC-42 | Store Owner | Change Storage Location Status |
 | UC-48 | UC-60 | Sales Staff | Update Eligible Sales Order Remainder |
 | UC-48 | UC-61 | Sales Staff | Cancel Eligible Sales Order Remainder |
-| UC-58 | UC-71 | Warehouse Staff | Post Actual Goods Issue |
-| UC-58 | UC-72 | Warehouse Staff | Prepare Goods Issue Draft |
+| UC-58 | UC-71 | Warehouse Staff | Create goods issue |
+| UC-58 | UC-72 | Warehouse Staff | Update goods issue |
 | UC-65 | UC-75 | Warehouse Staff | Record Defect Inspection and Immediate Hold |
 | UC-65 | UC-76 | Warehouse Staff | Submit Defective Goods Disposition Proposal |
 | UC-71 | UC-82 | Sales Staff | Decide Ordinary Customer Return Acceptance |
