@@ -13,6 +13,8 @@ FE explicitly labels BF03 as movement between locations within one warehouse. Wa
 
 ## Contract
 
+Read payload optimization (17/11/2026): `GET /` accepts optional `view=summary|full`, default `full`. FE tables request summary (identity, number, status, date and warehouse labels/IDs; no lines/version); Excel retains full line quantities/units/snapshots. Detail/options/ledger use explicit field projections, preserving command versions, carton factors and warehouse scope. Full read DTOs exclude unused persistence metadata. See [read performance and field contract](../TRANSFER_PERFORMANCE.md#field-projections--17-november-2026).
+
 | Endpoint | Permission | Purpose |
 | --- | --- | --- |
 | `GET /` | `stock_relocation:read` | List RELOCATE orders inside the caller's warehouse scope. |
