@@ -1,3 +1,5 @@
+17/11/2026: Kho 3D mở rộng hợp đồng Mixed warehouses.layout3d / layout3dApplied bằng pallets[].layers[] (height/items nhãn mã sản phẩm/lô/số thùng) và measuredCargoHeight? (m, không gồm đế). Không thêm schema collection/index/ref hay migration. actualHeight cũ giữ tổng cao; cảnh báo vượt cao không chặn áp dụng. Hợp đồng và sơ đồ trường: git_doc/docs/10_Kho3D/STAGE3_PALLET_LAYERS.md. Kiểm schema 6 test đạt, chưa rollout/transaction DB.
+
 ## 17/11/2026 — Outbound carton opening
 
 User permits fractional cartons and carton opening for issues. Embedded packaging portions add optional Decimal128 volumeUpperBoundMm3 (mm³), absent by default, for OPEN/LOOSE fragments. Capacity uses actual measurement first, then the conservative bound; splitting retains safe bounds without inventing measured volume. Quantities, whole cartons and residual identity remain exact. No collection/index change, backfill or remote DB write. Default relocation/receiving splitting is unchanged. Unit and isolated issue transaction tests cover opening, loose-first reuse, unknown-volume rejection and capacity overflow. Current contract: ../../git_doc/docs/08_api/GOODS_ISSUES.md.
