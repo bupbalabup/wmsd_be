@@ -1,3 +1,5 @@
+17/11/2026 — BF03/BF04 field projections: list view=summary omits item arrays and execution metadata; default full preserves Excel line quantities. Detail/options/ledger/related records select only consumed fields; command versions, packaging factors, scope and posting reads retained. Canonical git_doc/docs/08_api/TRANSFER_PERFORMANCE.md. No DB migration/remote write.
+
 17/11/2026 — BF03/BF04 read performance: batched selection availability (max 4 queries), compact warehouse catalogues without 3D snapshots, optional BF04 mode=locations for destination options and parallel authorized detail reads. Transaction guards unchanged; no remote rollout. Canonical git_doc/docs/08_api/TRANSFER_PERFORMANCE.md.
 
 ## 17 November 2026 — simplified sales and returns
