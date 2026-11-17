@@ -215,14 +215,17 @@ test('status change on an unknown account is 404 and writes no audit event', asy
   assert.equal(events.length, 0);
 });
 
-// Observed: the audit event is only written when isActive changes (user.service.js line 150), so replacing
-// the reason of an already locked account is saved without an audit event. Not a delta scenario; recorded as a finding.
-test('re-locking an already locked account with a new reason is audited', { todo: 'observed: no audit event when isActive does not change' }, async () => {
+test('re-locking an already locked account with a new reason is audited', async () => {
   const doc = target({ isActive: false, lockReason: 'Old reason' });
   stubUsers(actor(), doc);
   const events = captureAudit();
   await toggleUserStatus(targetId, false, actorId, 'New reason');
+  assert.equal(doc.isActive, false);
   assert.equal(doc.lockReason, 'New reason');
+  assert.deepEqual(events, [{
+    action: 'LOCK_USER', actorId, actorType: 'USER', subjectType: 'users', subjectId: targetId, reason: 'New reason', result: 'SUCCESS', invalid: undefined,
+  }]);
+  await toggleUserStatus(targetId, false, actorId, '  New reason  ');
   assert.equal(events.length, 1);
 });
 
