@@ -35,6 +35,48 @@ Validation performed / not performed:
 
 ## Log entries
 
+### 2026-11-16 - Estimate occupied volume when receiving open cartons and loose pieces
+
+- **Work item:** Implement the approved receiving-volume plan for UC-37 and the shared stock intake used by OTHER receipts, returns and positive stocktake adjustments.
+- **Tool and model:** Codex.
+- **Prompt summary:** Implement `PLAN_uoc_tinh_the_tich_hang_le.md`.
+- **Result used:** The stock intake helper estimates OPEN from batch carton dimensions and LOOSE from product dimensions. A submitted volume takes precedence. Purchase and custody use the source inspection condition, including LOOSE for loose pieces.
+- **Intervention:** Adopted.
+- **Human changes / reason for rejection:** None observed.
+- **Files affected:** `src/shared/utils/stock.js`, `src/modules/po-receiving`, `src/modules/return-workflows/native.validation.js`, `src/models/constants.js`, receiving tests and current contracts in `git_doc`.
+- **Validation performed / not performed:** The suite with native, goods receipt and return integration enabled passed 219 tests, skipped 33 and reproduced the existing customer claims contract failure. The volume tests covered the formulas, a missing dimension, explicit overrides and an OTHER receipt with whole cartons plus one loose piece.
+
+### 2026-11-16 — Analysis and plan: BE estimates open/loose packaging volume; new LOOSE packaging condition (UC-37, UC-45)
+
+- **Work item:** Analysis and implementation plan only. No code changed.
+  - **Finding:** posting requires a hand-measured `measuredVolumeMm3` for opened or loose goods. The rule was added on 2026-11-06 (`5f4a296`, `49d0aac`). On 2026-11-12 `137930c` made `receiveStock` estimate the loose remainder. On 2026-11-16 `ca53b33` added `intakePortions` in `po-receiving.service.js`, which requires hand entry again for purchase and custody intake.
+  - **Defect:** `copyItem` does not copy `details`, so purchase receipt lines have no `packagingCondition`. Because of this, the FE never shows `PackagingEditor`. A purchase receipt with an OPENED/TORN/UNKNOWN inspection line is blocked by the BE, and the UI has no field to enter the volume. This was inferred from the code and not reproduced in the browser.
+  - **Decision (user):** the BE estimates the volume from the chosen batch and product. Hand entry is needed only when the data for the estimate is missing, and a submitted value still overrides. Add the inspection packaging condition `LOOSE` ("Hàng lẻ (viên rời)").
+  - **Planned rule:** OPENED/TORN/UNKNOWN → one OPEN portion, volume = ceil(qty / `piecesPerCarton`) × batch carton volume. LOOSE → qty × product piece volume (`lengthMm × widthMm × heightMm`). The remainder of a SEALED line becomes LOOSE by piece volume. `checkBinCapacity` is unchanged. `conversions` hold only factors and are not used for volume.
+- **Tool and model:** Claude Code (Claude Opus 5.5).
+- **Prompt summary:** Is hand-entered volume for loose goods realistic? Who added it? Can the BE estimate it from the batch or product? Map how inspection packaging conditions become OPEN/LOOSE portions. Explain why the receipt draft shows no loose-goods choice. Write a plan for another agent. Update this log and the RTM.
+- **Result used:** Plan file `PLAN_uoc_tinh_the_tich_hang_le.md` in the workspace root, outside the `be/` and `fe/` repositories.
+- **Intervention:** Edited.
+- **Human changes:** The user decided that the BE estimates from the chosen batch with hand entry only as a fallback, and chose to add the `LOOSE` packaging condition.
+- **Files affected:** `be/docs/ai-log.md`, `be/docs/rtm.md`. Planned BE scope: `src/models/constants.js`, `src/modules/po-receiving/{po-receiving.service,po-receiving.routes}.js`, `src/modules/return-workflows/native.validation.js`, `src/shared/utils/stock.js`, `test/native-api.integration.test.js`, Data Dictionary.
+- **Validation:** Code reading and `git log -S` only. No tests or browser run, because no code changed.
+
+### 2026-11-16 — RR → put-away review fixes, one-step PO short closure, PO cancellation and RR list aggregation (UC-01, UC-02, UC-08, UC-09, UC-12, UC-13, UC-37, UC-46)
+
+- **Work item:** Review the flow from replenishment request to purchase put-away, then fix and change it:
+  - **Review fixes:** a second PO for the same RR returns 400 `Yêu cầu bổ sung đã có đơn mua` instead of a duplicate-key 500; `/putaway-tasks/:id/confirm` and `/cancel-remainder` accept purchase tasks only, so a transfer (ITR) put-away task can no longer be cancelled outside its module or crash confirm; cancelling a draft inspection also cancels its GoodsArrival.
+  - **PO unit price:** `draftEdit.lines[].unitPurchasePrice` returns the saved price for the edit form (removed for Warehouse Staff). Products carry no price; the Accountant enters it on the PO.
+  - **Short closure (user decision, option A):** `POST /api/purchase-orders/:id/close-remainder` by the Accountant in one step, reason required, evidence optional, no Owner approval. The `close-requests`/`close-approvals`/`close-executions` routes are removed (404). `purchase_order:approve_exception` stays in the catalogue, unused by PO commands.
+  - **PO cancellation:** `POST /api/purchase-orders/:id/cancel` for DRAFT, or OPEN with no arrival, receipt or short closure. It unsets `replenishmentRequestId` (now optional in the model; the partial unique index still allows one live PO per RR) and keeps the RR link in `sources[]`. The RR timestamp write serializes a concurrent cancel and create. PO detail returns `cancellable`; RR detail lists cancelled POs through `sources`; reconciliation skips cancelled POs.
+  - **RR list:** one aggregation (`$lookup` + `$facet`) replaces the `distinct` of every PO ID; rows return live `purchaseOrders` and omit `submissions`. New index `{documentKind, header.warehouseId, createdAt, _id}`.
+- **Tool and model:** Claude Code (Claude Fable 5.2 for the review and first fixes; Claude Opus 5.5 afterwards).
+- **Prompt summary:** Review the RR → put-away code; fix the defects found; let the Accountant enter the PO price; explain current RR/PO cancellation and short closure; implement the chosen short-closure option and PO cancellation; optimise the RR list; verify in the browser; update this log and the RTM.
+- **Result used:** BE code, tests and documentation listed below.
+- **Intervention:** Edited.
+- **Human changes:** The user chose option A for short closure, made evidence optional, allowed cancelling an issued PO with no linked transaction or document, required that the RR returns to "no PO" while keeping one RR to one PO, and asked for the UI check and this traceability update.
+- **Files affected:** `be/src/modules/purchase-orders/{purchase-order.commands,purchase-order.commands.routes,purchase-order.service}.js`, `be/src/modules/po-receiving/{po-receiving.service,purchase-putaway.service,purchase-reconciliation}.js`, `be/src/modules/replenishments/replenishment.service.js`, `be/src/models/{purchase-order,replenishment-request}.model.js`, `be/test/{native-api,replenishment-warnings}.integration.test.js`, `be/git_doc/{MODEL_MAP,change_logs}.md`, `be/git_doc/docs/08_api/{NATIVE_MODEL_RUNTIME,REPLENISHMENT_COVERAGE}.md`, `be/git_doc/docs/03_thiet_ke/DB_Current_2026-11-12_58/{WMSD_Data_Dictionary.md,schema.json}`, `be/git_doc/docs/02_nghiep_vu/de_xuat_quy_trinh_2_{VI,EN}.md`, `be/git_doc/docs/01_bao_cao/WMSD_Report4_Draft.md`, `be/src/models/CHANGELOG.md`, `be/docs/ai-log.md`, `be/docs/rtm.md`.
+- **Validation:** With `RUN_NATIVE_API_TESTS=1` on the local replica set 127.0.0.1:27017, the native-api, replenishment-warnings, backend-permissions and hieudt-scope files ran 40 tests: 38 passed, 2 skipped, 0 failed, including new cases for the duplicate PO, transfer put-away writes, arrival cancellation, draft price visibility, PO cancel/re-create/RR list and the one-step HTTP closure. `npm test` ran 142 passed, 99 skipped and 1 failure in `customer-returns.contract.test.js`, which comes from main commit 31529bb and is unrelated. `npm run docs:check` passed. The browser check used a local scratch copy of the demo database (`wmsd_ui_check_261116`); the configured Atlas database was not used. The data dictionary generator was not run because it overwrites other contributors' field notes; the two changes were edited by hand. Not performed: a dedicated test that fires a cancel and a create at the same moment.
+
 ### 2026-11-14 — Area-unit (M2) conversion, rounding to whole pieces, and one PO line per RR line (UC-02–UC-05, UC-09, UC-19, UC-20, UC-22)
 
 - **Work item:** Make an area unit (M2) convert itself and round up to whole pieces. Before this change a 600×600 tile (factor 2.777777777778) rejected every M2 quantity, even 0.36 m² (one piece), and the backfill skipped that size (`AREA_FACTOR_NOT_EXACT`):

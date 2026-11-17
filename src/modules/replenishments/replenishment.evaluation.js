@@ -276,7 +276,10 @@ async function previewQuantity(line, product, previous, session) {
     ? number(previous.baseUnitsPerUnit)
     : await resolveConversion(product, batch, enteredUnit, session);
   const uom = await m.Uom.findOne({ code: enteredUnit }).session(session);
-  return toBaseQuantity(line.enteredQty, factor, product, uom);
+  const quantity = toBaseQuantity(line.enteredQty, factor, product, uom);
+  if (!quantity.gt(0) || quantity.decimalPlaces() > 6 || (product.wholeBaseUnits && !quantity.isInteger()))
+    throw validationError("Số lượng phải quy đổi chính xác sang đơn vị gốc");
+  return quantity;
 }
 
 export async function evaluateLines(user, input, session, options = {}) {
@@ -311,13 +314,21 @@ export async function evaluateLines(user, input, session, options = {}) {
     const product = await m.Product.findById(line.productId).session(session);
     if (!product?.isActive) throw validationError("Sản phẩm không hoạt động");
     const source = await resolveSource({ ...line, lineNo: index + 1 }, warehouseId, user, session);
+    // 16/11/2026 decision 3.b: submission must use the source version the requester reviewed.
+    const seen = line.source?.version;
+    if (options.strictSourceVersion && seen != null && source.version != null && Number(seen) !== Number(source.version))
+      throw reviewRequired([], "Chứng từ nguồn đã thay đổi; mở yêu cầu, xem lại nhu cầu và lưu lại trước khi gửi duyệt", [
+        { lineNo: index + 1, message: `Nguồn đã đổi từ phiên bản ${seen} sang ${source.version}` },
+      ]);
     const available = await availableStock(product._id, warehouseId, line.lotId, session);
     const threshold = product.stockThresholds.find((row) => same(row.warehouseId, warehouseId));
     const minimum = threshold ? number(threshold.minimumQty) : null;
     // A zero minimum sets no floor; comparing stock >= 0 would warn on an empty warehouse.
-    const stockLimit = minimum?.gt(0) ? minimum : (options.items
+    // Always resolve the quantity so an invalid lot/unit fails here, not only when the RR is saved.
+    const requested = options.items
       ? number(options.items[index].qtyBase)
-      : await previewQuantity(line, product, line.id && own?.items.id(line.id), session));
+      : await previewQuantity(line, product, line.id && own?.items.id(line.id), session);
+    const stockLimit = minimum?.gt(0) ? minimum : requested;
     const pending = await openRequests(user, product._id, warehouseId, requestId, session);
     const incoming = await incomingPurchaseOrders(product._id, warehouseId, requestId, session);
     const other = await otherWarehouseOptions(user, product._id, warehouseId, line.lotId, session);

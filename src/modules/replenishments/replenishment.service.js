@@ -10,12 +10,47 @@ import {
   Stocktake,
 } from "../../models/runtime.js";
 import { requirePermission } from "../../shared/utils/access.js";
-import { dto, page, serialize } from "../../shared/utils/persistence.js";
+import { dto, serialize } from "../../shared/utils/persistence.js";
 import { notFoundError } from "../../shared/utils/ApiError.js";
 import { escapeRegex } from "../../shared/utils/domain.js";
 import { replenishmentScope } from "./replenishment.access.js";
 import { readRequest } from "./replenishment.commands.js";
 import { creationDateRange } from "./replenishment.validation.js";
+
+// One aggregation returns the page and the total. Live POs are joined through the
+// unique replenishmentRequestId index (cancelled POs no longer hold it). Without a
+// PO filter the join runs only for the rows of the page. Submission snapshots are
+// detail-only and never leave the database for the list.
+async function pageWithPurchaseOrders(filter, { page = 1, limit = 10 }, hasPo) {
+  const lookup = {
+    $lookup: {
+      from: PurchaseOrder.collection.name,
+      localField: "_id",
+      foreignField: "replenishmentRequestId",
+      pipeline: [{ $project: { documentNo: 1, workflowStatus: 1 } }],
+      as: "purchaseOrders",
+    },
+  };
+  const filtered = hasPo === undefined;
+  const [result] = await ReplenishmentRequest.aggregate([
+    // aggregate() does not cast like find(); reuse the model's query casting.
+    { $match: ReplenishmentRequest.find().cast(ReplenishmentRequest, filter) },
+    { $sort: { createdAt: -1, _id: -1 } },
+    ...(filtered ? [] : [lookup, { $match: { "purchaseOrders.0": { $exists: hasPo } } }]),
+    {
+      $facet: {
+        items: [
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+          ...(filtered ? [lookup] : []),
+          { $project: { submissions: 0 } },
+        ],
+        total: [{ $count: "count" }],
+      },
+    },
+  ]);
+  return { items: result.items.map(dto), total: result.total[0]?.count ?? 0, page, limit };
+}
 
 export async function listReplenishments(user, query) {
   requirePermission(user, "replenishment_request:read");
@@ -29,10 +64,6 @@ export async function listReplenishments(user, query) {
   const dateRange = creationDateRange(query);
   if (dateRange) filter.createdAt = dateRange;
   const hasPo = query.hasPurchaseOrder ?? query.poCreated;
-  if (hasPo !== undefined) {
-    const ids = await PurchaseOrder.find({}).distinct("replenishmentRequestId");
-    filter._id = { [hasPo ? "$in" : "$nin"]: ids };
-  }
   if (query.approvalDecision) {
     const status = {
       APPROVE: "APPROVED",
@@ -46,7 +77,7 @@ export async function listReplenishments(user, query) {
     );
   }
   if (and.length) filter.$and = and;
-  const paged = await page(ReplenishmentRequest, filter, query);
+  const paged = await pageWithPurchaseOrders(filter, query, hasPo);
   const warehouseIds = [
     ...new Set(
       paged.items.map((row) => row.header?.warehouseId).filter(Boolean),
@@ -115,8 +146,12 @@ export async function getReplenishment(user, id) {
   })
     .sort({ recordedAt: -1 })
     .lean();
+  // Cancelled POs no longer hold replenishmentRequestId; keep them visible as history.
   const purchaseOrders = await PurchaseOrder.find({
-    replenishmentRequestId: id,
+    $or: [
+      { replenishmentRequestId: document._id },
+      { sources: { $elemMatch: { subjectCollection: "replenishment_requests", documentId: document._id } } },
+    ],
   })
     .select("_id documentNo workflowStatus")
     .lean();

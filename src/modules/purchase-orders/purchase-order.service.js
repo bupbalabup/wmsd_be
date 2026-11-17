@@ -17,6 +17,21 @@ export async function purchaseOrderQuantities(po,session){
       outstandingQtyBase:outstanding.toFixed(),openDraftCommitmentQtyBase:draft.toFixed(),acceptanceHeadroomQtyBase:outstanding.minus(draft).toFixed(),quantityState:'KNOWN'};
   });
 }
+// A PO is cancellable while nothing physical or financial refers to it yet.
+// Every receiving document starts from a GoodsArrival or a PurchaseReceipt.
+export async function cancelBlocker(po, session) {
+  if (!["DRAFT", "OPEN"].includes(po.workflowStatus))
+    return "Chỉ hủy PO nháp hoặc PO đã phát hành chưa nhận hàng";
+  if (po.items.some((item) => exact(item.cancelledRemainderQtyBase ?? "0").gt(0)))
+    return "PO đã chốt thiếu một phần";
+  const linked = { $or: [{ "header.purchaseOrderId": po._id }, { "sources.documentId": po._id }] };
+  if (
+    (await GoodsArrival.exists(linked).session(session)) ||
+    (await PurchaseReceipt.exists({ "header.purchaseOrderId": po._id }).session(session))
+  )
+    return "PO đã có chứng từ nhận hàng liên kết";
+  return null;
+}
 // PO status follows posted stock only; this flags drafts still being received.
 export async function openReceivingWorkIds(orders){
   const poIds=orders.filter(o=>['OPEN','PARTIAL'].includes(o.workflowStatus)).map(o=>String(o._id??o.id));
@@ -69,12 +84,15 @@ export async function getPurchaseOrder(user,id){
         approvalId,
         enteredQty: String(item.enteredQty ?? item.qtyBase ?? '0'),
         enteredUomCode: item.enteredUnit || item.baseUnitSnapshot || null,
+        // Stripped by redactPrices for roles without financial scope.
+        unitPurchasePrice: item.unitPurchasePrice != null ? String(item.unitPurchasePrice) : null,
         note: item.note ?? null,
       })),
     };
   }
 
-  const result={...dto(po),warehouse:mappedWarehouse,draftEdit,hasOpenReceivingWork:(await openReceivingWorkIds([po])).has(String(po._id)),quantities,arrivals:arrivals.map(dto),receipts:receipts.map(dto),
+  const cancellable=['DRAFT','OPEN'].includes(po.workflowStatus)&&!(await cancelBlocker(po));
+  const result={...dto(po),warehouse:mappedWarehouse,draftEdit,cancellable,hasOpenReceivingWork:(await openReceivingWorkIds([po])).has(String(po._id)),quantities,arrivals:arrivals.map(dto),receipts:receipts.map(dto),
     ...(financial(user)&&{history:history.map(dto),approvals:approvals.map(dto)})};
   return financial(user)?result:redactPrices(result);
 }

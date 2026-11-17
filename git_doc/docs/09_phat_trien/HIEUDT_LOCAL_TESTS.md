@@ -1,3 +1,47 @@
+## Goods Issue manual requests and carton opening — 17/11/2026
+
+Current contract: [UC69–72](../08_api/GOODS_ISSUES.md). Existing documents need no backfill. Target MONGODB_URI deliberately, then run `npm run seed:goods-issue-permissions`: additive Sales create/update, Owner approve, Warehouse update; preserves custom grants. Applied only to wmsd_hieudt_local_20261111 at localhost27018/hieudt-test (modifiedRoles3, replay0); no remote write.
+
+Isolated tests: set RUN_GOODS_ISSUE_TESTS=1, then `node --test test/goods-issue-validation.test.js test/goods-issues.integration.test.js test/outbound-carton-opening.test.js`; unset the flag afterwards. GI fixtures use guarded random goods_issue_test_<ObjectId> databases on loopback27018/hieudt-test, never application MONGODB_URI. The manual scenario includes1.5BOX×4=6PIECE, no-SO approval, opening/picking/posting, scope and concurrent identities. Unit cases check exact residuals, loose-first reuse and capacity bounds. Integration runs with60/300second limits timed out in this final environment; do not count cancelled cases as passes. Final post-merge separate run: `RUN_GOODS_ISSUE_TESTS=1 node test/goods-issues.integration.test.js` completed4/4pass,0skip in170.3seconds; default BE151pass/0fail/107skip, focused validation/opening/inbound-volume8/8pass.
+
+FE command: `npx vitest run --pool=threads --maxWorkers=2 src/features/goods-issues/pages.test.tsx src/shared/components/CartonQtyInput.test.tsx src/features/sales-execution/pages.test.tsx src/features/transfers/live/TransferFlowPage.test.tsx src/features/return-workflows/commandQuantities.test.ts src/features/return-workflows/QuantityProgressTable.test.tsx src/features/return-workflows/usability.test.tsx src/features/return-workflows/pages.test.tsx src/app/routeAccess.test.ts`. Pre-merge result51pass/1known baseline pagination failure. Typecheck/build/changed-file lint passed before final UI copy/label fixes; post-merge54/54related tests, build/typecheck and changed-file lint pass. Fresh UI reviewer scored all three requested fixes resolved (ship at that scope).
+
+Browser fixture goods_issue_request_review_<ObjectId> uses separate API3002/FE3336. PXB-GI-TEST-261116-000001 approval kept same ID with no SO/reservations/ledger. PXK-GI-TEST-261116-000001 posted6PIECE from1.5BOX once;10pieces remain (8sealed+2open with a conservative bound). UI checked1440/390, native-source empty states and guarded physical flow. These are synthetic fixtures, not production evidence. The exact guarded browser DB, temporary scripts and API3002/FE3336 were removed. Persistent local preview remains API3001/FE3334, DB wmsd_hieudt_local_20261111.
+
+## Goods Issue CRU — 16/11/2026
+
+See [UC-69–72 contract](../08_api/GOODS_ISSUES.md). No schema migration is needed.
+For an existing database, target its URI explicitly and run the additive permission
+seed; it inserts `goods_issue:update` and adds it to WAREHOUSE without replacing
+other role grants. This task did not run the command against any shared database.
+
+```powershell
+# Run only against the database deliberately selected in MONGODB_URI.
+npm run seed:goods-issue-permissions
+
+# Isolated transaction tests; fixed loopback replica set, never MONGODB_URI.
+$env:RUN_GOODS_ISSUE_TESTS='1'
+node --test test/goods-issue-validation.test.js test/goods-issues.integration.test.js
+Remove-Item Env:RUN_GOODS_ISSUE_TESTS
+```
+
+The test creates and drops only its random `goods_issue_test_<ObjectId>` database
+on `127.0.0.1:27018`, replica set `hieudt-test`. Example generated codes use
+`PXB-GI-TEST-261116-000001` and `LSH-GI-TEST-261116-000001`; IDs remain opaque.
+Result: 5 passed, 0 failed, 0 skipped. Checks cover reservation restoration on edit
+and cancel (including an unstarted task), partial/full picking, frozen-location
+rollback, PGI replay, source/warehouse permissions, old item-linked issues and
+competing drafts. Local browser reads used `wmsd_hieudt_local_20261111` on API 3001
+and FE 3334; the additive permission seed updated one WAREHOUSE role there, with
+no stock write. A separate random `goods_issue_review_<ObjectId>` DB on the same
+loopback replica set supported browser create/edit/cancel/pick/post using two lots.
+It produced one PGI and one handover, then was dropped with its exact name/prefix
+checked; temporary API 3002/FE 3336 and the fixture script were removed. Final related
+FE tests: 32 passed; build/typecheck, changed-file lint and docs checks passed.
+Desktop 1440, mobile 390 and list boundary 768 were inspected; the finish reviewer
+scored the three requested fixes resolved. The default BE suite still has one
+unrelated duplicate-return-source assertion failure; integration skips are not passes.
+
 ## Kiểm thử vòng đời kiểm kê BF-05 — 13/11/2026
 
 Test `stocktake-lifecycle.integration.test.js` bật bằng `RUN_STOCKTAKE_LIFECYCLE_TESTS=1`, dùng cùng replica set `127.0.0.1:27018/hieudt-test` và DB tạm `stocktake_lc_test_<ObjectId>` (teardown kiểm prefix rồi drop). Chạy tuần tự với các suite integration khác (`--test-concurrency=1`); chạy song song nhiều file tạo/xóa DB cùng lúc rất dễ làm Mongo cạn file descriptor.

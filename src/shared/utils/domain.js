@@ -5,7 +5,9 @@ import { ExactDecimal } from "../../models/model-utils.js";
 export const SAIGON_OFFSET_MS = 7 * 60 * 60 * 1000;
 export const objectIdString = z
   .string()
-  .regex(/^[a-f\d]{24}$/i, "ObjectId không hợp lệ");
+  .regex(/^[a-f\d]{24}$/i, "ObjectId không hợp lệ")
+  // Mongoose matches ids case-insensitively; normalise so duplicate checks on strings hold.
+  .transform((value) => value.toLowerCase());
 
 export const calendarDateString = z
   .string()
@@ -23,6 +25,10 @@ export function saigonDateOnly(now = new Date()) {
     .toISOString()
     .slice(0, 10);
 }
+
+// True when the instant falls on today or later in Vietnam (UTC+7).
+export const notBeforeSaigonToday = (instant) =>
+  saigonDateOnly(new Date(instant)) >= saigonDateOnly();
 
 export function calendarDateToInstant(value) {
   return new Date(`${value}T00:00:00+07:00`);

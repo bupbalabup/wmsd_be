@@ -143,10 +143,10 @@ export function confirmTask(user,id,input) {
       if(!origin||!same(ctx.batch._id,item.lotId)||ctx.balance.qualityStatus!==item.details.qualityCode||!ctx.product.isActive)throw validationError('Nguồn không khớp lệnh');
       await locationAt(item.details.toLocationId,task.header.warehouseId,[picking?'STAGING':'STORAGE'],session);
       const destination=await balanceAt({type:'LOCATION',locationId:item.details.toLocationId},ctx.balance,ctx.balance.qualityStatus,session);
-      await moveStock(ctx.balance._id,destination._id,item.qtyBase,picking?origin._id:item._id,posting,actor,session,{excludeTaskId:id});
+      await moveStock(ctx.balance._id,destination._id,item.qtyBase,picking?origin._id:item._id,posting,actor,session,{excludeTaskId:id,allowOpening:picking});
       if(picking){
         const transit=await balanceAt({type:'IN_TRANSIT',dispatchLineId:origin._id},ctx.balance,ctx.balance.qualityStatus,session);
-        await moveStock(destination._id,transit._id,item.qtyBase,origin._id,posting,actor,session,{excludeTaskId:id});
+        await moveStock(destination._id,transit._id,item.qtyBase,origin._id,posting,actor,session,{excludeTaskId:id,allowOpening:true});
       }
     }
     await verifyCapacity(locations,session);await posting.save({session});

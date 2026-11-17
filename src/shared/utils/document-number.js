@@ -3,6 +3,7 @@ import { validationError } from './ApiError.js';
 import { currentTransactionSession } from './transaction-context.js';
 
 export const documentTypes = Object.freeze({
+ GI_OTHER:['PXK','Phiếu xuất khác'],
  SO:['ĐBH','Đơn bán hàng'],WIR:['YCX','Yêu cầu xuất kho'],OD:['LGH','Lệnh giao hàng'],GI:['PXB','Phiếu xuất bán'],PICK:['LSH','Lệnh soạn hàng'],TO:['LCV','Lệnh chuyển vị trí'],TR:['YCĐC','Yêu cầu điều chuyển'],TD:['PXĐC','Phiếu xuất điều chuyển'],ITR:['YCNB','Yêu cầu chuyển nội bộ'],MWTR:['PNĐC','Nhận điều chuyển'],DEF:['BCH','Báo cáo hàng hỏng'],ADJ:['ĐCKK','Điều chỉnh kiểm kê'],HO:['BBBG','Biên bản bàn giao'],
  RR:['YCBS','Yêu cầu bổ sung'],PO:['ĐMH','Đơn mua hàng'],ARR:['HĐK','Hàng đến kho'],INS:['PKN','Phiếu kiểm nhận'],GR:['PNM','Phiếu nhập mua'],OTHER:['PNK','Phiếu nhập khác'],CR:['ĐTK','Đề nghị khách trả hàng'],CR_GR:['PNKT','Nhập khách trả'],FD:['GHTB','Giao hàng thất bại'],FD_GR:['PNGHTB','Nhập giao thất bại'],SR:['ĐTNCC','Đề nghị trả nhà cung cấp'],SR_GI:['PXNCC','Xuất trả nhà cung cấp'],ACK:['XNNCC','Xác nhận nhà cung cấp'],CRCV:['PNGH','Nhập giữ hộ'],CREL:['PXGH','Xuất giữ hộ'],REV:['PĐN','Phiếu đảo nhập'],SCRAP:['PHH','Phiếu hủy hàng'],QUALITY:['PĐCL','Đổi chất lượng'],DISC:['CLCK','Chênh lệch chuyển kho'],ST:['KK','Đợt kiểm kê'],ST_PLAN:['PAXLKK','Phương án kiểm kê'],DEF_PLAN:['PAXLHL','Phương án hàng lỗi'],OPENING:['TDK','Tồn đầu kỳ'],INVOICE:['HĐBH','Hóa đơn bán hàng'],CANCEL:['HỦYĐBH','Hủy đơn bán'],POD:['XNGH','Xác nhận giao hàng'],PAY:['XNTT','Xác nhận thanh toán']
 });

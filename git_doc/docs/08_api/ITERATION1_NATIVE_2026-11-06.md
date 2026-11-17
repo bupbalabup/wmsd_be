@@ -34,7 +34,7 @@ Các POST dưới /api/custody-receipts/:id đều có expectedVersion,operation
 
 POST /api/custody-releases/:id/post có expectedVersion,operationKey,recipientName; cùng quyền execute. GET /api/custody-releases/:id dùng quyền đọc nhận mua. Decision command trả decisionId, replay trả cùng ID. Kết quả kiểm lại là GoodsInspection CONFIRMED mới, không tạo chuyến vật lý mới. Quyết định áp dụng đúng source version; một lần lập phiếu tiêu thụ quyết định, lượng còn lại lập quyết định mới. Tổng lượng đã thực hiện và nháp không vượt nguồn. ACCEPT cần GOOD, headroom PO và PO mở. RETURN vẫn được thực hiện khi PO đã đóng.
 
-GR từ giữ hộ trừ SUPPLIER và cộng STORE trong một transaction, giữ packaging và tổng lượng vật lý; không nhập từ bên ngoài lần hai. Quy tắc tách bao bì giữ nguyên: thùng niêm phong chia theo nguyên thùng; phần mở/lẻ đã đo phải chọn trọn phần, không tự suy thể tích cho lượng lẻ. Trả NCC chỉ giảm SUPPLIER, không giảm lượng PO nhận sở hữu. Kho, người dùng, chứng cứ, nguồn, trạng thái, version, freeze và capacity được kiểm phía BE.
+GR từ giữ hộ trừ SUPPLIER và cộng STORE trong một transaction, giữ packaging và tổng lượng vật lý; không nhập từ bên ngoài lần hai. Quy tắc tách bao bì giữ nguyên: thùng niêm phong chia theo nguyên thùng; phần mở/lẻ phải chọn trọn phần và giữ thể tích đã ghi. Trả NCC chỉ giảm SUPPLIER, không giảm lượng PO nhận sở hữu. Kho, người dùng, chứng cứ, nguồn, trạng thái, version, freeze và capacity được kiểm phía BE.
 
 Đợt FE 07/11 dùng bộ lọc NCC của PO và lấy `batches` trực tiếp từ `inspection-context`. DTO nhận mua trả `capabilities.writeWarehouse` để tách quyền xem xuyên kho của Accountant với quyền thao tác trong kho được giao. Capability đảo nhập kiểm cả `post` và `reverse`; post GR từ giữ hộ kiểm thêm `purchase_custody:execute`. FE kiểm grant của từng lệnh giữ hộ và từng bước put-away. Các modal quyết định giữ hộ, kiểm lại và đảo nhập dùng danh sách tệp đã gắn, gửi `evidenceIds` và dùng version trả về khi gắn tệp mới.
 
@@ -46,7 +46,7 @@ POST /api/purchase-receipts/:id/reverse: expectedVersion,expectedPoVersion,opera
 
 ## Mapping FE đợt sau
 
-Checklist chuyển các form cũ sang hợp đồng native: baseUomId→baseUnit code; thicknessMm→heightMm; brand→manufacturerCode; category text→categoryId; contactPerson→contactName; cooperationStatus→status; expectedVersion catalogue→expectedUpdatedAt. Không giả conversionId tương ứng UOM; bỏ endpoint conversion cũ. Render nominalSize chỉ đọc. Đổi /po-inspections thành /goods-inspections. Nhận mua cần ownershipDecision/qualityCode/packagingCondition và destinations. Đảo nhập không cần review bước hai. Trạng thái nối form tạo sản phẩm ghi ở mục API và quyền.
+Checklist chuyển các form cũ sang hợp đồng native: baseUomId→baseUnit code; thicknessMm→heightMm; brand→manufacturerCode; category text→categoryId; contactPerson→contactName; cooperationStatus→status; expectedVersion catalogue→expectedUpdatedAt. Không giả conversionId tương ứng UOM; bỏ endpoint conversion cũ. Render nominalSize chỉ đọc. Đổi /po-inspections thành /goods-inspections. Nhận mua cần ownershipDecision/qualityCode/packagingCondition và destinations. Tình trạng `LOOSE` ghi nhận hàng lẻ. Xem [tình trạng bao bì và cách ước tính thể tích](NATIVE_MODEL_RUNTIME.md#mua-và-nhập). Đảo nhập không cần review bước hai. Trạng thái nối form tạo sản phẩm ghi ở mục API và quyền.
 
 ## Dữ liệu và giới hạn triển khai
 

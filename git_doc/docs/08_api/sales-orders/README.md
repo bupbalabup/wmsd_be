@@ -34,7 +34,7 @@ version, workflowStatus, operationId, resultRefs and replayed; it does not retur
 a fabricated shortage evaluation result. The opt-in Cloudinary smoke test verifies private
 upload, signed download, denied unsigned access and cleanup of its synthetic image.
 
-Update/cancel, WIR/OD creation and picking have native command routes in the linked HieuDT contract. They are never performed by GET. GI posting, POD and payment remain separate use cases.
+Update/cancel, WIR/OD creation and picking have native command routes in the linked HieuDT contract. They are never performed by GET. [Goods Issue UC-69–72](../GOODS_ISSUES.md) adds GI list/detail, standalone draft create/edit/cancel and actual handover posting. POD and payment remain separate milestones.
 
 ## Scope and input
 
