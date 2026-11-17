@@ -604,8 +604,8 @@ Lần đồng bộ 25/10 sửa tài liệu hiện hành và DDL tham chiếu; l�
 | UC-68 | Confirm Picking Task | FE-06 | ACTIVE | SC-23. | Warehouse |
 | UC-69 | View goods issue list | FE-06 | ACTIVE | SC-17. | Owner, Accountant, Warehouse, Sales |
 | UC-70 | View goods issue details | FE-06 | ACTIVE | SC-17. | Owner, Accountant, Warehouse, Sales |
-| UC-71 | Post Actual Goods Issue | FE-06 | ACTIVE | SC-17. | Warehouse Staff |
-| UC-72 | Prepare Goods Issue Draft | FE-06 | ACTIVE | SC-17. | Warehouse Staff |
+| UC-71 | Create goods issue | FE-06 | ACTIVE | SC-17. | Warehouse Staff |
+| UC-72 | Update goods issue | FE-06 | ACTIVE | SC-17. | Warehouse Staff |
 | UC-73 | View defective goods list | FE-07 | ACTIVE | SC-11. | Owner, Warehouse |
 | UC-74 | View defective goods details | FE-07 | ACTIVE | SC-11. | Owner, Warehouse |
 | UC-75 | Record Defect Inspection and Immediate Hold | FE-07 | ACTIVE | SC-11. | Warehouse Staff |
