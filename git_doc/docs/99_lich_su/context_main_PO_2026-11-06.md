@@ -1108,8 +1108,8 @@ Các ghi chú triển khai sau áp dụng cho nhóm kế thừa, không cấp qu
 ### Implementation family UC-71 — UC-71, UC-72
 
 Các ghi chú triển khai sau áp dụng cho nhóm kế thừa, không cấp quyền cho từng UC. Đọc hợp đồng riêng tại Report 3 và crosswalk 30/10/2026.
-- **UC-71 Post Actual Goods Issue** — Warehouse Staff: Require draft GI-S/OD and confirmed picking/actual handover evidence. Recheck net allowance/version/reservation/freeze and commit PGI ledger/balance/progress once. Print committed snapshot. PGI is not POD or completion.
-- **UC-72 Prepare Goods Issue Draft** — Warehouse Staff: Create/update GI-S DRAFT from current OD before picking. Save without stock deduction and route picking to UC-67/68. Do not post on draft save.
+- **UC-71 Create goods issue** — Warehouse Staff: Require draft GI-S/OD and confirmed picking/actual handover evidence. Recheck net allowance/version/reservation/freeze and commit PGI ledger/balance/progress once. Print committed snapshot. PGI is not POD or completion.
+- **UC-72 Update goods issue** — Warehouse Staff: Create/update GI-S DRAFT from current OD before picking. Save without stock deduction and route picking to UC-67/68. Do not post on draft save.
 
 - **ACTIVE · FE-06 — SO/xuất/giao · SC-17.**
 - **Quyền theo Report 3:** Warehouse Staff — Draft GI-S before picking; post actual handover once.
