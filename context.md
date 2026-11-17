@@ -38,6 +38,8 @@ Latest explicit user decision supersedes manual-sale and custody requirements fo
 
 > Quyết định 09/11/2026 bổ sung [Conversion theo sản phẩm và lô](git_doc/docs/08_api/CONVERSIONS.md). [Iteration 1 native](git_doc/docs/08_api/ITERATION1_NATIVE_2026-11-06.md) tiếp tục áp dụng cho NCC, giữ hộ và đảo nhập.
 
+> 17/11/2026: Kế toán chọn đơn vị theo từng dòng khi tạo hoặc sửa PO nháp. Nếu vượt lượng RR đã duyệt, hệ thống chỉ cho phép số nguyên đơn vị nhỏ nhất đủ phủ lượng duyệt mà không cần Owner duyệt. Xem [hợp đồng PO](git_doc/docs/08_api/NATIVE_MODEL_RUNTIME.md#mua-và-nhập).
+
 # Backend context
 
 The runtime uses one registry: `src/models/index.js` exports `registerModels(connection)`; `runtime.js` supplies API models. There are 58 collection schemas directly under `src/models`. Nested schemas do not create collections. `registerReviewedModels` is a compatibility alias. Pure historical transforms and synthetic fixtures under `src/migrations/rebuild` and `src/seeds/rebuild` remain for regression checks.

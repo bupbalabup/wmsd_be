@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { exact, ExactDecimal } from '../src/models/model-utils.js';
-import { toBaseQuantity } from '../src/shared/utils/conversions.js';
+import { toBaseQuantity, withinApproved } from '../src/shared/utils/conversions.js';
 
 const area = { code: 'M2', areaMm2: '1000000' };
 const carton = { code: 'BOX', isCarton: true };
@@ -9,6 +9,16 @@ const whole = { baseUnit: 'PIECE', wholeBaseUnits: true };
 const f600 = exact('1000000').div(360000).toDecimalPlaces(12, ExactDecimal.ROUND_HALF_UP);
 
 test('area factor is rounded to 12 places', () => assert.equal(f600.toFixed(), '2.777777777778'));
+
+test('PO allowance permits only the smallest whole-unit overage', () => {
+  assert.equal(withinApproved('9.9', '3.3', '3', '10'), true);
+  assert.equal(withinApproved('12', '4', '3', '10'), true);
+  assert.equal(withinApproved('15', '5', '3', '10'), false);
+  assert.equal(withinApproved('12', '4', '3', '9'), false);
+  assert.equal(withinApproved('10.5', '3.5', '3', '10'), false);
+  assert.equal(withinApproved('281', '101', f600, '278'), true);
+  assert.equal(withinApproved('278', '100.08', f600, '278'), true);
+});
 
 test('area units round up to whole pieces on whole-piece products', () => {
   const q = (qty, factor, product = whole, uom = area) => toBaseQuantity(qty, factor, product, uom).toFixed();
