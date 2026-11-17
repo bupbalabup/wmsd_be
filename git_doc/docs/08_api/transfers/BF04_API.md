@@ -46,12 +46,29 @@ Source: user requested source-warehouse stock in pieces/cartons/pallets at step 
 The preview converts each batch separately, preferring its current batch conversion over a product conversion, then sums the results. Cartons may fall back to the batch's piecesPerCarton only when the product's base unit is pieces. Carton UOM uses isCarton, not a hardcoded BOX code; pallet uses the configured PALLET code/name. Missing factors show “Chưa cấu hình”; one unconvertible stocked batch prevents a misleading partial total. Zero stock and missing configuration are distinct. Values use exact rational arithmetic, Vietnamese number formatting and at most three fractional digits; truncated results have ≈. Negative free quantities display zero. Carton/pallet totals are equivalent quantities, not a count of sealed cartons or physical pallets. No stock, approval, request validation or conversion persistence changes.
 
 The FE request form captures only source/destination warehouses, product/lot and
-the requested quantity in a configured unit. After approval, the detail screen
-keeps the physical steps separate: create the outbound document, create the PICK
-TO, confirm it to move stock to staging/transit, receive and inspect at the
-destination, then create and confirm the PUTAWAY TO. The progress comparison
-against approved and dispatched quantities determines whether another outbound
-batch is needed; the request closes only when the native close checks pass.
+the requested quantity in a configured unit. Per user decision on 17 November,
+outbound documents are created exclusively in **Tạo phiếu xuất kho** at
+`/goods-issues/create`, reason TRANSFER, against an approved request. The request
+detail contains its linked dispatches and receipts, with a navigation button to
+`/goods-issues/create?reason=TRANSFER&transferId=<encoded-request-id>` when another
+outbound batch is needed. It has no inline quantity entry or creation command and
+does not load source stock options. The separate page preselects the request,
+allows choosing another approved source, and returns to the request after creation.
+
+The existing stock_transfer:dispatch grant opens this shared create route for
+TRANSFER only; goods_issue:create continues to authorize ordinary issue reasons.
+No permission grant is added. URL parameters never bypass request approval,
+warehouse scope or existing API permissions. Source selection/reason/quantities
+are frozen while a transfer creation result is pending or uncertain; retry keeps
+the original body and idempotency key. Transfer creation skips the unrelated
+Goods Issue options query and loads its authorized source stock only here.
+
+Create the PICK TO and confirm it to move stock to staging/transit, receive and
+inspect at the destination, then create and confirm the PUTAWAY TO. These existing
+actions remain on the transfer workflow. The progress comparison against approved
+and dispatched quantities determines whether another outbound batch is needed;
+the request closes only when the native close checks pass. Native TransferDispatch
+records and parent/line references are unchanged; no second Goods Issue is created.
 
 | Step | API | Permission | Result |
 | --- | --- | --- | --- |
@@ -70,6 +87,14 @@ with the ITR.  The indexes and command locking enforce those relationships even
 when two clients submit concurrently.
 
 ## Request bodies
+
+### Review and edit presentation — 17 November 2026
+
+Source: user requested units beside waiting-approval quantities, editable product quantities/units, and the creation date below destination aligned with the reason. FE request quantity displays enteredQty with enteredUnit; approved/dispatched/received/transit/difference quantities display base quantities with the historical baseUnitSnapshot (presented as baseUnit). The paired read projection already includes that snapshot, so this requires no additional query. Older records without a resolvable base unit are labeled “đơn vị gốc”; they are never mislabeled with a carton unit merely because a carton was entered.
+
+The creator with stock_transfer:update can edit quantities and configured units directly in existing table rows while PENDING_APPROVAL/REVISION_REQUIRED. The frontend preserves input on validation/failure, marks invalid quantities, prevents saving zero/negative/invalid or over-six-decimal quantities, and keeps unavailable historical units visible rather than replacing them silently. Unit choices use selected-batch overrides ahead of product defaults. Update sends the unchanged warehouse IDs, original expectedVersion, edited enteredQty/enteredUnit and existing retry/idempotency behavior to PUT /:id. Backend creator/state/scope/conversion/source-document checks remain authoritative and unchanged. No stock is posted by editing.
+
+General information uses two columns on desktop: source/destination above reason/creation date; mobile stacks the fields. Editing controls remain inside the table's horizontal scroll region. No shared component API, model, permission grant or database change.
 
 Create TR:
 
