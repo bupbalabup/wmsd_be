@@ -126,6 +126,33 @@ export async function getTransfer(user,id){
   return {...display,lineProgress,differences:differences.map(dto),progress,dispatches:dispatches.map(dto),receipts:receipts.map(dto),internalRequirements:requirements.map(dto),tasks:tasks.map(dto),approvals:approvals.map(dto)};
 }
 
+export async function getPutawayTask(user,id) {
+  requirePermission(user,'stock_transfer:read');requirePermission(user,'stock_transfer:receive');
+  const task=await TransferOrder.findById(id).select('_id documentNo workflowStatus version header.warehouseId header.taskKind header.requirementId items.details.toLocationId items.sources.documentId items.sources.itemId').lean();
+  if(!task||task.header.taskKind!=='PUTAWAY'||!task.header.requirementId)throw notFoundError();
+  requireWarehouseAccess(user,task.header.warehouseId);
+  const requirement=await InternalTransferRequirement.findById(task.header.requirementId).select('_id header.sourceDocumentId header.taskKind header.warehouseId').lean();
+  const receipt=requirement&&await TransferReceipt.findById(requirement.header.sourceDocumentId).select('_id documentNo header.dispatchId header.warehouseId items._id items.productNameSnapshot items.lotId items.lotLabelSnapshot items.qtyBase items.baseUnitSnapshot items.details.qualityCode items.details.receivingLocationId').lean();
+  const dispatch=receipt&&await TransferDispatch.findById(receipt.header.dispatchId).select('header.requestId').lean();
+  const request=dispatch&&await WarehouseTransferRequest.findById(dispatch.header.requestId).select('workflowStatus header.destinationWarehouseId').lean();
+  if(!receipt||!request||String(request.header.destinationWarehouseId)!==String(task.header.warehouseId)||String(receipt.header.warehouseId)!==String(task.header.warehouseId)||String(requirement.header.warehouseId)!==String(task.header.warehouseId))throw notFoundError();
+  const locationIds=[...task.items.map(item=>item.details?.toLocationId),...receipt.items.map(item=>item.details?.receivingLocationId)].filter(Boolean);
+  const missingLots=receipt.items.filter(item=>!item.lotLabelSnapshot&&item.lotId).map(item=>item.lotId);
+  const [locations,warehouse,batches]=await Promise.all([
+    locationIds.length?WarehouseLocation.find({_id:{$in:locationIds},warehouseId:task.header.warehouseId}).select('_id code name').lean():[],
+    Warehouse.findById(task.header.warehouseId).select('code name').lean(),
+    missingLots.length?ProductBatch.find({_id:{$in:missingLots}}).select('_id manufacturerLot').lean():[],
+  ]);
+  return {id:String(task._id),documentNo:task.documentNo,status:task.workflowStatus,version:task.version,warehouseId:String(task.header.warehouseId),warehouseLabel:warehouse?.name||warehouse?.code||null,requestId:String(request._id),requestStatus:request.workflowStatus,receiptId:String(receipt._id),receiptNo:receipt.documentNo,
+    lines:receipt.items.filter(item=>item.details.qualityCode!=='DAMAGED').map(item=>{
+      const planned=task.items.find(row=>row.sources?.some(link=>String(link.documentId)===String(receipt._id)&&String(link.itemId)===String(item._id)));
+      const target=locations.find(row=>String(row._id)===String(planned?.details.toLocationId));
+      const source=locations.find(row=>String(row._id)===String(item.details.receivingLocationId));
+      const batch=batches.find(row=>String(row._id)===String(item.lotId));
+      return {receiptLineId:String(item._id),productName:item.productNameSnapshot,lotLabel:item.lotLabelSnapshot||batch?.manufacturerLot||null,fromLocationLabel:source?.name||source?.code||null,qtyBase:String(item.qtyBase),baseUnit:item.baseUnitSnapshot,toLocationId:planned?.details.toLocationId?String(planned.details.toLocationId):null,toLocationLabel:target?.name||target?.code||null};
+    })};
+}
+
 // This is a selection aid only. Every BF04 write command rechecks the active
 // warehouse, lot, balance, quality and source quantities inside its transaction.
 export async function transferOptions(user, warehouseId, mode='stock') {
