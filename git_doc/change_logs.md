@@ -1,3 +1,11 @@
+## 17 November 2026 — HieuDT integration and transfer read performance
+
+User requested committing each pending file on HieuDT before merging main: FE 48 file commits + merge a3dc8b3, BE 35 file commits + merge 73de6ab. Combined conflicting context/changelogs, preserved BF03 partial trips/editor and main exports, retained main warehouse guards after resolving optional edit warehouse IDs. Restored the incoming pallet test to the approved nonblocking height-warning contract. No push, main rewrite or remote DB/index write.
+
+Performance: replace per-balance BF04 availability queries with max four batch reads; preserve exact scalar semantics for reservations, partial tasks and holds. Parallelize independent authorized detail/search reads, compact catalogue projections to omit 3D designs, linear conversion deduplication and BF03 FE lookup/ledger maps. Add mode=locations options; FE skips source stock for non-actionable requests and avoids loading destination stock. Write commands and transactional guards unchanged. Files: stock-availability-read.js, transfer-read service/routes/validation, location-movement service, FE transfer hooks/flow and relocation presentation; focused tests and current contracts updated. See docs/08_api/TRANSFER_PERFORMANCE.md.
+
+Verification: FE typecheck/build and 77 focused regression tests passed before final skip assertions, changed-file ESLint passed; final hook/presentation assertions: 10/10 passed. BE final default regression 246 passed/0 failed/125 skipped/1 existing account-audit TODO, including all five performance tests and scoped receipt-source loading without sibling document expansion. Initial HTTP tests were blocked by sandbox localhost EACCES and passed after rerun with local-network access. Local transaction replica 27018 unavailable; online latency/explain/indexes not measured. No claim of remote rollout or full browser E2E.
+
 ## 17 November 2026 — Upstream integration and conflict-resolution checkpoint
 
 - Source: user requested pulling both repositories, approved continuing the existing backend rebase and merging frontend `origin/main` while preserving local work, and explicitly requested deleting conflicting test files only. No push was requested.
