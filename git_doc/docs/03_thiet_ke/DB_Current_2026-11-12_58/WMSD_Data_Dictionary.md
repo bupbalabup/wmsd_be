@@ -222,7 +222,7 @@ Model: [warehouse.model.js](../../../../src/models/warehouse.model.js).
 | `lengthMm` | Number | false |  |
 | `widthMm` | Number | false |  |
 | `clearHeightMm` | Number | false |  |
-| `layout3d` | Mixed/Object | false | Bản nháp: points, height, doors, maxStackHeight?, functions[] và zones[] (slots[] local); m/độ. Cấu trúc và kiểm tra tại [chặng 2](../../10_Kho3D/STAGE2_ZONES.md). |
+| `layout3d` | Mixed/Object | false | Bản nháp: points, height, doors, maxStackHeight?, functions[] và zones[] (slots[] local); m/độ. Pallet có layers[] (id/height/items[] nhãn mã hàng/lô/số thùng) và measuredCargoHeight? tính phần hàng; actualHeight cũ vẫn là tổng cao. Cấu trúc/giới hạn tại [chặng 2](../../10_Kho3D/STAGE2_ZONES.md) và [lớp pallet](../../10_Kho3D/STAGE3_PALLET_LAYERS.md). |
 | `layout3dApplied` | Mixed/Object | false | Snapshot áp dụng gần nhất cùng cấu trúc layout3d; lưu nháp không thay snapshot. |
 | `layout3dAppliedAt` | Date | false | Thời điểm áp dụng snapshot; chưa có ở dữ liệu cũ. |
 | `isActive` | Boolean | true |  |
