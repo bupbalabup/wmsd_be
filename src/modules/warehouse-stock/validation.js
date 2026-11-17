@@ -6,7 +6,9 @@ export const listQuery = z.object({ page: z.coerce.number().int().min(1).max(100
 const locationDimension = z.union([dimension, z.number().positive().transform(value => String(value))]);
 const location = { warehouseId: oid, code: text(50), name: text(160), areaCode: z.string().trim().max(50).optional(), locationType: z.enum(['RECEIVING','STORAGE','STAGING','QUARANTINE','CUSTODY']), usableLengthMm: locationDimension, usableWidthMm: locationDimension, description: z.string().trim().max(500).optional(), isPickable: z.boolean(), isActive: z.boolean() };
 export const createBody = z.object({ ...location, idempotencyKey: text(64) }).strict().refine(v => !v.isPickable || v.locationType === 'STORAGE');
-export const editBody = z.object({ ...location, expectedVersion: z.number().int().min(1), idempotencyKey: text(64) }).strict().refine(v => !v.isPickable || v.locationType === 'STORAGE');
+const fullEditBody = z.object({ ...location, expectedVersion: z.number().int().min(1), idempotencyKey: text(64) }).strict().refine(v => !v.isPickable || v.locationType === 'STORAGE');
+const statusEditBody = z.object({ isActive: z.boolean(), expectedVersion: z.number().int().min(1), idempotencyKey: text(64) }).strict();
+export const editBody = z.union([fullEditBody, statusEditBody]);
 const warehouseDimension = z.union([dimension, z.number().positive().transform(value => String(value))]);
 const warehouse = { code: text(60), name: text(160), address: z.string().trim().max(500).optional(), description: z.string().trim().max(500).optional(), lengthMm: warehouseDimension, widthMm: warehouseDimension, clearHeightMm: warehouseDimension, isActive: z.boolean() };
 export const warehouseCreateBody = z.object({ ...warehouse, idempotencyKey: text(64) }).strict();
