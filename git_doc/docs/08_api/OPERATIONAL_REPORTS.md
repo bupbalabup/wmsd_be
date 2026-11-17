@@ -64,6 +64,12 @@ Chỉ đại lượng vận hành, số lượng dạng chuỗi thập phân ch�
 
 Phản hồi: `{ group, capturedAt, rows }` (`inventory` thêm `basis: "CURRENT_TRANSACTION_SNAPSHOT"`). File CSV xuất từ màn hình chỉ chứa đúng các dòng và cột đang hiển thị, tạo ở trình duyệt, không gọi thêm API ghi.
 
+## Inventory snapshot reads — 17 November 2026
+
+The inventory report batches active defect holds, open/draft/partial transfer tasks and their stock transactions within the same transaction snapshot. Reservations are read once for the scoped balances. Task quantities are reduced by posted movements for the same task, source line and source balance; remaining execution reservations cover pending task quantities once. Hold resolution and exact decimal arithmetic reuse the stock helpers. Warehouse authorization, quantity fields and the response contract are unchanged. No indexes or database records are changed by this optimization.
+
+The frontend uses the shared page/card theme. Changing filters shows only data captured for the current query; CSV and Excel export are disabled while loading or after a failed request.
+
 ## Kiểm chứng và giới hạn
 
 Test dùng model giả lập và hàm thuần: ánh xạ ba vai trò và vai trò tùy chỉnh, từ chối nhóm, thiếu `report:read`, kho ngoài phạm vi, phạm vi kho mặc định, khoảng ngày đảo ngược/sai định dạng, không có trường tài chính, không gọi hàm ghi của model. Chưa chạy chống MongoDB thật; route `/reports` chưa được gọi qua HTTP có xác thực trong test (schema query được test trực tiếp).

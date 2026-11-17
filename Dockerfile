@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # One Dockerfile, two targets:
-#   dev  - hot reload (nodemon); source is bind-mounted by ../docker-compose.yml
+#   dev  - development dependencies and source; rebuild the image after code changes
 #   prod - default (last stage): production dependencies only, non-root user
 #   docker build -t wmsd-api building-material-management
 
@@ -28,6 +28,7 @@ exec "$@"
 EOS
 chmod +x /usr/local/bin/dev-entrypoint.sh
 EOF_SCRIPT
+COPY . .
 ENTRYPOINT ["dev-entrypoint.sh"]
 CMD ["npm", "run", "dev"]
 

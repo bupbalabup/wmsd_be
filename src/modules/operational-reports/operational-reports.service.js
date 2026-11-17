@@ -3,7 +3,7 @@ import { exact, ExactDecimal } from '../../models/model-utils.js';
 import { requirePermission, requireWarehouseAccess, isOwner } from '../../shared/utils/access.js';
 import { transaction, dto } from '../../shared/utils/persistence.js';
 import { same } from '../../shared/utils/document-command.js';
-import { remainingReservation, heldQuantity, unreservedPendingTaskQuantity } from '../../shared/utils/stock.js';
+import { remainingReservation, heldOnBalance } from '../../shared/utils/stock.js';
 import { validationError, forbiddenError } from '../../shared/utils/ApiError.js';
 import { currentRole } from '../../shared/utils/userRole.js';
 import { effectiveQuantities } from '../sales-orders/sales-read.service.js';
@@ -31,20 +31,62 @@ export async function operationalReport(user, query) {
             const balances = await m.InventoryBalance.find({ holdingPointId: { $in: points.map(p => p._id) } }).session(session).lean();
             const batches = await m.ProductBatch.find({ _id: { $in: balances.map(b => b.batchId) } }).session(session).lean();
             const products = await m.Product.find({ _id: { $in: batches.map(b => b.productId) } }).session(session).lean();
-            const locations = await m.WarehouseLocation.find({ warehouseId: { $in: ids } }).session(session).lean();
+            const locations = reportLocations;
             const reservations = await m.StockReservation.find({ balanceId: { $in: balances.map(b => b._id) } }).session(session).lean();
             const locks = await m.StocktakeLocationLock.find({ locationId: { $in: locations.map(l => l._id) }, status: 'LOCKED' }).session(session).lean();
+            const balanceIds = balances.map(b => b._id);
+            const holds = await m.DefectReport.find({ holds: { $elemMatch: { status: 'ACTIVE', 'allocations.balanceId': { $in: balanceIds } } } }).session(session).lean();
+            const tasks = await m.TransferOrder.find({ workflowStatus: { $in: ['OPEN', 'DRAFT', 'PARTIAL'] }, 'items.details.sourceBalanceId': { $in: balanceIds } }).session(session).lean();
+            const transactions = await m.StockTransaction.find({ sourceType: 'transfer_orders', sourceId: { $in: tasks.map(t => t._id) } }).session(session).lean();
+            const pending = new Map(), covered = new Map(), moved = new Map(), holdsByBalance = new Map();
+            const taskBalances = new Map();
+            for (const report of holds) {
+                const allocated = new Set(report.holds.filter(h => h.status === 'ACTIVE').flatMap(h => h.allocations.map(a => String(a.balanceId))));
+                for (const id of allocated) {
+                    if (!holdsByBalance.has(id)) holdsByBalance.set(id, []);
+                    holdsByBalance.get(id).push(report);
+                }
+            }
+            // Nested maps preserve the task/line/balance identity used by stock helpers.
+            for (const tx of transactions) {
+                const taskId = String(tx.sourceId);
+                if (!moved.has(taskId)) moved.set(taskId, new Map());
+                const lines = moved.get(taskId);
+                for (const movement of tx.movements) {
+                    const lineId = String(movement.sourceLineId);
+                    if (!lines.has(lineId)) lines.set(lineId, new Map());
+                    add(lines.get(lineId), String(movement.fromBalanceId), movement.quantityBase);
+                }
+            }
+            for (const task of tasks) {
+                const taskId = String(task._id), sources = new Set();
+                taskBalances.set(taskId, sources);
+                for (const item of task.items) {
+                    const id = String(item.details?.sourceBalanceId);
+                    sources.add(id);
+                    const actual = moved.get(taskId)?.get(String(item._id))?.get(id) || exact('0');
+                    add(pending, id, exact(item.qtyBase).minus(actual));
+                }
+            }
             const reserved = new Map();
-            for (const r of reservations)
-                add(reserved, String(r.balanceId), remainingReservation(r));
+            for (const r of reservations) {
+                const id = String(r.balanceId), remaining = remainingReservation(r);
+                add(reserved, id, remaining);
+                if (r.executionRef?.documentType === 'transfer_orders' && taskBalances.get(String(r.executionRef.documentId))?.has(id))
+                    add(covered, id, remaining);
+            }
+            const index = rows => new Map(rows.map(row => [String(row._id), row]));
+            const pointById = index(points), batchById = index(batches), productById = index(products), locationById = index(locations), warehouseById = index(warehouses);
+            const frozenLocations = new Set(locks.map(l => String(l.locationId)));
+            const dispatchByLine = new Map(dispatches.flatMap(d => d.items.map(i => [String(i._id), d])));
             const rows = [];
             for (const b of balances) {
-                const point = points.find(p => same(p._id, b.holdingPointId)), batch = batches.find(t => same(t._id, b.batchId)), product = products.find(p => same(p._id, batch?.productId)), location = locations.find(l => same(l._id, point?.locationId));
-                const qty = exact(b.quantityBase), held = await heldQuantity(b._id, session), booked = reserved.get(String(b._id)) || exact('0'), pending = await unreservedPendingTaskQuantity(b._id, session), transit = point?.type === 'IN_TRANSIT';
-                const frozen = locks.some(l => same(l.locationId, location?._id));
+                const id = String(b._id), point = pointById.get(String(b.holdingPointId)), batch = batchById.get(String(b.batchId)), product = productById.get(String(batch?.productId)), location = locationById.get(String(point?.locationId));
+                const qty = exact(b.quantityBase), held = heldOnBalance(holdsByBalance.get(id) || [], b._id), booked = reserved.get(id) || exact('0'), unreserved = ExactDecimal.max('0', (pending.get(id) || exact('0')).minus(covered.get(id) || '0')), transit = point?.type === 'IN_TRANSIT';
+                const frozen = frozenLocations.has(String(location?._id));
                 // Reservation-backed tasks are counted only once.
-                const available = !transit && !frozen && b.ownerType === 'STORE' && b.qualityStatus === 'GOOD' && batch?.identificationStatus === 'VERIFIED' && product?.isActive && location?.isActive && location?.isPickable ? ExactDecimal.max('0', qty.minus(booked).minus(held).minus(pending)) : exact('0');
-                rows.push({ id: String(b._id), warehouseId: String(location?.warehouseId || dispatches.find(d => d.items.some(i => same(i._id, point?.dispatchLineId)))?.header.sourceWarehouseId || ''), warehouse: warehouses.find(w => same(w._id, location?.warehouseId))?.name || '', location: location?.code || 'Đang chuyển', product: product?.name || '', sku: product?.sku || '', batch: batch?.manufacturerLot || '', unit: product?.baseUnit || '', quality: b.qualityStatus, owner: b.ownerType, physicalQtyBase: transit ? '0' : qty.toFixed(), transitQtyBase: transit ? qty.toFixed() : '0', ownedQtyBase: b.ownerType === 'STORE' ? qty.toFixed() : '0', custodyQtyBase: b.ownerType === 'STORE' ? '0' : qty.toFixed(), reservedQtyBase: booked.toFixed(), heldQtyBase: held.toFixed(), availableQtyBase: available.toFixed(), frozen });
+                const available = !transit && !frozen && b.ownerType === 'STORE' && b.qualityStatus === 'GOOD' && batch?.identificationStatus === 'VERIFIED' && product?.isActive && location?.isActive && location?.isPickable ? ExactDecimal.max('0', qty.minus(booked).minus(held).minus(unreserved)) : exact('0');
+                rows.push({ id: String(b._id), warehouseId: String(location?.warehouseId || dispatchByLine.get(String(point?.dispatchLineId))?.header.sourceWarehouseId || ''), warehouse: warehouseById.get(String(location?.warehouseId))?.name || '', location: location?.code || 'Đang chuyển', product: product?.name || '', sku: product?.sku || '', batch: batch?.manufacturerLot || '', unit: product?.baseUnit || '', quality: b.qualityStatus, owner: b.ownerType, physicalQtyBase: transit ? '0' : qty.toFixed(), transitQtyBase: transit ? qty.toFixed() : '0', ownedQtyBase: b.ownerType === 'STORE' ? qty.toFixed() : '0', custodyQtyBase: b.ownerType === 'STORE' ? '0' : qty.toFixed(), reservedQtyBase: booked.toFixed(), heldQtyBase: held.toFixed(), availableQtyBase: available.toFixed(), frozen });
             }
             return { group: query.group, capturedAt: new Date().toISOString(), basis: 'CURRENT_TRANSACTION_SNAPSHOT', rows };
         }
