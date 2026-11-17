@@ -1,3 +1,11 @@
+## 18/11/2026 · PO cùng đơn vị với RR không vượt lượng duyệt
+
+Theo yêu cầu của người dùng, khi dòng PO dùng đúng đơn vị nhập của dòng RR thì `enteredQty` không được lớn hơn `approvedEnteredQty`; quy tắc làm tròn gói của `withinApproved` chỉ còn áp dụng khi đổi sang đơn vị khác (hoặc RR cũ chưa có `approvedEnteredQty`). Ví dụ RR duyệt 4 M2 thì PO không đặt được 5 M2. Cập nhật `conversions.js` (tham số thứ 5 của `withinApproved`), `purchase-order.commands.js` (tạo/sửa nháp và phát hành), `purchase-reconciliation.js`, test `area-conversion.test.js`; FE `capToApprovedEntered` trong form tạo và sửa PO nháp. Không đổi dữ liệu. Chưa chạy test tích hợp API; `vitest src/features/purchase-orders` còn 3 ca lỗi từ trước (`maxEnteredQty` 278 viên, `orderedBaseQuantity`, form M2 100,08) chưa xử lý.
+
+## 18/11/2026 · Thông báo số lượng PO không nguyên
+
+Tạo và sửa PO nháp trả thông báo rõ khi lượng sau quy đổi sang đơn vị gốc không nguyên với sản phẩm yêu cầu số nguyên; quy tắc kiểm tra và dữ liệu không đổi. Cập nhật `purchase-order.commands.js`, test tích hợp PO và hợp đồng `NATIVE_MODEL_RUNTIME.md`.
+
 ## 18/11/2026 · Duyệt RR theo đơn vị nhập
 
 Theo yêu cầu của người dùng, yêu cầu và duyệt dùng cùng một đơn vị. `replenishment_requests.items[]` và `approval_history.itemDecisions[]` có thêm `approvedEnteredQty` (tùy chọn); `reviewReplenishment` nhận `approvedEnteredQty`, tự tính `approvedQtyBase` bằng hệ số đã lưu trên dòng và `toBaseQuantity`, từ chối khi vượt `enteredQty`. Client chỉ gửi `approvedQtyBase` vẫn dùng được. Dữ liệu cũ không có trường mới nên FE hiển thị theo đơn vị gốc.

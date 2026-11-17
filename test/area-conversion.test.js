@@ -20,6 +20,12 @@ test('PO allowance permits only the smallest whole-unit overage', () => {
   assert.equal(withinApproved('278', '100.08', f600, '278'), true);
 });
 
+test('same unit as the RR never exceeds approvedEnteredQty', () => {
+  assert.equal(withinApproved('15', '5', '3', '16', '4'), false);
+  assert.equal(withinApproved('12', '4', '3', '12', '4'), true);
+  assert.equal(withinApproved('12', '4', '3', '10', null), true);
+});
+
 test('area units round up to whole pieces on whole-piece products', () => {
   const q = (qty, factor, product = whole, uom = area) => toBaseQuantity(qty, factor, product, uom).toFixed();
   assert.equal(q('100', f600), '278');

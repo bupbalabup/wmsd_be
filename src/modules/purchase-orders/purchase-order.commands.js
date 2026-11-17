@@ -99,8 +99,11 @@ async function draftItems(actor, input, session, previous = []) {
     // Area units round up to whole pieces, same rule as makeItem.
     const amount = toBaseQuantity(line.enteredQty, factor, product, enteredUom);
     const rounded = !amount.eq(exact(line.enteredQty).mul(factor));
+    const cap = changedUnit ? null : decision.approvedEnteredQty;
+    if (product.wholeBaseUnits && !amount.isInteger() && withinApproved(amount, line.enteredQty, factor, decision.approvedQtyBase, cap))
+      throw validationError("Số lượng sau quy đổi sang đơn vị gốc phải là số nguyên");
     if (
-      !withinApproved(amount, line.enteredQty, factor, decision.approvedQtyBase) ||
+      !withinApproved(amount, line.enteredQty, factor, decision.approvedQtyBase, cap) ||
       amount.lte(0) ||
       (product.wholeBaseUnits && !amount.isInteger()) ||
       amount.decimalPlaces() > 6
@@ -261,7 +264,10 @@ export function confirmPurchaseOrder(user, id, input) {
           !decision ||
           seen.has(sourceId) ||
           !same(source.productId, item.productId) ||
-          !withinApproved(item.qtyBase, item.enteredQty, item.baseUnitsPerUnit, decision.approvedQtyBase)
+          !withinApproved(
+            item.qtyBase, item.enteredQty, item.baseUnitsPerUnit, decision.approvedQtyBase,
+            item.enteredUnit === source.enteredUnit ? decision.approvedEnteredQty : null,
+          )
         )
           throw validationError("Nguồn duyệt PO không còn hợp lệ");
         seen.add(sourceId);

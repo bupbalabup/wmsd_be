@@ -35,6 +35,17 @@ Validation performed / not performed:
 
 ## Log entries
 
+### 2026-11-18 - PO line in the RR unit may not exceed the approved amount (UC-09)
+
+- **Work item:** Stop a PO from ordering more than the approved amount when it uses the same unit as the replenishment request (RR).
+- **Tool and model:** Claude Code (Sonnet 5.5).
+- **Prompt summary:** The PO rule only compares pieces and allows one unit of overage, so an RR approved at 4 m² accepts 5 m² on the PO; add a stop for the same unit.
+- **Result used:** `withinApproved` takes an optional `approvedEntered` and rejects a larger `enteredQty` first. Draft create/edit, PO issuing and the `RR_ALLOWANCE` reconciliation pass the RR line's `approvedEnteredQty` only when the PO unit equals the RR unit. Other units and older approvals without `approvedEnteredQty` keep the previous rule.
+- **Intervention:** Edited.
+- **Human changes / reason for rejection:** The user decided the rule (same unit as the RR: no more than `approvedEnteredQty`).
+- **Files affected:** `src/shared/utils/conversions.js`, `src/modules/purchase-orders/purchase-order.commands.js`, `src/modules/po-receiving/purchase-reconciliation.js`, `test/area-conversion.test.js`, `git_doc/change_logs.md`, `git_doc/docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md`, `docs/rtm.md`.
+- **Validation performed / not performed:** `node --test test/area-conversion.test.js` passed 6/6 including the new same-unit case; `npm run docs:check` passed. Not performed: HTTP integration test for the 5 m² rejection, the other PO integration suites, the full suite. Existing POs already above the approved amount in the same unit will now appear in `RR_ALLOWANCE`; no data was migrated.
+
 ### 2026-11-18 - Approve replenishment requests in the line's entered unit (UC-06, UC-09)
 
 - **Work item:** Keep one unit from creating to approving a replenishment request (RR) so an approval of 4 m² is no longer shown on the PO as 4.32 m².

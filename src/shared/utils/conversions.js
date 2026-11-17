@@ -42,7 +42,9 @@ export function toBaseQuantity(enteredQty, factor, product, uom) {
 }
 
 // PO may round up to whole packages; over approved only when one unit fewer would fall short.
-export function withinApproved(qtyBase, enteredQty, factor, approvedBase) {
+// approvedEntered: pass the RR's approved qty only when the PO line uses the RR's own unit — no overage there.
+export function withinApproved(qtyBase, enteredQty, factor, approvedBase, approvedEntered = null) {
+  if (approvedEntered != null && exact(enteredQty).gt(approvedEntered.toString())) return false;
   if (exact(qtyBase).lte(approvedBase.toString())) return true;
   const quantity = exact(enteredQty);
   return quantity.isInteger() && quantity.minus(1).mul(factor.toString()).lt(approvedBase.toString());

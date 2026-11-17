@@ -13,7 +13,8 @@ export async function reconcilePurchasing(session=null){
     for (const item of po.items) {
       const id = String(item.requestItemId);
       const source = request?.items.id(id);
-      if (!source || !withinApproved(item.qtyBase, item.enteredQty, item.baseUnitsPerUnit, source.approvedQtyBase ?? '0')) {
+      const cap = item.enteredUnit === source?.enteredUnit ? source.approvedEnteredQty : null;
+      if (!source || !withinApproved(item.qtyBase, item.enteredQty, item.baseUnitsPerUnit, source.approvedQtyBase ?? '0', cap)) {
         issues.push({ code: 'RR_ALLOWANCE', poId: String(po._id), lineId: id });
       }
     }

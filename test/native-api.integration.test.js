@@ -795,6 +795,8 @@ run('PO rounds up in the chosen unit and preserves it through edit, confirmation
  });
  await assert.rejects(create('5'), /vượt nguồn được duyệt/);
  await assert.rejects(create('3.666667'), /vượt nguồn được duyệt/);
+ await assert.rejects(create('1.5', 'PIECE'), /Số lượng sau quy đổi sang đơn vị gốc phải là số nguyên/);
+ await assert.rejects(create('1.5'), /Số lượng sau quy đổi sang đơn vị gốc phải là số nguyên/);
  await assert.rejects(create('4', 'UNAVAILABLE'), /không tồn tại/);
  await assert.rejects(create('4', 'ROLL'), /Thiếu quy đổi/);
  const created = await create('4');
@@ -802,6 +804,10 @@ run('PO rounds up in the chosen unit and preserves it through edit, confirmation
  assert.equal(draft.draftEdit.lines[0].enteredUomCode, box.code);
  assert.deepEqual(draft.items.map(item => [item.enteredQty, item.baseUnitsPerUnit, item.qtyBase, item.lineAmount]),
    [['4', '3', '12', '4000']]);
+ await assert.rejects(po.updatePurchaseOrder(accountant, created.id, {
+   ...form, ...input(), expectedVersion: created.version,
+   lines: [{ ...line, id: draft.items[0]._id, enteredQty: '1.5' }],
+ }), /Số lượng sau quy đổi sang đơn vị gốc phải là số nguyên/);
  const updated = await po.updatePurchaseOrder(accountant, created.id, {
    ...form, ...input(), expectedVersion: created.version,
    // Omitting uomCode on edit must keep the saved box unit, not reread 4 as 4 pieces.
