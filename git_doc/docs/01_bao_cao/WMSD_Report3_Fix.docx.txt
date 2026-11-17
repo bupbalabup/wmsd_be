@@ -668,8 +668,8 @@ The use-case inventory contains 132 identifiers from UC-01 to UC-132. It include
 | UC-68 | Confirm Picking Task | FE-06 | ACTIVE | Warehouse Staff confirms actual carton/piece quantities into staging, possibly partially, and preserves reservations and total stock; the GI-S becomes PICKED, not POSTED. Shortage/damage routes to BF-02/05 or replanning; no silent stock correction. |
 | UC-69 | View goods issue list | FE-06 | ACTIVE | Search by source request, issue date, and status. |
 | UC-70 | View goods issue details | FE-06 | ACTIVE | Display lot, location, prepared quantity, and actual issued quantity by line. |
-| UC-71 | Post Actual Goods Issue | FE-06 | ACTIVE | Require draft GI-S/OD and confirmed picking/actual handover evidence. Recheck net allowance/version/reservation/freeze and commit PGI ledger/balance/progress once. Print committed snapshot. PGI is not POD or completion. |
-| UC-72 | Prepare Goods Issue Draft | FE-06 | ACTIVE | The GI-S DRAFT is created together with the picking task (UC-67) from current OD reservations and becomes PICKED after picking confirmation (UC-68). Save without stock deduction. Do not post on draft save. |
+| UC-71 | Create goods issue | FE-06 | ACTIVE | Require draft GI-S/OD and confirmed picking/actual handover evidence. Recheck net allowance/version/reservation/freeze and commit PGI ledger/balance/progress once. Print committed snapshot. PGI is not POD or completion. |
+| UC-72 | Update goods issue | FE-06 | ACTIVE | The GI-S DRAFT is created together with the picking task (UC-67) from current OD reservations and becomes PICKED after picking confirmation (UC-68). Save without stock deduction. Do not post on draft save. |
 | UC-73 | View defective goods list | FE-07 | ACTIVE | Filter defect cases by source, product/lot/location, ownership, evidence, unresolved quantity and disposition. |
 | UC-74 | View defective goods details | FE-07 | ACTIVE | Show affected quantity, ownership/custody, inspector, evidence, approval and related outcomes; no duplicate deduction across cases. |
 | UC-75 | Record Defect Inspection and Immediate Hold | FE-07 | ACTIVE | Record affected lot/location/owner/quantity and evidence and immediately block allocation. Under B1 freeze save balance-neutral hold without quality/location/quantity changes. |
@@ -814,8 +814,8 @@ Operation/sub-operation rights require assigned warehouse, document state/versio
 | UC-68 | Confirm Picking Task | — | — | Perform; PGI only on actual handover | — | — |
 | UC-69 | View goods issue list | View | Reconciliation scope | Assigned warehouse | Related progress | — |
 | UC-70 | View goods issue details | View | Reconciliation scope | Assigned warehouse | Related progress | — |
-| UC-71 | Post Actual Goods Issue | — | — | Perform within existing scope | — | — |
-| UC-72 | Prepare Goods Issue Draft | — | — | Perform within existing scope | — | — |
+| UC-71 | Create goods issue | — | — | Perform within existing scope | — | — |
+| UC-72 | Update goods issue | — | — | Perform within existing scope | — | — |
 | UC-73 | View defective goods list | View | — | View | — | — |
 | UC-74 | View defective goods details | View | — | View | — | — |
 | UC-75 | Record Defect Inspection and Immediate Hold | — | — | Perform within existing scope | — | — |
@@ -2024,12 +2024,12 @@ Alternate flows: empty→MSG-01; invalid filter→MSG-02 and no mutation; unauth
 Postconditions: Information displayed; no creation, decision, reservation, status transition or inventory movement.
 Current view expansion: distinguish actual owned/physical/available/held/custody/transit and outstanding quantity in the related source chain; do not pool ownership or treat transit as a quality grade.
 
-UC-71: Post Actual Goods Issue
+UC-71: Create goods issue
 Status: ACTIVE. Feature: FE-06.
 Primary actors and operations: Warehouse Staff — Perform.
 Screen(s): SC-17.
 Description: Require draft GI-S/OD and confirmed picking/actual handover evidence. Recheck net allowance/version/reservation/freeze and commit PGI ledger/balance/progress once. Print committed snapshot. PGI is not POD or completion.
-Trigger: Authorized actor starts post actual goods issue on the permitted screen.
+Trigger: Authorized actor starts create goods issue on the permitted screen.
 Preconditions / required inputs: Active account with exactly one authorized role; operation, warehouse/record/evidence scope and current source/document version. The state/source-specific conditions stated below are mandatory.
 Normal flow:
 1. Select the scoped record/source and enter the operation-specific fields and evidence.
@@ -2038,12 +2038,12 @@ Normal flow:
 Alternate/exception flows: EX-01 permission/identity/scope rejects without disclosure; EX-02 stale version/source or quantity conflict preserves input for review; EX-03 unknown commit requires same-key lookup before retry; EX-04 freeze blocks unauthorized mutation; EX-05 evidence/output failure preserves valid state and retries output only. No direct editing of posted history.
 Postconditions / exact inventory effect: Require draft GI-S/OD and confirmed picking/actual handover evidence. Recheck net allowance/version/reservation/freeze and commit PGI ledger/balance/progress once. Print committed snapshot. PGI is not POD or completion. Related business rules and source guards remain mandatory; no authority is inherited from a sibling UC.
 
-UC-72: Prepare Goods Issue Draft
+UC-72: Update goods issue
 Status: ACTIVE. Feature: FE-06.
 Primary actors and operations: Warehouse Staff — Perform.
 Screen(s): SC-17.
 Description: The GI-S DRAFT is created together with the picking task (UC-67) from current OD reservations and becomes PICKED after picking confirmation (UC-68). Save without stock deduction. Do not post on draft save.
-Trigger: Authorized actor starts prepare goods issue draft on the permitted screen.
+Trigger: Authorized actor starts update goods issue on the permitted screen.
 Preconditions / required inputs: Active account with exactly one authorized role; operation, warehouse/record/evidence scope and current source/document version. The state/source-specific conditions stated below are mandatory.
 Normal flow:
 1. Select the scoped record/source and enter the operation-specific fields and evidence.
