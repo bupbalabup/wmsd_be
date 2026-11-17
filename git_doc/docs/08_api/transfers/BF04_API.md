@@ -20,6 +20,8 @@ Scoped list/detail responses add sourceWarehouse and destinationWarehouse object
 
 ## Read and selection APIs
 
+Read payload optimization (17/11/2026): request and dispatch lists accept optional `view=summary|full`, default `full`. FE tables and receipt-source dropdown request summary; Excel retains full line quantities/units/snapshots. Summary omits lines/version/creator, so actions fetch the detail endpoint. Detail, options and related workflow records use explicit projections preserving operational references, versions, quantities, carton factors and scope. See [field contract and rollout limits](../TRANSFER_PERFORMANCE.md#field-projections--17-november-2026). This changes read DTOs only, with no database migration.
+
 | Endpoint | Permission | Result |
 | --- | --- | --- |
 | `GET /` | `stock_transfer:read` | Scoped TR list; filters include source/destination warehouse, status and date. |
@@ -36,6 +38,12 @@ restricted to its linked demand documents. Sales options return warehouse catalo
 Bộ lọc `status` của danh sách yêu cầu và phiếu xuất nhận một hoặc nhiều trạng thái phân tách bằng dấu phẩy. Từ yêu cầu điều chuyển, nút **Lập phiếu nhập** mở form Nhập kho với phiếu xuất điền sẵn. Form gọi `POST /dispatches/:id/receipts` và mở phiếu nhập theo `data.id`. Các dòng hư hỏng cần vị trí cách ly và lý do.
 
 ## Main flow
+
+### Request creation stock preview — 17 November 2026
+
+Source: user requested source-warehouse stock in pieces/cartons/pallets at step 2. The paired FE reuses the existing authorized stock options payload; no extra endpoint or query is added. Selecting a product shows on-hand and available quantities for STORE/GOOD stock in STORAGE locations, with the same eligibility as source dispatch allocation. Selecting a lot narrows both totals. Loading a different warehouse hides the previous warehouse's data; loading/error states never display stale stock as a current result.
+
+The preview converts each batch separately, preferring its current batch conversion over a product conversion, then sums the results. Cartons may fall back to the batch's piecesPerCarton only when the product's base unit is pieces. Carton UOM uses isCarton, not a hardcoded BOX code; pallet uses the configured PALLET code/name. Missing factors show “Chưa cấu hình”; one unconvertible stocked batch prevents a misleading partial total. Zero stock and missing configuration are distinct. Values use exact rational arithmetic, Vietnamese number formatting and at most three fractional digits; truncated results have ≈. Negative free quantities display zero. Carton/pallet totals are equivalent quantities, not a count of sealed cartons or physical pallets. No stock, approval, request validation or conversion persistence changes.
 
 The FE request form captures only source/destination warehouses, product/lot and
 the requested quantity in a configured unit. After approval, the detail screen
