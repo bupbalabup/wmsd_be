@@ -1,3 +1,5 @@
+17/11/2026 — BF03/BF04 read performance: batched selection availability (max 4 queries), compact warehouse catalogues without 3D snapshots, optional BF04 mode=locations for destination options and parallel authorized detail reads. Transaction guards unchanged; no remote rollout. Canonical git_doc/docs/08_api/TRANSFER_PERFORMANCE.md.
+
 ## 17 November 2026 — simplified sales and returns
 
 Latest explicit user decision supersedes manual-sale and custody requirements for new records. Sales Order → direct Goods Issue; Sales confirms evidenced customer receipt; Warehouse receives undelivered goods inline. New CR inspection records facts only, acceptance authorizes receipt, and only receipt posts STORE stock. Legacy mode markers are absent and retain original ledgers. Optional issue header/order/customer/sourceBalance and embedded customerReceipts, CR intakeMode/handbacks, and FAILED_DELIVERY receipt goodsIssueId add no collection. See [current contract](git_doc/docs/08_api/GOODS_ISSUES.md) for permissions, exact caps, schema, compatibility and setup.
