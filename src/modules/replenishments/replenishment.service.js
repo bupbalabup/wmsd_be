@@ -222,6 +222,8 @@ export async function getReplenishment(user, id) {
       lineId: String(d.itemId || d.lineId || ""),
       approvedQtyBase:
         d.approvedQtyBase != null ? String(d.approvedQtyBase) : null,
+      approvedEnteredQty:
+        d.approvedEnteredQty != null ? String(d.approvedEnteredQty) : null,
       outcome: d.outcome,
       reason: d.reason,
     }));

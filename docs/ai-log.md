@@ -35,6 +35,17 @@ Validation performed / not performed:
 
 ## Log entries
 
+### 2026-11-18 - Approve replenishment requests in the line's entered unit (UC-06, UC-09)
+
+- **Work item:** Keep one unit from creating to approving a replenishment request (RR) so an approval of 4 m² is no longer shown on the PO as 4.32 m².
+- **Tool and model:** Claude Code (Sonnet 5.5, then Opus 5.5 for the analysis).
+- **Prompt summary:** Explain how an approved amount converts to pieces and back on the PO; compare unit handling in Odoo, SAP, Business Central and tile ERPs; implement the chosen option and the PO display.
+- **Result used:** `reviewReplenishment` accepts `approvedEnteredQty` in the line's own unit and derives `approvedQtyBase` from the line's saved `baseUnitsPerUnit` with `toBaseQuantity`; a full approval keeps `qtyBase`, more than `enteredQty` is rejected. The optional `approvedEnteredQty` is stored on the RR item and on `approval_history.itemDecisions` and returned by the read API. Clients that send only `approvedQtyBase` still work. PO creation still checks pieces against `approvedQtyBase`.
+- **Intervention:** Edited.
+- **Human changes / reason for rejection:** The user chose to separate requested and approved amounts, chose option B and asked for the PO part. A default purchase unit on the product was left undecided because it needs a model change.
+- **Files affected:** `src/models/replenishment-request.model.js`, `src/models/approval-history-item-decisions.schema.js`, `src/modules/replenishments/{replenishment.validation.js,replenishment.commands.js,replenishment.service.js}`, `test/replenishment-warnings.integration.test.js`, `git_doc/MODEL_MAP.md`, `git_doc/docs/03_thiet_ke/DB_Rebuild_Review/13_Duyet_yeu_cau_bo_sung_va_don_mua.md`, `git_doc/docs/08_api/NATIVE_MODEL_RUNTIME.md`, `git_doc/change_logs.md`, `src/models/CHANGELOG.md`.
+- **Validation performed / not performed:** With `RUN_NATIVE_API_TESTS=1` on the local MongoDB, the RR warnings suite passed 11/11 including the new entered-unit case, and the native API plus area-conversion suites passed 33/33; `npm run docs:check` passed. A temporary test (removed) captured real payloads: 4 m² at 2.777777777778 stored `qtyBase` 12 and both approved fields. Not performed: the new case uses the piece unit, so the m² rounding rests on the existing area-conversion test; older approvals were not migrated and keep no entered amount; the archived foundation test fails on an existing import path; the full suite was not run.
+
 ### 2026-11-16 - Estimate occupied volume when receiving open cartons and loose pieces
 
 - **Work item:** Implement the approved receiving-volume plan for UC-37 and the shared stock intake used by OTHER receipts, returns and positive stocktake adjustments.

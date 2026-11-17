@@ -1,3 +1,5 @@
+18/11/2026: thêm `approvedEnteredQty` (tùy chọn, Decimal128 ≥ 0) vào dòng `replenishment_requests` và `approval_history.itemDecisions`; `approvedQtyBase` được BE tính từ trường này.
+
 ## Customer details on documents — 17 November 2026
 
 User decision: customers are not managed as catalogue records. New sales orders require `customerName` (1–160 characters) and allow `customerPhone` (up to 30 characters); the delivery address remains on the order. Creating an order does not query or create a Customer. Sales options return an empty compatibility `customers` array.

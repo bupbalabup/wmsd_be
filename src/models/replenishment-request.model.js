@@ -48,6 +48,8 @@ export function createReplenishmentRequestSchema() {
   item.add({ note: opt(2000), evidenceIds: refs("Attachment") });
   item.add({
     approvedQtyBase: quantity(),
+    // Approved amount in the line's own entered unit; approvedQtyBase is derived from it.
+    approvedEnteredQty: quantity(),
     requiredBatchId: ref("ProductBatch", false),
     neededBy: date(false),
   });
