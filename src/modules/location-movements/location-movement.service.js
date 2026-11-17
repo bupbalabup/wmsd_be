@@ -2,6 +2,7 @@ import { databaseId } from '../../models/document-identity.js';
 import { escapeRegex } from '../../shared/utils/domain.js';
 import mongoose from 'mongoose';
 import { movementList } from '../../shared/utils/movement-list.js';
+import { optionFields, movementDetailFields, relocationLedgerFields } from '../../shared/utils/movement-read-fields.js';
 import { nextDocumentFields } from '../../shared/utils/document-number.js';
 import { TransferOrder, Warehouse, WarehouseLocation, InventoryBalance, StockHoldingPoint, StockTransaction, ProductBatch, Product, Uom, Conversion, User } from '../../models/runtime.js';
 import { exact } from '../../models/model-utils.js';
@@ -75,12 +76,15 @@ export function createLocationMovement(user, input) {
 }
 export async function getLocationMovement(user, id) {
   requirePermission(user, 'stock_relocation:read');
-  const document = await task(id,user);
+  const document = await TransferOrder.findById(id).select(movementDetailFields).lean();
+  if(!document)throw notFoundError();
+  requireWarehouseAccess(user,document.header.warehouseId);
+  if(document.header.taskKind!=='RELOCATE')throw notFoundError();
   const [transactions,[display]] = await Promise.all([
-    StockTransaction.find({ sourceType: 'transfer_orders', sourceId: id }).sort({ occurredAt: 1, _id: 1 }).lean(),
+    StockTransaction.find({ sourceType: 'transfer_orders', sourceId: id }).select(relocationLedgerFields).sort({ occurredAt: 1, _id: 1 }).lean(),
     movementDisplay([dto(document)],true),
   ]);
-  const performers = await User.find({ _id: { $in: transactions.map(t => t.performedBy) } }).select('_id fullName username').lean();
+  const performers = transactions.length?await User.find({ _id: { $in: transactions.map(t => t.performedBy) } }).select('_id fullName').lean():[];
   return { ...display, transactions: transactions.map(t => ({ ...dto(t), performedByName: performers.find(u => same(u._id, t.performedBy))?.fullName || 'Không còn trong danh mục' })) };
 }
 export async function listLocationMovements(user, query) {
@@ -98,13 +102,13 @@ export async function locationMovementOptions(user, warehouseId) {
   const warehouses = await Warehouse.find({ isActive: true, ...(isOwner(user) ? {} : { _id: { $in: user.warehouseIds || [] } }) }).select('_id code name isActive').lean();
   if (!warehouseId) return { warehouses: warehouses.map(dto), locations: [], balances: [] };
   requireWarehouseAccess(user, warehouseId);
-  const locations = await WarehouseLocation.find({ warehouseId, isActive: true }).lean();
-  const points = await StockHoldingPoint.find({ locationId: { $in: locations.map(row=>row._id) } }).lean();
-  const balances = await InventoryBalance.find({ holdingPointId: { $in: points.map(row=>row._id) }, quantityBase: { $gt: 0 } }).lean();
-  const batches = await ProductBatch.find({ _id: { $in: balances.map(row=>row.batchId) } }).lean();
-  const products = await Product.find({ _id: { $in: batches.map(row=>row.productId) } }).lean();
+  const locations = await WarehouseLocation.find({ warehouseId, isActive: true }).select(optionFields.location).lean();
+  const points = await StockHoldingPoint.find({ locationId: { $in: locations.map(row=>row._id) } }).select(optionFields.point).lean();
+  const balances = await InventoryBalance.find({ holdingPointId: { $in: points.map(row=>row._id) }, quantityBase: { $gt: 0 } }).select(optionFields.balance).lean();
+  const batches = await ProductBatch.find({ _id: { $in: balances.map(row=>row.batchId) } }).select(optionFields.batch).lean();
+  const products = await Product.find({ _id: { $in: batches.map(row=>row.productId) } }).select(optionFields.product).lean();
   const [units,conversions] = await Promise.all([Uom.find({isActive:true}).select('_id code name isCarton').lean(),
-    Conversion.find({productId:{$in:products.map(p=>p._id)},validFrom:{$lte:new Date()}}).sort({validFrom:-1}).lean()]);
+    Conversion.find({productId:{$in:products.map(p=>p._id)},validFrom:{$lte:new Date()}}).select(optionFields.conversion).sort({validFrom:-1}).lean()]);
   return { units: units.map(dto), conversions: conversions.map(dto), warehouses: warehouses.map(dto), locations: locations.map(dto), holdingPoints: points.map(dto), balances: balances.map(dto), batches: batches.map(dto), products: products.map(dto) };
 }
 export function editLocationMovement(user,id,input) {
