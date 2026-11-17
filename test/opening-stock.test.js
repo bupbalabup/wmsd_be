@@ -77,6 +77,7 @@ test('Owner alone initializes each warehouse once, with replay and atomic stock 
     await assert.rejects(service.get(overGrantedWorker, draft.id), /quyền/);
     const posted = await service.act(owner, draft.id, 'post', postBody);
     assert.equal(posted.workflowStatus, 'POSTED');
+    assert.equal(posted.header.openingImportSource, 'FILE');
     assert.equal((await service.act(owner, draft.id, 'post', postBody)).replayed, true);
     assert.equal(String((await m.InventoryBalance.findOne()).quantityBase), '8');
     assert.equal(await m.StockTransaction.countDocuments({ operation: 'OPENING' }), 1);
@@ -154,8 +155,12 @@ test('Owner alone initializes each warehouse once, with replay and atomic stock 
     const beforePermissions = await m.Permission.countDocuments();
     const beforeSalesGrants = (await m.Role.findById(sales.roleId._id)).permissionIds.map(String).sort();
     assert.equal((await setupOpeningStock(setupUri)).applied, false);
+    await m.OpeningStock.collection.createIndex({ 'header.warehouseId': 1 }, { unique: true, partialFilterExpression: { workflowStatus: 'POSTED' } });
     await setupOpeningStock(setupUri, { apply: true });
     await setupOpeningStock(setupUri, { apply: true });
+    const openingIndexes = await m.OpeningStock.collection.indexes();
+    assert.equal(openingIndexes.some(index => index.name === 'header.warehouseId_1'), false);
+    assert.equal(openingIndexes.some(index => index.name === 'opening_stock_file_import_once'), true);
     assert.equal(await m.Permission.countDocuments(), beforePermissions);
     assert.deepEqual((await m.Role.findById(sales.roleId._id)).permissionIds.map(String).sort(), beforeSalesGrants);
     const migratedWorkerRole = await m.Role.findById(workerRole._id);

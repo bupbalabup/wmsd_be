@@ -56,6 +56,6 @@ export function createOpeningStockSchema() {
   });
   attachDocumentItems(schema, item);
   addDocumentIndexesAndRules(schema);
-  schema.index({ 'header.warehouseId': 1 }, { unique: true, partialFilterExpression: { workflowStatus: 'POSTED' } });
+  schema.index({ 'header.warehouseId': 1 }, { name: 'opening_stock_file_import_once', unique: true, partialFilterExpression: { workflowStatus: 'POSTED', 'header.openingImportSource': 'FILE' } });
   return schema;
 }

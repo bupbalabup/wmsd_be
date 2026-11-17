@@ -25811,6 +25811,12 @@
         "target": "Warehouse"
       },
       {
+        "path": "header.openingImportSource",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "header.cutoverKey",
         "type": "String",
         "required": false,
@@ -26147,6 +26153,18 @@
         "target": ""
       },
       {
+        "path": "items[].packagingState",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "items[].measuredVolumeMm3",
+        "type": "Decimal128",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "items[].{DocumentLine_REPLENISHMENT}.details",
         "type": "Embedded",
         "required": true,
@@ -26331,6 +26349,19 @@
           "createdAt": -1
         },
         {}
+      ],
+      [
+        {
+          "header.warehouseId": 1
+        },
+        {
+          "name": "opening_stock_file_import_once",
+          "unique": true,
+          "partialFilterExpression": {
+            "workflowStatus": "POSTED",
+            "header.openingImportSource": "FILE"
+          }
+        }
       ]
     ]
   },

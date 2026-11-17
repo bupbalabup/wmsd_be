@@ -163,7 +163,7 @@ export function create(user, input) {
     const result = await resolveRows(actor, input, session, true);
     const document = await new m.OpeningStock({ ...await nextDocumentFields(m.OpeningStock, 'OPENING', input.warehouseId, session),
       workflowStatus: 'DRAFT', version: 1, createdBy: actor._id, occurredAt: input.openingAt,
-      header: { warehouseId: input.warehouseId, cutoverKey: input.cutoverKey, openingAt: input.openingAt,
+      header: { warehouseId: input.warehouseId, openingImportSource: 'FILE', cutoverKey: input.cutoverKey, openingAt: input.openingAt,
         coveredLocationIds: result.locations.map(l => l._id), sourceDescription: input.sourceDescription, preparedBy: actor._id, preparedAt: new Date() },
       items: result.rows.map(r => r.item) }).save({ session });
     return { document };
