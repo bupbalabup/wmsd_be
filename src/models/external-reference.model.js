@@ -16,6 +16,8 @@ export function createExternalReferenceSchema() {
       verifiedBy: ref("User", false),
       verifiedAt: date(false),
       customerId: ref("Customer", false),
+      customerName: text(160, { required: false }),
+      customerPhone: text(30, { required: false }),
       warehouseId: ref("Warehouse", false),
       evidenceIds: refs("Attachment"),
       status: code(["RECORDED", "VERIFIED", "DISPUTED"], { default: "RECORDED" }),
