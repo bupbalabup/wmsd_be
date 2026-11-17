@@ -32,7 +32,7 @@ Cả hai API cần `product:update` và trả sản phẩm đã lưu cùng `upda
 
 - `PUT /api/products/:id` nhận `name`, `categoryId`, `lengthMm`, `widthMm`, `heightMm`, `manufacturerCode`, `color` và `baseUnit`. Kích thước là chuỗi số dương theo mm, tối đa ba chữ số thập phân. Nhóm sản phẩm phải hoạt động. `material`, `surface`, `origin` và `description` nhận chuỗi hoặc `null`. Bỏ các trường này sẽ xóa giá trị tương ứng.
 - Hãng, SKU và màu cố định từ lúc tạo. Client gửi lại hãng, màu và đơn vị gốc hiện tại cùng `wholeBaseUnits`. `wholeBaseUnits` có mặc định `true` nếu bỏ trường. Đổi hãng hoặc màu trả 400 với `fieldErrors[].path` tương ứng `body.manufacturerCode` hoặc `body.color`. Schema sửa từ chối `sku` và `isActive`.
-- `PATCH /api/products/:id/status` nhận `expectedUpdatedAt`, `isActive` kiểu boolean và `reason` có 1 đến 2.000 ký tự sau trim. `false` đánh dấu ngừng kinh doanh. Audit lưu lý do. Trạng thái này chi phối [việc lập và xác nhận lệnh cất hàng mua](GOODS_RECEIPTS.md#kiểm-hàng-hàng-tạm-giữ-và-lệnh-cất).
+- `PATCH /api/products/:id/status` nhận `expectedUpdatedAt`, `isActive` kiểu boolean và `reason` có 1 đến 2.000 ký tự sau trim. `false` đánh dấu ngừng kinh doanh. Audit lưu lý do. Việc lập lệnh [chuyển vị trí](location-movements/README.md) yêu cầu sản phẩm đang hoạt động.
 
 ## Mua và nhập
 
@@ -73,11 +73,9 @@ BE điền `measuredVolumeMm3` khi phần `OPEN` hoặc `LOOSE` chưa có giá t
 
 GET receipt/custody bổ sung inspectionResult trên từng item để hiển thị chất lượng và tình trạng bao bì từ kiểm nhận; đây là dữ liệu đọc, không thêm field lưu trên item. GET inspection bổ sung arrival, receipts, custodyReceipts. FE chuyển các DTO này thành dòng bảng hiển thị, không ghi trở lại dạng cũ.
 
-Putaway mua lập TransferOrder theo đơn vị gốc và xác nhận từng phần. Khi lập và xác nhận, BE đối chiếu `movements.packagingPortionIds` của bút toán nhập theo dòng phiếu và số dư nguồn. Thiếu ID kiện trả 400 “Thiếu thông tin kiện của dòng phiếu nhập. Cần đối chiếu trước khi cất.” Lỗi này áp dụng cả với lệnh đang mở. Khi lập lệnh, BE kiểm quy cách kiện và kích thước kệ, kể cả khi số dư có lệnh khác đang chờ. Thùng nguyên đi theo số thùng. Mỗi phần hàng mở/lẻ phải đi trọn. Khi xác nhận, BE kiểm lại tồn và chuyển kiện trong cùng giao dịch. Lượng đã xếp lấy từ sổ giao dịch tồn. Hủy lệnh chỉ hủy phần chưa thực hiện.
+Phiếu nhập mua kết thúc ở `POSTED` và cập nhật lượng đã nhận của PO ngay trong luồng ghi nhập. Kho chuyển hàng từ bãi tiếp nhận lên kệ bằng TransferOrder `RELOCATE`. Xem [DTO số dư và quyền trên phiếu](GOODS_RECEIPTS.md#chi-tiết-phiếu-nhập-mua) và [hợp đồng BF03](location-movements/README.md).
 
-`GET .../putaway-context` trả `piecesPerCarton`, `wholeBaseUnits` và `looseQtyBase` theo phần kiện của từng dòng phiếu nhập. Khi thiếu ID kiện, API bỏ `looseQtyBase` và trả `putawayBlockedReason`. `GET /putaway-tasks/:id` trả `wholeBaseUnits` và lý do tương ứng trên dòng lệnh cất mua còn lượng phải cất. FE hiển thị lý do tại dòng bị chặn và cho phép thao tác với các dòng đủ dữ liệu. `GET /putaway-tasks/:id` cũng đọc được lệnh cất điều chuyển (ITR). Xác nhận và hủy lệnh ITR dùng API điều chuyển.
-
-Preflight đảo nhập chỉ so `toAfter` của bút toán cuối vào mỗi số dư. Hủy chỉ hủy phần chưa thực hiện. `GET /putaway-tasks/:id` đọc được cả lệnh cất của điều chuyển (ITR), nhưng `/putaway-tasks/:id/confirm` và `/cancel-remainder` chỉ nhận lệnh có nguồn `goods_receipts`; lệnh cất điều chuyển trả 404 và chỉ xác nhận qua module điều chuyển (16/11/2026). Warehouse đảo nhập mua trực tiếp qua /goods-receipts/purchase/:id/reverse, tạo StockReversal POSTED và bút toán ngược một lần, khôi phục hạn mức PO; không yêu cầu duyệt độc lập. GR từ giữ hộ đảo STORE về SUPPLIER gốc. `OTHER` có Bỏ ghi trực tiếp theo điều kiện. Không đảo khi đã có nghiệp vụ phụ thuộc. Bằng chứng là Attachment riêng tư, kiểm nội dung JPEG/PNG/PDF, quyền tải và hạn dùng.
+Preflight đảo nhập so `toAfter` của bút toán cuối vào mỗi số dư. Warehouse đảo nhập mua trực tiếp qua /goods-receipts/purchase/:id/reverse, tạo StockReversal POSTED và bút toán ngược một lần, khôi phục hạn mức PO; không yêu cầu duyệt độc lập. GR từ giữ hộ đảo STORE về SUPPLIER gốc. `OTHER` có Bỏ ghi trực tiếp theo điều kiện. Không đảo khi đã có nghiệp vụ phụ thuộc. Bằng chứng là Attachment riêng tư, kiểm nội dung JPEG/PNG/PDF, quyền tải và hạn dùng.
 
 ## Chuyển kho và bán
 

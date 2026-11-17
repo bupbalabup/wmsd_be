@@ -14,6 +14,8 @@ test('workflow authentication does not intercept public health and login routes'
     });
     assert.equal(login.status, 400);
     assert.equal((await fetch(`${base}/return-workflows/options`)).status, 401);
+    // Purchase putaway was retired; stock is moved through /location-movements instead.
+    for (const path of ['/putaway-tasks', '/putaway-tasks/x/confirm']) assert.equal((await fetch(base + path)).status, 404);
   } finally {
     await new Promise(resolve => server.close(resolve));
   }
