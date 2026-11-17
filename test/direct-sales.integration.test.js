@@ -13,7 +13,7 @@ import { getSalesOrder } from '../src/modules/sales-orders/sales-read.service.js
 import * as returns from '../src/modules/return-workflows/native.service.js';
 const key = () => new mongoose.Types.ObjectId().toString();
 test('direct SO issue, customer receipt, undelivered receipt and return without custody', {skip: process.env.RUN_GOODS_ISSUE_TESTS !== '1'}, async () => {
- await mongoose.connect('mongodb://127.0.0.1:27018/direct_sales_test_' + key() + '?replicaSet=hieudt-test');
+ await mongoose.connect(`mongodb://127.0.0.1:${process.env.MONGODB_TEST_PORT || 27018}/direct_sales_test_${key()}?replicaSet=${process.env.MONGODB_TEST_REPLICA_SET || 'hieudt-test'}`);
  process.env.JWT_SECRET = 'isolated-goods-issues-secret';
  let server;
  try {

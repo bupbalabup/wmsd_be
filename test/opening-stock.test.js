@@ -11,6 +11,7 @@ import { transaction } from '../src/shared/utils/persistence.js';
 import { guardLocations, balanceAt, receiveStock, beginStock } from '../src/shared/utils/stock.js';
 
 const key = () => String(newId());
+const mongoUri = database => `mongodb://127.0.0.1:${process.env.MONGODB_TEST_PORT || 27119}/${database}?replicaSet=${process.env.MONGODB_TEST_REPLICA_SET || 'opening-test'}`;
 const row = { sku: 'TEST', manufacturerCode: 'TEST', color: 'White', manufacturerLot: 'B1', locationCode: 'ST', enteredUnit: 'PIECE', enteredQty: '8', qualityStatus: 'GOOD', packagingState: 'SEALED' };
 const body = () => ({ warehouseId: key(), openingAt: '2026-11-16T00:00:00Z', cutoverKey: 'FIRST', sourceDescription: 'Verified handover', rows: [row] });
 test('opening imports reject invalid decimals, hidden fields, unconfirmed empty files and oversized rows', () => {
@@ -25,7 +26,7 @@ test('opening imports reject invalid decimals, hidden fields, unconfirmed empty 
 
 const enabled = process.env.RUN_OPENING_TESTS === '1';
 test('Owner alone initializes each warehouse once, with replay and atomic stock posting', { skip: !enabled }, async () => {
-  await mongoose.connect('mongodb://127.0.0.1:27119/opening_test_' + key() + '?replicaSet=opening-test', { serverSelectionTimeoutMS: 5000 });
+  await mongoose.connect(mongoUri('opening_test_' + key()), { serverSelectionTimeoutMS: 5000 });
   try {
     for (const Model of m.models.values()) { await Model.createCollection(); await Model.createIndexes(); }
     const permissions = await m.Permission.insertMany(PERMISSION_CATALOGUE.map(p => ({ code: p.code, name: p.code, description: p.description })));
@@ -151,7 +152,7 @@ test('Owner alone initializes each warehouse once, with replay and atomic stock 
     const raceBalance = await m.InventoryBalance.findOne({ holdingPointId: racePoint._id });
     assert.equal(String(raceBalance.quantityBase), concurrency[1].status === 'fulfilled' ? '12' : '4');
 
-    const setupUri = 'mongodb://127.0.0.1:27119/' + mongoose.connection.name + '?replicaSet=opening-test';
+    const setupUri = mongoUri(mongoose.connection.name);
     const beforePermissions = await m.Permission.countDocuments();
     const beforeSalesGrants = (await m.Role.findById(sales.roleId._id)).permissionIds.map(String).sort();
     assert.equal((await setupOpeningStock(setupUri)).applied, false);
