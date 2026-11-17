@@ -6,7 +6,7 @@ import { transformSnapshot } from '../../migrations/rebuild/transform.js';
 import { exact } from '../../models/model-utils.js';
 import { documentCollections } from '../../models/collections.js';
 import { upgradeSupportingData } from './support-data.js';
-import { addTransferExamples, addInvoiceExample, addStorageExamples } from './workflow-data.js';
+import { addTransferExamples, addInvoiceExample, addStorageExamples, convertPurchasePutawayExamples } from './workflow-data.js';
 import { splitCompletedSale, addOperationalExamples, addHandoverExamples } from './scenarios.js';
 import { buildTileShopScenario } from './tile-shop.js';
 import { consolidateData } from '../../models/consolidation.js';
@@ -169,6 +169,10 @@ export async function buildReviewedDemo({ consolidate = true } = {}) {
     isActive:true,isCarton:code==='Thùng',areaMm2:code===areaCode?decimalValue('1000000'):null,createdAt:demoDate(1),updatedAt:demoDate(1),
   }));
   for(const supplier of categorized.suppliers){if(supplier.status!=='ACTIVE')supplier.status='SUSPENDED';}
+  convertPurchasePutawayExamples(categorized);
+  const retiredIds = new Set(categorized.permissions.filter(p => p.code.startsWith('putaway_task:')).map(p => String(p._id)));
+  categorized.permissions = categorized.permissions.filter(p => !retiredIds.has(String(p._id)));
+  for (const role of categorized.roles) role.permissionIds = role.permissionIds.filter(id => !retiredIds.has(String(id)));
 
   if (!consolidate) return categorized;
   const result = consolidateData(categorized);

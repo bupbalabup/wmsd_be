@@ -46,6 +46,20 @@ Performance: replace per-balance BF04 availability queries with max four batch r
 
 Verification: FE typecheck/build and 77 focused regression tests passed before final skip assertions, changed-file ESLint passed; final hook/presentation assertions: 10/10 passed. BE final default regression 246 passed/0 failed/125 skipped/1 existing account-audit TODO, including all five performance tests and scoped receipt-source loading without sibling document expansion. Initial HTTP tests were blocked by sandbox localhost EACCES and passed after rerun with local-network access. Local transaction replica 27018 unavailable; online latency/explain/indexes not measured. No claim of remote rollout or full browser E2E.
 
+## 17/11/2026 - Kiểm thử giữ hộ và nhật ký khoá tài khoản
+
+- Ba test giữ hộ trong `test/return-workflows.integration.test.js` dùng nguồn giao hàng lịch sử có `customerId` của chủ hàng. Test xác minh nguồn mới dùng `customerName` và kiểm tra phiếu trả có chế độ `DIRECT`.
+- `src/modules/users/user.service.js` ghi `LOCK_USER` khi thay đổi lý do của tài khoản đang khoá. Trước đây lệnh chỉ ghi nhật ký khi trạng thái đổi. [Hợp đồng trạng thái tài khoản](docs/08_api/USER_ACCESS_STATUS.md)
+- Ba tệp test về trả hàng, bán trực tiếp và trạng thái tài khoản đạt 36/36. Test tích hợp dùng MongoDB replica set local với cơ sở dữ liệu riêng. Test audit dùng model giả lập.
+
+## 17/11/2026 - Báo lỗi trùng mã nhà cung cấp
+
+- Nguồn: người dùng yêu cầu sửa lỗi trùng key MongoDB khi tạo NCC. `createSupplier` chuyển lỗi `11000` của key `code` thành HTTP `409`, mã `ERR-CORE-409-002`, thông báo tiếng Việt và `fieldErrors` tại `body.code`. Trước đó API trả `500` kèm thông báo MongoDB.
+- Sửa `src/modules/suppliers/supplier.service.js`, thêm `test/supplier-create.test.js` và cập nhật [hợp đồng NCC](docs/08_api/ITERATION1_NATIVE_2026-11-06.md#api-và-quyền). FE đã xử lý mã lỗi này dưới ô mã NCC, không cần sửa consumer. Lỗi DB khác giữ nguyên; unique index và transaction/audit không đổi.
+- Không đổi schema, dữ liệu, quyền hay cấu hình DB; không cần migration. Backend đã fast-forward `origin/main` trước khi sửa và giữ các thay đổi đang dở.
+- Kiểm tra: `node --test test/supplier-create.test.js` đạt 4/4, gồm response qua controller/middleware, metadata keyValue, lỗi khác và tạo thành công có audit. FE `npm test -- src/features/suppliers/step/SupplierCreatePage.test.tsx` đạt 6/6.
+- Giới hạn: test backend dùng model/session giả lập; chưa thử race hoặc unique index trên MongoDB thật, chưa chạy trình duyệt hay toàn bộ suite. Không commit/push.
+
 ## Customer details on documents — 17 November 2026
 
 User decision: customers are not managed as catalogue records. New sales orders require `customerName` (1–160 characters) and allow `customerPhone` (up to 30 characters); the delivery address remains on the order. Creating an order does not query or create a Customer. Sales options return an empty compatibility `customers` array.
@@ -55,6 +69,43 @@ Customer-return creation sends warehouse and source lines only, without `custome
 Historical verification requires customer name text and optional phone from the external document; verification/evidence remains mandatory. New historical sources with customer snapshots use the current inspection/acceptance/receipt flow without custody. Previously stored sources and custody ledgers retain their legacy behavior. Optional legacy customerId fields and the Customer collection remain readable; no records or collections are deleted or backfilled. Deploy FE and BE together; old clients sending customerId to new creation endpoints must update.
 
 Validation: focused sales/return contract tests and the local direct-sales transaction test passed using an isolated database on the local rs0 replica set (port 27017). The transaction fixture creates a new sale and return with no Customer record, and separately verifies legacy custody compatibility. No Atlas write or migration was performed.
+## 17 November 2026 — UC-113 inventory report batch reads
+
+- Replaced per-balance defect/task/movement/reservation reads with snapshot-scoped batch reads and indexed in-memory lookup. Exact decimal quantities, hold resolution, warehouse authorization and response fields are preserved. See [OPERATIONAL_REPORTS.md](docs/08_api/OPERATIONAL_REPORTS.md). No database/index writes.
+- Existing operational-report tests pass (23/23). A temporary read-only mocked comparison against HEAD produced identical rows for 1 and 100 balances with partial movements, reservations and released holds; model reads changed from 15/510 to 12/12. This is fixture evidence, not database query telemetry.
+- Rebuilt local Compose API/web images. Three observed inventory responses returned HTTP 200 in 706–847 ms, versus the earlier observed approximately 74-second response; this is local timing, not a production benchmark. Frontend report tests pass (16/16), alongside lint, typecheck and UI rules. Shared-theme UI and current-filter export guards were updated in the frontend repository.
+
+## 17 November 2026 — Avoid local API host-port conflict
+
+- Source: user reported repeated `port is already allocated` startup failures; effective Compose still published host port 3000, occupied by another project's container.
+- Changed workspace `docker-compose.yml` to publish `3300:3000`. API `PORT=3000`, frontend proxy `http://api:3000`, frontend port 3334 and mount-free packaging remain unchanged. Updated [DOCKER.md](docs/09_phat_trien/DOCKER.md) with the host/internal distinction and port-only recreation command.
+- Host port 3300 was free when checked. Final effective-configuration and documentation checks are recorded in the task handoff; this edit does not start the app, stop unrelated containers or access a database. No application runtime/connectivity claim.
+
+## 17 November 2026 — Mount-free local Compose images
+
+- Source: user requested removing backend/frontend volumes so code changes require rebuilding containers.
+- The workspace `docker-compose.yml` removes both source bind mounts, both `node_modules` mounts, unused named-volume declarations and polling flags. Backend `Dockerfile` dev target now copies source into the image; frontend `Dockerfile.dev` already copies it. Ports, API proxy, runtime commands, URI handling and default disabled seeding are unchanged. Compose explicitly provides `VITE_API_URL=/api`, replacing the frontend's previous dependency on a mounted host `.env`.
+- Current setup instructions are updated in [DOCKER.md](docs/09_phat_trien/DOCKER.md): use `docker compose up -d --build api web` after changes. Restart alone is insufficient. Existing containers/old volume objects are not deleted or restarted by this edit.
+- Validation: merged Compose mount/target/port/API-environment assertions, Dockerfile checks (no warnings), both image builds, isolated read-only/network-disabled source/dependency/entrypoint and env-exclusion filesystem checks, `npm run docs:check` and `git diff --check` pass. Independent review is a separate handoff gate. Application/DB/network runtime behavior is not proven: no application startup, seed, schema/index change, database write, old-volume deletion or existing-container recreation was performed.
+
+## 17/11/2026 - Chuyển hàng nhập mua bằng BF03
+
+Theo plan `ancient-launching-zebra.md`, phiếu nhập mua hoàn tất ở `POSTED` và PO ghi nhận lượng đã nhập cùng mốc. Gỡ hàng đợi Chờ cất và API lệnh cất mua. Chi tiết phiếu trả `receivingBalanceId` và `capabilities.relocate`. FE dùng quyền Chuyển vị trí và mở form BF03 tại vị trí tiếp nhận đầu tiên. ITR tiếp tục xử lý xếp hàng của điều chuyển liên kho.
+
+Backend cập nhật `po-receiving`, permission seed và lệnh mẫu dùng `RELOCATE`. Trên `wmsd_demo_tile_shop_v9`, lượt áp dụng tắt bốn quyền cũ. Lượt xem trước và lượt áp dụng đều trả danh sách lệnh rỗng. [Hợp đồng GoodsReceipt](docs/08_api/GOODS_RECEIPTS.md) · [Hướng dẫn migration local](docs/09_phat_trien/MONGODB_LOCAL.md#ngừng-lệnh-cất-hàng-mua).
+
+Native integration đạt 26 ca. Trên Chromium 1440 px và 390 px, form điền đúng nguồn và dòng hàng cho phiếu `PNM-TEST-261117-000001`. Kế toán bị chặn tạo lệnh. Xác nhận `LCV-TEST-261117-000001` đưa 8 viên vào nguồn xuất bán và preflight chặn Bỏ ghi. Đối soát đạt trên DB thử riêng. DB demo còn báo `RR_ALLOWANCE` ở một PO mẫu.
+
+BE test mặc định có 237 ca đạt, 123 ca skip và một ca TODO. FE có 49 ca liên quan đạt cùng build, typecheck và lint trong `src`. Suite FE toàn bộ còn 10 ca lỗi ở các luồng khác, trong đó 5 ca tái hiện trên HEAD sạch. Lint toàn repo báo lỗi cú pháp trong hook `.claude/hooks/agent-guard.mjs`. Checkout FE thiếu hai script `ui:check` và `ui:cleanup`.
+
+## 17/11/2026 - Bỏ danh mục khách hàng và delivery riêng khỏi phạm vi
+
+- Nguồn: người dùng yêu cầu cập nhật cả Report 3/Report 4 và xác nhận chỉ bỏ danh mục khách hàng, giữ đơn bán cùng khách trả.
+- Report 3 sửa phạm vi, context, BF-06/BF-07, ERD nhúng, thực thể, catalogue/chi tiết UC, ma trận quyền, màn hình và quy tắc. Giữ 132 mã: 113 ACTIVE, 19 RETIRED; giữ 31 mã màn: 23 ACTIVE, 8 RETIRED. UC-129 chuyển thành bằng chứng khách nhận trên phiếu xuất, không còn màn delivery riêng.
+- Report 4 sửa luồng SO -> phiếu xuất trực tiếp, khách trả, quan hệ nhúng và trạng thái thiết kế. Danh mục khách/WIR/OD/FD riêng được đánh dấu ngoài phạm vi; schema cũ được phân biệt là tương thích runtime, không giả đã xóa collection.
+- Đồng bộ PROJECT_GUIDE, context BE và README tài liệu. Giữ lịch sử/Change Log cũ của báo cáo và mã UC/SC để truy vết.
+- Không sửa source, test, quyền DB, dữ liệu hay tham chiếu lịch sử; không commit/push. API/model vẫn cần thay phần bắt buộc customer master trước khi triển khai phạm vi mới. Bản Word/Google Docs bên ngoài chưa đồng bộ.
+- Checks passed: npm run docs:check (3 identical instruction files, 58 collections, 869 local links); 132 unique UC IDs, 113 active/19 retired, 23 active/8 retired screens, no grants on retired UCs and no active screen linked to a retired UC. Active normal flows and historical Report 3 Change Log are retained. Mermaid fences/declarations checked; diagrams were not rendered.
 
 ## 17 November 2026 — Upstream integration and conflict-resolution checkpoint
 
