@@ -7,7 +7,7 @@ Mọi API có tiền tố `/api`. Một collection `goods_receipts`; mỗi route
 | `PURCHASE` | `GET /goods-receipts/purchase`, `GET /goods-receipts/purchase/:id` | `goods_receipt_inspection:read` | Kiểm nhận mua; `goods_receipt_inspection:post/update/reverse`. |
 | `CUSTOMER_RETURN` | `GET /goods-receipts/customer-return`, `GET /goods-receipts/customer-return/:id` | `customer_return:read` | `/customer-returns/:id/receipt`; `customer_return:post`. |
 | `FAILED_DELIVERY` | `GET /goods-receipts/failed-delivery`, `GET /goods-receipts/failed-delivery/:id` | `failed_delivery:read` | `/failed-deliveries/:id/receipt`; `failed_delivery:inspect/post`. |
-| `TRANSFER` | `GET /goods-receipts/transfer`, `GET /goods-receipts/transfer/:id` | `stock_transfer:read` | `/warehouse-transfers/...` nhận tại nguồn; `stock_transfer:receive`. |
+| `TRANSFER` | `GET /goods-receipts/transfer`, `GET /goods-receipts/transfer/:id` | `stock_transfer:read` | `/warehouse-transfers/...` nhận tại kho đích; `stock_transfer:receive`. |
 | `OTHER` | `GET /goods-receipts/other`, `GET /goods-receipts/other/:id` | `goods_receipt_other:read` | Các lệnh bên dưới. |
 
 List nhận `page` (mặc định 1), `limit` (mặc định 10, tối đa 100), `warehouseId` và `status`. Kết quả `{items,total,page,limit}`. Purchase còn nhận `purchaseOrderId`. BE chỉ truy vấn kho được phân công, Owner xem các kho. DTO trả ObjectId và Decimal128 dưới dạng chuỗi.
@@ -18,6 +18,18 @@ List nhận `page` (mặc định 1), `limit` (mặc định 10, tối đa 100),
 - `totalsByBaseUnit` gồm `{unit, quantity}`: tổng `qtyBase` theo từng `baseUnitSnapshot`, với `quantity` là chuỗi thập phân và `unit` là `null` nếu thiếu đơn vị. Mảng rỗng khi phiếu không có dòng; `totalQtyBase` được giữ để tương thích.
 - Danh sách gộp áp dụng quyền đọc từng loại. Accountant có phạm vi toàn kho cho phiếu mua. SALES chỉ thấy phiếu khách trả từ yêu cầu do chính mình lập trong phạm vi kho. Nếu lọc loại nằm ngoài quyền đọc, kết quả rỗng.
 - `GET /goods-receipts/:id` xác định loại từ collection chung và áp dụng cùng quyền với chi tiết từng loại. Dòng phiếu trả hàng và giao thất bại lấy phẩm cấp, vị trí nhận từ giao dịch ghi tồn. Chi tiết điều chuyển trả `header.transferRequestId` để mở yêu cầu nguồn qua phiếu xuất.
+
+## Transfer receipt and automatic putaway — 17 November 2026
+
+Receiving a TRANSFER remains a destination operation in `/receipts`, independent
+of the dispatcher. Posting GOOD lines automatically creates one OPEN ITR/PUTAWAY
+TO in the same transaction. The TO waits for destination STORAGE choices on its
+separate page; receipt posting never invents a storage target. All-DAMAGED receipts
+remain in quarantine with defect records and need no PUTAWAY. The transfer request
+groups linked receipts/dispatches under Đơn phiếu and TOs under Nhiệm vụ. Exact
+full completion is automatic after related tasks/variance checks; stopping a short
+transfer remains explicit with a reason. See [BF04 lifecycle and task API](transfers/BF04_API.md#main-flow).
+This does not restore the retired purchase putaway routes or modify purchase receipts.
 
 ## Kiểm hàng, hàng tạm giữ và hàng đợi ghi nhập
 
