@@ -205,7 +205,9 @@ export const submitReplenishmentSchema = z.object({
 const reviewLineSchema = z
   .object({
     lineId: objectIdSchema,
-    approvedQtyBase: approvedQty,
+    // Either amount is enough: approvedEnteredQty (the line's unit) wins and the server derives the base amount.
+    approvedQtyBase: approvedQty.optional(),
+    approvedEnteredQty: approvedQty.optional(),
     reason: z.string().trim().max(2000).optional().nullable(),
   })
   .strict();
