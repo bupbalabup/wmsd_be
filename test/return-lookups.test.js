@@ -20,11 +20,12 @@ test('lookup input rejects unbounded pages, operators and unsupported filters', 
 
 const enabled = process.env.RUN_RETURN_LOOKUP_TESTS === '1';
 const database = `returns_lookup_${new mongoose.Types.ObjectId()}`;
+const mongoUri = `mongodb://127.0.0.1:${process.env.MONGODB_TEST_PORT || 27028}/${database}?replicaSet=${process.env.MONGODB_TEST_REPLICA_SET || 'wmsd_model_tests'}`;
 let server, base;
 const actors = {};
 before(async () => {
   if (!enabled) return;
-  await mongoose.connect(`mongodb://127.0.0.1:27028/${database}?replicaSet=wmsd_model_tests`, { autoIndex: false, autoCreate: false, serverSelectionTimeoutMS: 5000 });
+  await mongoose.connect(mongoUri, { autoIndex: false, autoCreate: false, serverSelectionTimeoutMS: 5000 });
   const data = await buildReviewedDemo();
   for (const [name, Model] of registerModels(mongoose.connection)) {
     if (data[name]?.length) await mongoose.connection.db.collection(name).insertMany(data[name].map(row => new Model(row).toObject()));

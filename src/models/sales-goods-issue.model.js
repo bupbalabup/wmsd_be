@@ -7,12 +7,14 @@ import {
   code,
   integer,
   date,
+  rules,
 } from "./model-utils.js";
 import { objectId, id, opt, version } from "./schema-helpers.js";
 
 import { createDocumentSourceSchema } from "./document-source.schema.js";
 import { createDocumentItemSchema } from "./document-item.schema.js";
 import { createHandoverSchema } from "./handover.schema.js";
+import { createCustomerReceiptSchema } from './customer-receipt.schema.js';
 import { createSalesGoodsIssueHeaderSchema } from "./sales-goods-issue-header.schema.js";
 import { createSalesGoodsIssueSalePriceSnapshotSchema } from "./sales-goods-issue-sale-price-snapshot.schema.js";
 import {
@@ -44,6 +46,7 @@ export function createSalesGoodsIssueSchema() {
       stockTransactionId: ref("StockTransaction", false),
       postedBy: ref("User", false),
       postedAt: date(false),
+      customerReceipts: { type: [createCustomerReceiptSchema()], default: undefined },
     },
     options("sales_goods_issues"),
   );
@@ -51,6 +54,7 @@ export function createSalesGoodsIssueSchema() {
   item.add({ note: opt(2000), evidenceIds: refs("Attachment") });
   item.add({
     salesOrderItemId: id(false),
+    sourceBalanceId: ref('InventoryBalance', false),
     salePriceSnapshot: createSalesGoodsIssueSalePriceSnapshotSchema(),
   });
   attachDocumentItems(schema, item);
@@ -62,5 +66,8 @@ export function createSalesGoodsIssueSchema() {
     handovers: { type: [handover], default: undefined, excludeIndexes: true },
   });
 
+  rules(schema, function () {
+    if (this.header?.fulfillmentMode === 'DIRECT' && (!this.header.salesOrderId || !this.header.customerId || this.header.deliveryOrderId || this.header.referenceNo || this.items.some(item => !item.salesOrderItemId || !item.sourceBalanceId || !item.lotId))) this.invalidate('header', 'Direct issue requires its sales order, customer and actual stock sources');
+  });
   return schema;
 }

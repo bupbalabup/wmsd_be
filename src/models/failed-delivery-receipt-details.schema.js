@@ -4,9 +4,9 @@ import { Schema, embeddedOptions, ref } from "./model-utils.js";
 export function createFailedDeliveryReceiptDetailsSchema() {
   const schema = new Schema(
     {
-      failedDeliveryLineId: ref("DocumentLine"),
+      failedDeliveryLineId: ref("DocumentLine", false),
       salesIssueLineId: ref("DocumentLine"),
-      inspectionLineId: ref("DocumentLine"),
+      inspectionLineId: ref("DocumentLine", false),
       claimId: ref("ReturnSourceClaim", false),
     },
     embeddedOptions,

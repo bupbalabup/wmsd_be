@@ -16,7 +16,7 @@ const key = () => new mongoose.Types.ObjectId().toString();
 test('UC69–72: source-backed GI create/update/cancel, picking and once-only posting with HTTP scope', { skip: !enabled }, async t => {
   const dbName = 'goods_issue_test_' + key();
   process.env.JWT_SECRET = 'isolated-goods-issues-secret';
-  await mongoose.connect('mongodb://127.0.0.1:27018/' + dbName + '?replicaSet=hieudt-test', { serverSelectionTimeoutMS: 5000 });
+  await mongoose.connect(`mongodb://127.0.0.1:${process.env.MONGODB_TEST_PORT || 27018}/${dbName}?replicaSet=${process.env.MONGODB_TEST_REPLICA_SET || 'hieudt-test'}`, { serverSelectionTimeoutMS: 5000 });
   let server;
   try {
     const names = ['Permission', 'Role', 'User', 'Warehouse', 'WarehouseLocation', 'Category', 'Product', 'ProductBatch', 'Customer', 'Uom', 'Conversion', 'SalesOrder', 'WarehouseIssueRequest', 'DeliveryOrder', 'SalesGoodsIssue', 'TransferOrder', 'StockReservation', 'StockHoldingPoint', 'InventoryBalance', 'StockTransaction', 'StocktakeLocationLock', 'DefectReport', 'ExternalReference', 'Attachment', 'OperationRecord', 'AuditLog', 'SystemEvent'];

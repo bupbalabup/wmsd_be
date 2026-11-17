@@ -12,6 +12,7 @@ cùng bộ cấp số transaction; duyệt phiếu giữ nguyên ID, không cấ
 - Mã kho lấy từ `Warehouse.code`. Nhóm điều chuyển, chuyển vị trí và chênh lệch chuyển kho rút gọn mã kho gạch, ví dụ `K-GACH-01` thành `KG1`. Chứng từ bán hàng hoặc đối soát không thuộc kho dùng mã bộ phận `KD`.
 - Số thứ tự tăng theo loại phiếu + kho/bộ phận + ngày, bắt đầu 000001, tối thiểu sáu chữ số.
 - Chứng từ mới đặt `_id = documentNo` trong cùng transaction. MongoDB giữ `_id` duy nhất và bất biến.
+- Embedded stocktake resolution plans are an exception: `_id` remains an ObjectId for the existing plan routes and references; `documentNo` carries the `PAXLKK` business number. Embedded allocation scans both `_id` and `documentNo`, considering only numbers matching the requested type, warehouse and day. This fixes sequential number reuse without renumbering stored records. It does not add a cross-parent uniqueness constraint or change transaction concurrency guarantees.
 - Bộ cấp số tìm số thứ tự lớn nhất trong dữ liệu chứng từ và `operation_records`. Trong cùng phạm vi cấp số, bộ cấp số tính cả mã liền, mã có dấu cách quanh dấu nối và mã dùng mã kho gốc hoặc rút gọn. Khi trùng mã, hệ thống thử lại transaction. Registry không có collection `document_sequences`.
 - API nhận mã liền, mã đã lưu có dấu cách quanh dấu nối và ObjectId lịch sử tại các trường tham chiếu chứng từ trong route, query và body. Gửi nguyên giá trị ID do API trả về.
 - Catalogue, sản phẩm, lô, kho, vị trí và dòng nhúng tiếp tục dùng ObjectId. Chứng từ đã lưu giữ nguyên `_id` và `documentNo`.

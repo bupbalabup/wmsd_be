@@ -3,18 +3,41 @@ import * as m from '../../models/runtime.js';
 import { exact } from '../../models/model-utils.js';
 import { command, checkVersion, saveVersion, same, newId, hash } from '../../shared/utils/document-command.js';
 import { dto, page, serialize } from '../../shared/utils/persistence.js';
-import { requirePermission, requireWarehouseAccess, isOwner } from '../../shared/utils/access.js';
+import { requirePermission, requireWarehouseAccess } from '../../shared/utils/access.js';
 import { validationError, notFoundError } from '../../shared/utils/ApiError.js';
 import { sourceContext, beginStock, moveStock, receiveStock, splitPortions, remainingReservation, verifyCapacity, heldQuantity } from '../../shared/utils/stock.js';
 import { copyItem, sourceLink } from '../../shared/utils/document-copy.js';
+import { buildStocktakeListFilter } from './stocktake-list.query.js';
 async function scoped(user, id, session) { const document = await m.Stocktake.findById(id).session(session); if (!document)
     throw notFoundError(); requireWarehouseAccess(user, document.header.warehouseId); return document; }
-export async function listStocktakes(user, query) { requirePermission(user, 'stocktake:read'); const filter = isOwner(user) ? {} : { 'header.warehouseId': { $in: user.warehouseIds || [] } }; if (query.warehouseId) {
-    requireWarehouseAccess(user, query.warehouseId);
-    filter['header.warehouseId'] = query.warehouseId;
-} if (query.status)
-    filter.workflowStatus = query.status; return page(m.Stocktake, filter, query); }
-export async function getStocktake(user, id) { requirePermission(user, 'stocktake:read'); const document = await scoped(user, id); const scope = { stocktakeId: document._id, scopeVersion: document.header.scopeVersion }; return { ...dto(document), snapshots: (await m.StocktakeSnapshot.find(scope)).map(dto), counts: (await m.StocktakeCount.find(scope).sort({ attemptNo: -1 })).map(dto), locks: (await m.StocktakeLocationLock.find(scope)).map(dto) }; }
+export async function listStocktakes(user, query) { requirePermission(user, 'stocktake:read'); return page(m.Stocktake, buildStocktakeListFilter(user, query), query); }
+export async function getStocktake(user, id) {
+    requirePermission(user, 'stocktake:read');
+    const document = await scoped(user, id);
+    const scope = { stocktakeId: document._id, scopeVersion: document.header.scopeVersion };
+    const [snapshots, counts, locks] = await Promise.all([
+        m.StocktakeSnapshot.find(scope),
+        m.StocktakeCount.find(scope).sort({ attemptNo: -1 }),
+        m.StocktakeLocationLock.find(scope),
+    ]);
+    // Catalogue labels are current metadata, never a replacement for frozen quantities/units.
+    const batchIds = [...new Set(snapshots.map(row => String(row.batchId)))];
+    const [warehouses, locations, batches] = await Promise.all([
+        m.Warehouse.find({ _id: document.header.warehouseId }).select('_id code name').lean(),
+        m.WarehouseLocation.find({ _id: { $in: document.header.scopeLocationIds }, warehouseId: document.header.warehouseId }).select('_id warehouseId code name').lean(),
+        m.ProductBatch.find({ _id: { $in: batchIds } }).select('_id productId manufacturerLot').lean(),
+    ]);
+    const products = await m.Product.find({ _id: { $in: [...new Set(batches.map(row => String(row.productId)))] } }).select('_id sku name').lean();
+    return {
+        ...dto(document), snapshots: snapshots.map(dto), counts: counts.map(dto), locks: locks.map(dto),
+        lookups: {
+            warehouses: warehouses.map(row => ({ id: String(row._id), code: row.code, name: row.name })),
+            locations: locations.map(row => ({ id: String(row._id), warehouseId: String(row.warehouseId), code: row.code, name: row.name })),
+            batches: batches.map(row => ({ id: String(row._id), productId: String(row.productId), manufacturerLot: row.manufacturerLot })),
+            products: products.map(row => ({ id: String(row._id), sku: row.sku, name: row.name })),
+        },
+    };
+}
 export const approvalContent = plan => serialize({ planId: plan._id, planVersion: plan.version, scopeVersion: plan.header.scopeVersion, items: plan.items, selectedCounts: plan.selectedCounts });
 export function closeStocktake(user, id, input) {
     return command(user, 'CLOSE_STOCKTAKE', 'stock_adjustment:post', id, input, (id, a, s) => scoped(a, id, s), async (session, actor, operationId) => {
@@ -38,6 +61,8 @@ export function closeStocktake(user, id, input) {
         if (input.planId && !plan)
             throw validationError('Không có phương án thuộc đợt');
         const selected = plan?.selectedCounts || input.selectedCounts;
+        if (!document.header.lastReconciledAt || document.header.selectedCounts?.length !== snapshots.length || !selected || selected.length !== document.header.selectedCounts.length || selected.some(row => !document.header.selectedCounts.some(current => same(row.snapshotId, current.snapshotId) && same(row.countId, current.countId))))
+            throw validationError('Kết quả đếm chưa được đối chiếu hoặc đã thay đổi');
         if (!selected || new Set(selected.map(s => String(s.snapshotId))).size !== snapshots.length || selected.length !== snapshots.length)
             throw validationError('Phải chọn đủ kết quả từng dòng mốc');
         const selectedCounts = new Map();

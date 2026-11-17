@@ -1,4 +1,60 @@
-# Goods Issue — UC-69–72
+# Goods Issue — current sales flow, 17 November 2026
+
+Decision source: the user's latest explicit instruction restores Sales Order and simplifies sales to **Sales Order → Phiếu xuất kho**. New manual-reference SALE creation is rejected by the public API; existing manual-sale records keep their legacy execution. New sales do not require WIR, OD, picking, delivery tracking or customer custody. This section supersedes the 16 November manual-sale decision retained below for compatibility.
+
+## New sales and responsibilities
+
+1. Sales creates the Sales Order, identifying the customer and requested products/quantities through the existing verified source flow.
+2. Warehouse creates a DRAFT sale issue against that order. Select the assigned warehouse and actual GOOD, STORE-owned stock in pickable STORAGE locations. Several issues may serve one order; one issue may split one order line over multiple balances/lots.
+3. Warehouse posts the issue directly. PGI deducts actual source balances once, preserves packaging and records `header.issuedToName/issuedAt/issuedBy`. No picking task, staging move, reservation or delivery order is generated. Posting means goods left the warehouse; it does not prove customer receipt.
+4. Sales records customer receipt on the posted issue after checking external evidence. The named recipient, actual received time, quantity and uploaded evidence are retained per issue item. This command does not post stock. Only the Sales creator of the source order may confirm receipt; permission alone does not grant another Sales user's order.
+5. Warehouse uses **Nhận lại hàng chưa giao** on that same issue when goods actually return without customer receipt. Enter quantity, reason, actual quality, receiving/storage or quarantine location and evidence. The command immediately posts a linked FAILED_DELIVERY goods receipt, restores STORE stock and makes that quantity available for a replacement issue under the original order. It creates no FailedDelivery request, separate inspection document, custody record or WIR/OD reopening.
+
+Order status is PARTIAL after issue; it becomes DELIVERED once all order quantities, less recorded cancellations, are confirmed customer-received. Confirmed customer returns do not reopen sales demand or issue refunds.
+
+## API and quantities
+
+All routes are below `/api`. Authentication, current permissions, record and warehouse scopes, optimistic version, idempotency and audit/outbox records are enforced transactionally.
+
+| Endpoint | Input / permission |
+|---|---|
+| GET `/goods-issues/direct-options` | `goods_issue:create`; active orders with remaining quantities and eligible stock in assigned warehouses; up to 100 recent orders |
+| POST `/goods-issues` | `goods_issue:create`; `{salesOrderId, warehouseId, expectedVersion: order.version, idempotencyKey, note?, lines:[{salesOrderLineId, sourceBalanceId, qtyBase}]}`; Sales cannot execute |
+| POST `/goods-issues/:id/post` | `goods_issue:post`; `{expectedVersion, idempotencyKey, recipientName, vehiclePlate?}`; DIRECT DRAFT posts without picking; vehiclePlate is a legacy input and is not used by DIRECT |
+| POST `/goods-issues/:id/customer-receipt` | `delivery_confirmation:confirm` AND SALES; `{expectedVersion, idempotencyKey, recipientName, receivedAt: ISO timestamp, evidenceIds, lines:[{lineId,qtyBase}]}` |
+| POST `/goods-issues/:id/receive-undelivered` | `failed_delivery:post`; `{expectedVersion, idempotencyKey, reason, evidenceIds, lines:[{lineId,qtyBase,locationId,qualityCode: GOOD|DAMAGED|BLOCKED,portions?}]}` |
+| POST `/goods-issues/:id/cancel` | existing `goods_issue:update`; DRAFT only, reason/version/key; no stock effect |
+
+New quantities are exact positive base-unit decimal strings, with whole-base-unit checks. Physical issue rows use base-unit factor 1, actual lot/packaging and a source link back to the order item; commercial unit/price snapshots remain available separately. DRAFT quantities count against order allowance but do not reserve inventory; Warehouse must recheck availability at posting. Stocktake locks, holds, other reservations and capacity checks remain active. When a draft's stock is no longer free, cancel it and create a replacement with the current source.
+
+At each issue item, customer-confirmed quantity + posted undelivered quantity + outstanding legacy failed-delivery claims cannot exceed effective posted issue quantity. A shared ReturnSourceLock serializes competing receipt/return actions. New direct issues cannot enter the old FailedDelivery create flow. Customer-return allowance is confirmed customer-received quantity less CR claims, never gross issue quantity. SO version writes serialize order edits/cancellations against fulfillment; active old WIR commitments and direct issues cannot be mixed.
+
+GET detail exposes per-item `issuedQtyBase`, `customerReceivedQtyBase`, `undeliveredReturnedQtyBase`, `unconfirmedQtyBase`, `customerReceipts`, linked `undeliveredReceipts` and server capabilities. List/filter/detail retain Sales order-creator scope and Warehouse assigned scope, and redact prices. The Sales Order detail links all its direct issues and their receipt history. Sale issue list also supports Excel export with current filters.
+
+## Customer returns without custody
+
+New requests carry `header.intakeMode=DIRECT` regardless of whether their source is a confirmed direct issue, a historical legacy chain, or a verified historical delivery. Sales requests → Warehouse records physical condition, actual quantity and evidence → Sales accepts/rejects → Warehouse posts only the accepted amount as CUSTOMER_RETURN receipt. Inspection changes no balances and asks for no custody location. Rejected handbacks are embedded evidence/recipient/quantity events with no ledger or inventory effect. Reassessment is blocked after any posted receipt or handback. See [return workflow contract](RETURN_WORKFLOWS_NATIVE.md).
+
+## Persistence and compatibility
+
+No collection, stored ID rewrite or backfill. Additive optional fields:
+
+- `sales_goods_issues.header`: `fulfillmentMode=DIRECT`, SalesOrder `salesOrderId`, Customer `customerId`, `issuedToName` (max160).
+- Issue items: `sourceBalanceId` (InventoryBalance); existing `salesOrderItemId` links the source embedded order line. `customerReceipts[]` has stable ID, `issueLineId`, positive `quantityBase`, `recipientName`, `receivedAt`, `recordedBy/recordedAt`, `evidenceIds`. It is an embedded schema, not a collection.
+- `customer_returns.header.intakeMode=DIRECT`; `handbacks[]` has stable ID, `returnLineId`, positive `quantityBase`, `recipientName`, `recordedBy/recordedAt`, evidence IDs.
+- FAILED_DELIVERY variant in `goods_receipts.header.goodsIssueId` points directly to SalesGoodsIssue. Its item details retain required `salesIssueLineId`; legacy `failedDeliveryLineId/inspectionLineId` are optional for this direct mode. Legacy commands still require their inspected source chain.
+
+Older documents without the mode markers retain their original custody/picking semantics and immutable ledgers. Do not mark existing custody-backed CR as DIRECT; their physical balances must be consumed through the original path. The navigation hides retired workflows, while historical detail links remain readable. OTHER, supplier returns and transfers keep their established execution rules.
+
+The [focused current relationship view](../03_thiet_ke/DB_Current_2026-11-12_58/Simplified_Sales_Returns.svg) is also included as a page in the current draw.io ERD.
+
+Run the existing permission synchronization against the intended database to add `delivery_confirmation:confirm` to SALES before exposing this UI. No remote database was changed. See [local verification/setup](../09_phat_trien/SIMPLIFIED_SALES_SETUP.md).
+
+## Dated compatibility contract — 16 November 2026
+
+The remaining text describes manual/external and old OD-backed issue records. Its SALE creation/picking requirements do not govern the new DIRECT mode above.
+
+### Previous Goods Issue — UC-69–72
 
 - **UC-69:** View goods issue list (`GET /api/goods-issues`)
 - **UC-70:** View goods issue details (`GET /api/goods-issues/:id`)

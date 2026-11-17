@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1420" height="900" viewBox="0 0 1420 900"><rect width="1420" height="900" fill="white"/><g font-family="Arial" fill="#111827">
+<text x="40" y="40" font-size="26" font-weight="bold">Current sales and returns · 17 November 2026</text>
+<rect x="40" y="90" width="300" height="180" fill="#fff" stroke="#1f2937" stroke-width="2"/><text x="56" y="120" font-size="19" font-weight="bold">sales_orders</text><path d="M40 134H340" stroke="#1f2937"/>
+<text x="56" y="162" font-size="16">Customer + requested products</text>
+<text x="56" y="186" font-size="16">Commercial quantities / cancellations</text>
+<text x="56" y="210" font-size="16">Sales creates; Warehouse fulfills</text>
+<rect x="500" y="90" width="380" height="260" fill="#fff" stroke="#1f2937" stroke-width="2"/><text x="516" y="120" font-size="19" font-weight="bold">sales_goods_issues · DIRECT</text><path d="M500 134H880" stroke="#1f2937"/>
+<text x="516" y="162" font-size="16">header.salesOrderId / customerId</text>
+<text x="516" y="186" font-size="16">items.salesOrderItemId / sourceBalanceId</text>
+<text x="516" y="210" font-size="16">Actual lot and packaging snapshot</text>
+<text x="516" y="234" font-size="16">customerReceipts[]: item, qty, recipient,</text>
+<text x="516" y="258" font-size="16">receivedAt, recordedBy/At, evidence</text>
+<text x="516" y="282" font-size="16">Warehouse posts stock OUT</text>
+<text x="516" y="306" font-size="16">Sales confirms customer receipt</text>
+<rect x="500" y="490" width="380" height="250" fill="#fff" stroke="#1f2937" stroke-width="2"/><text x="516" y="520" font-size="19" font-weight="bold">customer_returns · DIRECT</text><path d="M500 534H880" stroke="#1f2937"/>
+<text x="516" y="562" font-size="16">Original issue item / historical source</text>
+<text x="516" y="586" font-size="16">Inspection facts and evidence only</text>
+<text x="516" y="610" font-size="16">Sales acceptance / rejection</text>
+<text x="516" y="634" font-size="16">handbacks[]: item, qty, recipient,</text>
+<text x="516" y="658" font-size="16">recordedBy/At, evidence (no stock)</text>
+<text x="516" y="682" font-size="16">No customer custody balance</text>
+<rect x="1100" y="350" width="280" height="230" fill="#fff" stroke="#1f2937" stroke-width="2"/><text x="1116" y="380" font-size="19" font-weight="bold">goods_receipts</text><path d="M1100 394H1380" stroke="#1f2937"/>
+<text x="1116" y="422" font-size="16">FAILED_DELIVERY: goodsIssueId</text>
+<text x="1116" y="446" font-size="16">items.details.salesIssueLineId</text>
+<text x="1116" y="470" font-size="16">CUSTOMER_RETURN: returnId</text>
+<text x="1116" y="494" font-size="16">Accepted quantities only</text>
+<text x="1116" y="518" font-size="16">Warehouse posts STORE stock IN</text>
+<text x="1116" y="542" font-size="16">Stable receipt ID + source link</text>
+<polyline points="340,180 500,180" fill="none" stroke="#374151" stroke-width="2"/>
+<polygon points="365,208 410,148 455,208" fill="#f3f4f6" stroke="#1f2937"/><text x="410" y="197" text-anchor="middle" font-size="12">has</text>
+<text x="348" y="170" font-size="16">1</text><text x="482" y="170" font-size="16">n</text>
+<polyline points="690,350 690,490" fill="none" stroke="#374151" stroke-width="2"/>
+<polygon points="645,448 690,388 735,448" fill="#f3f4f6" stroke="#1f2937"/><text x="690" y="437" text-anchor="middle" font-size="12">returns</text>
+<text x="698" y="340" font-size="16">1</text><text x="672" y="480" font-size="16">n</text>
+<polyline points="880,220 990,220 990,410 1100,410" fill="none" stroke="#374151" stroke-width="2"/>
+<polygon points="945,328 990,268 1035,328" fill="#f3f4f6" stroke="#1f2937"/><text x="990" y="317" text-anchor="middle" font-size="12">unreceived</text>
+<text x="888" y="210" font-size="16">1</text><text x="1082" y="400" font-size="16">n</text>
+<polyline points="880,610 990,610 990,510 1100,510" fill="none" stroke="#374151" stroke-width="2"/>
+<polygon points="945,598 990,538 1035,598" fill="#f3f4f6" stroke="#1f2937"/><text x="990" y="587" text-anchor="middle" font-size="12">accepted</text>
+<text x="888" y="600" font-size="16">1</text><text x="1082" y="500" font-size="16">n</text>
+<text x="40" y="825" font-size="18">One Sales Order can have several goods issues. Confirmed customer receipt determines return allowance.</text>
+<text x="40" y="855" font-size="18">Legacy picking, delivery and custody records keep their existing history. No new collection is added.</text>
+</g></svg>

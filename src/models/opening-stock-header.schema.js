@@ -1,4 +1,4 @@
-import { Schema, embeddedOptions, ref, refs, date } from "./model-utils.js";
+import { Schema, embeddedOptions, ref, refs, date, code } from "./model-utils.js";
 import { opt, revision } from "./schema-helpers.js";
 
 // Embedded schema; no standalone collection.
@@ -6,6 +6,7 @@ export function createOpeningStockHeaderSchema() {
   const schema = new Schema({}, embeddedOptions);
   schema.add({
     warehouseId: ref("Warehouse", false),
+    openingImportSource: code(["FILE"], { required: false }),
     cutoverKey: opt(160),
     openingAt: date(false),
     coveredLocationIds: refs("WarehouseLocation"),
