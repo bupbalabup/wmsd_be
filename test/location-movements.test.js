@@ -1,12 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createBody, detailSchema } from '../src/modules/location-movements/location-movement.validation.js';
+import { createBody, detailSchema, confirmSchema, listSchema } from '../src/modules/location-movements/location-movement.validation.js';
 import { splitPortions } from '../src/shared/utils/stock.js';
 
 const id = '123456789012345678901234';
 const body = () => ({
   idempotencyKey: 'move-1', warehouseId: id, reason: 'Reorganize storage',
   lines: [{ sourceBalanceId: id, sourceBalanceVersion: 0, toLocationId: id, enteredUnit:'PIECE', enteredQty: '4' }],
+});
+
+test('BF03 accepts partial status filters and selected positive actual lines only', () => {
+  assert.equal(listSchema.parse({ query: { status: 'PARTIAL' } }).query.status, 'PARTIAL');
+  const request = { params: { id }, body: { expectedVersion: 2, idempotencyKey: 'trip-2', lines: [{ lineId: id, actualQtyBase: '4' }] } };
+  assert.ok(confirmSchema.safeParse(request).success);
+  for (const lines of [[], [...request.body.lines, ...request.body.lines], [{ lineId: id, actualQtyBase: '0' }], [{ lineId: id, actualQtyBase: '1.5' }]]) assert.equal(confirmSchema.safeParse({ ...request, body: { ...request.body, lines } }).success, false);
 });
 
 test('UC-36 validates integer quantity strings and rejects client-controlled business fields', () => {

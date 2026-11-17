@@ -20,11 +20,14 @@ Scoped list/detail responses add sourceWarehouse and destinationWarehouse object
 
 ## Read and selection APIs
 
+Read payload optimization (17/11/2026): request and dispatch lists accept optional `view=summary|full`, default `full`. FE tables and receipt-source dropdown request summary; Excel retains full line quantities/units/snapshots. Summary omits lines/version/creator, so actions fetch the detail endpoint. Detail, options and related workflow records use explicit projections preserving operational references, versions, quantities, carton factors and scope. See [field contract and rollout limits](../TRANSFER_PERFORMANCE.md#field-projections--17-november-2026). This changes read DTOs only, with no database migration.
+
 | Endpoint | Permission | Result |
 | --- | --- | --- |
 | `GET /` | `stock_transfer:read` | Scoped TR list; filters include source/destination warehouse, status and date. |
 | `GET /dispatches` | `stock_transfer:read` | Tra phiếu xuất theo kho nguồn, kho đích, số phiếu và trạng thái. Với `receivable=true`, cần `stock_transfer:receive`. Kết quả chỉ gồm phiếu xuất đã ghi, yêu cầu đã duyệt, còn hàng đang chuyển và người nhận khác người xuất. |
 | `GET /dispatches/:id` | `stock_transfer:read` | Chi tiết phiếu xuất với `receivableLines` nếu người dùng đủ điều kiện nhận. |
+| `GET /tasks/:id` | `stock_transfer:read` + `stock_transfer:receive` | Scoped PUTAWAY TO detail, source receipt GOOD lines and selected destination labels; requires destination warehouse access. GET never writes. |
 | `GET /:id` | `stock_transfer:read` | TR, dispatches, receipts, ITRs, generated TOs and approvals within scope. |
 | `GET /options?warehouseId=` | `stock_transfer:read` | Accessible warehouses; with `warehouseId`, its locations, holding points, positive balances, verified batches, active products, active units and current product/batch conversions. |
 
@@ -33,17 +36,61 @@ user's assignments. `sourceWarehouseIds` lists warehouses the caller may operate
 Only those warehouses expose locations and balances. Sales read scope remains
 restricted to its linked demand documents. Sales options return warehouse catalogue only, with empty operational source IDs, locations, balances, products, units and conversions. `conversions` is a selection aid keyed by `productId`, optional `productBatchId`, and `uom`; the write command resolves the conversion again inside its transaction.
 
-Bộ lọc `status` của danh sách yêu cầu và phiếu xuất nhận một hoặc nhiều trạng thái phân tách bằng dấu phẩy. Từ yêu cầu điều chuyển, nút **Lập phiếu nhập** mở form Nhập kho với phiếu xuất điền sẵn. Form gọi `POST /dispatches/:id/receipts` và mở phiếu nhập theo `data.id`. Các dòng hư hỏng cần vị trí cách ly và lý do.
+Bộ lọc `status` của danh sách yêu cầu và phiếu xuất nhận một hoặc nhiều trạng thái phân tách bằng dấu phẩy. Trong **Đơn phiếu**, nút **Xem** của phiếu nhận mở đúng `/receipts/:receiptId?kind=TRANSFER`; phiếu nháp đủ quyền hiển thị form kiểm nhận với phiếu xuất điền sẵn. Form gọi `POST /dispatches/:id/receipts` và mở phiếu nhập theo `data.id`. Các dòng hư hỏng cần vị trí cách ly và lý do.
 
 ## Main flow
 
+### Request creation stock preview — 17 November 2026
+
+Source: user requested source-warehouse stock in pieces/cartons/pallets at step 2. The paired FE reuses the existing authorized stock options payload; no extra endpoint or query is added. Selecting a product shows on-hand and available quantities for STORE/GOOD stock in STORAGE locations, with the same eligibility as source dispatch allocation. Selecting a lot narrows both totals. Loading a different warehouse hides the previous warehouse's data; loading/error states never display stale stock as a current result.
+
+The preview converts each batch separately, preferring its current batch conversion over a product conversion, then sums the results. Cartons may fall back to the batch's piecesPerCarton only when the product's base unit is pieces. Carton UOM uses isCarton, not a hardcoded BOX code; pallet uses the configured PALLET code/name. Missing factors show “Chưa cấu hình”; one unconvertible stocked batch prevents a misleading partial total. Zero stock and missing configuration are distinct. Values use exact rational arithmetic, Vietnamese number formatting and at most three fractional digits; truncated results have ≈. Negative free quantities display zero. Carton/pallet totals are equivalent quantities, not a count of sealed cartons or physical pallets. No stock, approval, request validation or conversion persistence changes.
+
+### Automatic putaway and completion — 17 November 2026
+
 The FE request form captures only source/destination warehouses, product/lot and
-the requested quantity in a configured unit. After approval, the detail screen
-keeps the physical steps separate: create the outbound document, create the PICK
-TO, confirm it to move stock to staging/transit, receive and inspect at the
-destination, then create and confirm the PUTAWAY TO. The progress comparison
-against approved and dispatched quantities determines whether another outbound
-batch is needed; the request closes only when the native close checks pass.
+the requested quantity in a configured unit. Per user decision on 17 November,
+outbound documents are created exclusively in **Tạo phiếu xuất kho** at
+`/goods-issues/create`, reason TRANSFER, against an approved request. The request
+detail contains its linked dispatches and receipts, with a navigation button to
+`/goods-issues/create?reason=TRANSFER&transferId=<encoded-request-id>` when another
+outbound batch is needed. It has no inline quantity entry or creation command and
+does not load source stock options. The separate page preselects the request,
+allows choosing another approved source, and returns to the request after creation.
+
+The existing stock_transfer:dispatch grant opens this shared create route for
+TRANSFER only; goods_issue:create continues to authorize ordinary issue reasons.
+No permission grant is added. URL parameters never bypass request approval,
+warehouse scope or existing API permissions. Source selection/reason/quantities
+are frozen while a transfer creation result is pending or uncertain; retry keeps
+the original body and idempotency key. Transfer creation skips the unrelated
+Goods Issue options query and loads its authorized source stock only here.
+
+Create the PICK TO and confirm it to move stock to staging/transit. Receiving at
+the destination automatically creates an OPEN ITR and PUTAWAY TO for GOOD lines
+in the same transaction. The task initially has no item destinations; the source
+receipt retains the exact product/lot/quantity/stock links. Destination staff open
+`/transfer-tasks/:id`, select a STORAGE location for every GOOD receipt line, and
+confirm the TO once. Planning and stock posting happen atomically on confirmation.
+An all-DAMAGED receipt needs no PUTAWAY; its quarantine/defect records remain.
+
+Per user decision on 17 November, the request page groups dispatches/receipts under
+**Đơn phiếu**, picking/putaway under **Nhiệm vụ**, and discrepancy handling under
+**Báo cáo**. It has no inline putaway destination form or full-completion button.
+Receipt inspection remains in `/receipts`. Report creation requires
+`stock_transfer:update` and an actual account assignment to the destination
+warehouse, including idempotent replay; global Owner visibility alone does not
+grant report creation. Existing independent Owner review permissions remain.
+
+The request automatically becomes COMPLETED after a receipt, PUTAWAY confirmation
+or final discrepancy resolution when exact dispatched and effective received
+quantities equal every approved line, transit is zero, all linked ITRs/TOs are
+complete, and no unresolved difference or unfinished dispatch remains. Parent
+request writes serialize those checks with concurrent receipt/task/report commands.
+If quantity is short, the request stays APPROVED for another dispatch or explicit
+**Dừng chuyển tiếp** with a mandatory reason after the delivered part is settled.
+Native TransferDispatch records and parent/line references are unchanged; no
+second Goods Issue is created.
 
 | Step | API | Permission | Result |
 | --- | --- | --- | --- |
@@ -52,16 +99,24 @@ batch is needed; the request closes only when the native close checks pass.
 | 3 | `POST /:id/outbound-deliveries` | `stock_transfer:dispatch` | Create one DRAFT Transfer Dispatch from approved lines. More than one dispatch may fulfil a TR, never beyond approved quantity. |
 | 4 | `POST /documents/:dispatchId/internal-requirements` | `stock_transfer:dispatch` | Create one ITR and one PICK Transfer Order (TO) for that dispatch. |
 | 5 | `POST /tasks/:pickToId/confirm` | `stock_transfer:dispatch` | Creator confirms PICK; source → staging → transit posts atomically, and dispatch becomes `POSTED`. |
-| 6 | `POST /dispatches/:dispatchId/receipts` | `stock_transfer:receive` | A different destination user receives transit stock into RECEIVING or QUARANTINE. |
-| 7 | `POST /documents/:receiptId/internal-requirements` | `stock_transfer:receive` | Create one ITR/PUTAWAY TO for its GOOD lines; all-DAMAGED receipts need no TO. |
-| 8 | `POST /tasks/:putawayToId/confirm` | `stock_transfer:receive` | Confirm PUTAWAY: receiving → storage. |
-| 9 | `POST /:id/close` | `stock_transfer:receive` | Close only after every approved quantity is dispatched, transit is zero and every required GOOD putaway is complete, with no unresolved difference report. |
+| 6 | `POST /dispatches/:dispatchId/receipts` | `stock_transfer:receive` | A different destination user receives into RECEIVING/QUARANTINE; GOOD lines automatically produce one waiting ITR/PUTAWAY TO. |
+| 7 | `GET /tasks/:putawayToId` | `stock_transfer:read` + `stock_transfer:receive` | Open the separate destination-selection page. |
+| 8 | `POST /tasks/:putawayToId/confirm` | `stock_transfer:receive` | Select all GOOD receipt-line destinations, confirm receiving → storage, and automatically complete the parent when ready. |
+| 9 | `POST /:id/close-partial` | `stock_transfer:receive` | Explicitly stop remaining short quantities with a reason after actual deliveries are settled. The legacy full-close API remains guarded for compatibility; the paired FE no longer calls it. |
 
 An ITR is one-to-one with its source dispatch or receipt, and a TO is one-to-one
 with the ITR.  The indexes and command locking enforce those relationships even
 when two clients submit concurrently.
 
 ## Request bodies
+
+### Review and edit presentation — 17 November 2026
+
+Source: user requested units beside waiting-approval quantities, editable product quantities/units, and the creation date below destination aligned with the reason. FE request quantity displays enteredQty with enteredUnit; approved/dispatched/received/transit/difference quantities display base quantities with the historical baseUnitSnapshot (presented as baseUnit). The paired read projection already includes that snapshot, so this requires no additional query. Older records without a resolvable base unit are labeled “đơn vị gốc”; they are never mislabeled with a carton unit merely because a carton was entered.
+
+The creator with stock_transfer:update can edit quantities and configured units directly in existing table rows while PENDING_APPROVAL/REVISION_REQUIRED. The frontend preserves input on validation/failure, marks invalid quantities, prevents saving zero/negative/invalid or over-six-decimal quantities, and keeps unavailable historical units visible rather than replacing them silently. Unit choices use selected-batch overrides ahead of product defaults. Update sends the unchanged warehouse IDs, original expectedVersion, edited enteredQty/enteredUnit and existing retry/idempotency behavior to PUT /:id. Backend creator/state/scope/conversion/source-document checks remain authoritative and unchanged. No stock is posted by editing.
+
+General information uses two columns on desktop: source/destination above reason/creation date; mobile stacks the fields. Editing controls remain inside the table's horizontal scroll region. No shared component API, model, permission grant or database change.
 
 Create TR:
 
@@ -109,10 +164,31 @@ Receive dispatch:
 }
 ```
 
-For a receipt with GOOD lines, create its PUTAWAY requirement with
-`destinations:[{receiptLineId,locationId}]`, one STORAGE location for every good
-receipt line.  A receipt containing only DAMAGED lines needs no ITR/TO; the service rejects empty putaway work.  Confirming a PUTAWAY TO and closing a TR otherwise use
-`{idempotencyKey, expectedVersion}`.
+Confirm an automatically created PUTAWAY TO with
+`{idempotencyKey,expectedVersion,destinations:[{receiptLineId,locationId}]}`.
+Exactly one destination STORAGE location in the same warehouse is required for
+every GOOD receipt line; duplicate, missing/foreign lines and destinations on PICK
+are rejected. Existing planned tasks can still confirm without destinations, or
+select updated destinations through the separate page. Versions, quantities,
+packaging, freeze and capacity checks are revalidated on confirmation.
+
+For historical posted GOOD receipts without a task, **Mở cất hàng** opens
+`/transfer-putaway/:receiptId?version=...&requestId=...`. It explicitly calls
+`POST /documents/:receiptId/internal-requirements` with `{idempotencyKey,expectedVersion}`
+to create/reuse the waiting ITR/TO, then opens the separate TO page. It never
+backfills from a GET or on opening the task list. The old explicit-destinations
+requirement command remains supported for sources without an existing ITR.
+No duplicate ITR/TO is created. All-DAMAGED receipts reject empty putaway work.
+
+Task detail returns `{id,documentNo,status,version,warehouseId,warehouseLabel,requestId,
+requestStatus,receiptId,receiptNo,lines:[{receiptLineId,productName,lotLabel,
+fromLocationLabel,qtyBase,baseUnit,toLocationId,toLocationLabel}]}`. Unplanned
+destinations and unavailable labels are null; source-only users cannot read this
+destination task. Explicit projections load only consumed source fields and current
+warehouse/location labels. The page shows the receiving location and lot beside
+each quantity; location selectors have unique row labels for keyboard operation.
+Historical missing lot snapshots use the referenced batch's current manufacturer
+lot label without changing the stored snapshot; unavailable references stay null.
 
 ## Guarantees and checks
 
@@ -124,8 +200,9 @@ ledger changes, document statuses, audit and outbox records atomically.  Failed
 commands roll back completely.
 
 The isolated native test (`RUN_NATIVE_API_TESTS=1 node --test
-test/native-api.integration.test.js`) covers the complete happy path, a custom
-destination role, scoped option data, and the all-damaged receipt closure path.
+test/native-api.integration.test.js`) covers automatic task creation, destination
+scope, invalid destinations with rollback, idempotent confirmation, automatic full
+completion, all-damaged receipt/variance resolution and explicit partial closure.
 
 ## Danh sách chuyển kho — 12/11/2026
 
@@ -135,8 +212,12 @@ Response data giữ items/total/page/limit; thêm summary={total,incomplete,comp
 
 ### UX trang riêng — 12/11/2026
 
-Theo yêu cầu người dùng, FE chuyển tạo đơn sang `/transfers/create`; lưu thành công mở `/transfers/:id`. Danh sách không nhúng form. Trang tạo chia thông tin kho, hàng hóa và lý do, giữ payload/key khi retry chưa rõ kết quả; trang chi tiết có header/trạng thái, metadata và bảng dòng yêu cầu. Các cập nhật duyệt/xuất/nhận/cất/đóng vẫn thực hiện trên trang chi tiết với quyền/trạng thái đang có. Cập nhật 12/11: sửa/gửi lại TR ở /transfers/:id/edit qua PUT với expectedVersion; xem hợp đồng phạm vi mới bên dưới.
+Theo yêu cầu người dùng, FE chuyển tạo đơn sang `/transfers/create`; lưu thành công mở `/transfers/:id`. Danh sách không nhúng form. Trang tạo chia thông tin kho, hàng hóa và lý do, giữ payload/key khi retry chưa rõ kết quả; trang chi tiết có header/trạng thái, metadata và bảng dòng yêu cầu. Hiện hành 17/11: trang chi tiết duyệt yêu cầu và mở Đơn phiếu/Nhiệm vụ/Báo cáo; xuất tại form phiếu xuất, nhận tại /receipts, cất trên trang TO riêng và hoàn tất đủ lượng tự động như Main flow ở trên. Cập nhật 12/11: sửa/gửi lại TR ở /transfers/:id/edit qua PUT với expectedVersion; xem hợp đồng phạm vi mới bên dưới.
 
 ## Phạm vi hoàn thiện 12/11/2026
 
 [Hợp đồng 20 UC hiện hành](../HIEUDT_WAREHOUSE_SCOPE.md) mô tả update/resubmit, reservation từ draft dispatch, hủy draft, bảng tiến độ, UC56 và nhận hỗn hợp/từng phần. Bổ sung PUT /:id (stock_transfer:update), POST /dispatches/:id/cancel (dispatch, key/version/reason), POST /dispatches/:id/differences (update, key/version/reason/lines[{dispatchLineId,qtyBase}]), POST /differences/:id/review (approve_variance, key/version/decision/reason/receiptId khi APPROVE), POST /:id/close-partial (receive, key/version/reason) để dừng các đợt còn thiếu sau khi hàng đã nhận/cất đủ phần đã chuyển. Không có lệnh sửa số lượng đã POSTED.
+
+## Read performance — 17 November 2026
+
+See [BF03/BF04 performance contract](../TRANSFER_PERFORMANCE.md) for compact catalogues, batched availability, parallel authorized reads, destination mode=locations and verification limits. Write transaction checks remain unchanged.

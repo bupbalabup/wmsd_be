@@ -110,12 +110,15 @@ async function verifyLocationVolume(location,warehouse,balances) {
 const locationReplay = (id,user,session) => getLocation(user,id,session);
 export function saveLocation(user,id,input) {
   return command(user,id?'UPDATE_STORAGE_LOCATION':'CREATE_STORAGE_LOCATION',id?'warehouse_location:update':'warehouse_location:create',id,input,locationReplay,async(session,actor)=>{
-    requireWarehouseAccess(actor,input.warehouseId);
-    await guardWarehouses([input.warehouseId], session);
-    const warehouse=await m.Warehouse.findOne({_id:input.warehouseId,isActive:true}).session(session);if(!warehouse)throw validationError('Kho không hoạt động');
     const {idempotencyKey,expectedVersion,...fields}=input;
     let row;
-    if(id){row=await getLocation(actor,id,session);checkVersion(row,expectedVersion);if(!same(row.warehouseId,input.warehouseId))throw validationError('Không đổi kho của vị trí');
+    if(id){
+      row=await getLocation(actor,id,session);
+      const warehouseId=input.warehouseId??String(row.warehouseId);
+      requireWarehouseAccess(actor,warehouseId);
+      await guardWarehouses([warehouseId],session);
+      const warehouse=await m.Warehouse.findOne({_id:warehouseId,isActive:true}).session(session);if(!warehouse)throw validationError('Kho không hoạt động');
+      checkVersion(row,expectedVersion);if(!same(row.warehouseId,warehouseId))throw validationError('Không đổi kho của vị trí');
       // Contend with every stock command and stocktake activation on the same location.
       await m.WarehouseLocation.updateOne({_id:id,version:expectedVersion},{$inc:{operationVersion:1}},{session});
       if(await m.StocktakeLocationLock.exists({locationId:id,status:'LOCKED'}).session(session))throw validationError('Vị trí đang khóa kiểm kê');
@@ -124,10 +127,16 @@ export function saveLocation(user,id,input) {
       const balances=await m.InventoryBalance.find({holdingPointId:{$in:points.map(p=>p._id)}}).session(session);
       const reservations=await m.StockReservation.find({balanceId:{$in:balances.map(b=>b._id)}}).session(session);
       const busy=balances.some(b=>exact(b.quantityBase).gt(0))||openTask||reservations.some(r=>remainingReservation(r).gt(0));
-      if((!fields.isActive||fields.locationType!==row.locationType||fields.isPickable!==row.isPickable)&&busy)throw validationError('Còn hàng, giữ hàng hoặc nhiệm vụ mở; không đổi loại/trạng thái/khả năng lấy hàng');
-      if(openTask&&['code','usableLengthMm','usableWidthMm'].some(k=>String(fields[k])!==String(row[k])))throw validationError('Vị trí còn nhiệm vụ mở');
+      const next={isActive:fields.isActive??row.isActive,locationType:fields.locationType??row.locationType,isPickable:fields.isPickable??row.isPickable};
+      if((!next.isActive||next.locationType!==row.locationType||next.isPickable!==row.isPickable)&&busy)throw validationError('Còn hàng, giữ hàng hoặc nhiệm vụ mở; không đổi loại/trạng thái/khả năng lấy hàng');
+      if(openTask&&['code','usableLengthMm','usableWidthMm'].some(k=>fields[k]!==undefined&&String(fields[k])!==String(row[k])))throw validationError('Vị trí còn nhiệm vụ mở');
       row.set(fields);row.operationVersion+=1;row=await saveVersion(row,expectedVersion,session);await verifyCapacity([id],session);
-    }else row=await new m.WarehouseLocation({...fields,version:1}).save({session});
+    }else{
+      requireWarehouseAccess(actor,input.warehouseId);
+      await guardWarehouses([input.warehouseId],session);
+      const warehouse=await m.Warehouse.findOne({_id:input.warehouseId,isActive:true}).session(session);if(!warehouse)throw validationError('Kho không hoạt động');
+      row=await new m.WarehouseLocation({...fields,version:1}).save({session});
+    }
     row.status=row.isActive?'ACTIVE':'INACTIVE';return {document:row,versionBefore:expectedVersion??0};
   });
 }
@@ -187,4 +196,4 @@ export async function movements(user,query,id) {
   return {items:serialize(rows),total:result.total[0]?.value??0,page:query.page,limit:query.limit,warehouses:ctx.warehouses.map(dto)};
 }
 
-export async function overview(user){requirePermission(user,'inventory:read');const ctx=await scopeContext(user);const [balanceCount,openRelocations,pendingTransfers]=await Promise.all([m.InventoryBalance.countDocuments({holdingPointId:{$in:ctx.points.map(p=>p._id)},quantityBase:{$gt:0}}),m.TransferOrder.countDocuments({'header.warehouseId':{$in:ctx.warehouses.map(w=>w._id)},'header.taskKind':'RELOCATE',workflowStatus:'OPEN'}),m.WarehouseTransferRequest.countDocuments({workflowStatus:{$nin:['COMPLETED','REJECTED','CANCELLED']},$or:[{'header.sourceWarehouseId':{$in:ctx.warehouses.map(w=>w._id)}},{'header.destinationWarehouseId':{$in:ctx.warehouses.map(w=>w._id)}}]})]);return {warehouseCount:ctx.warehouses.length,locationCount:ctx.locations.length,balanceCount,openRelocations,pendingTransfers};}
+export async function overview(user){requirePermission(user,'inventory:read');const ctx=await scopeContext(user);const [balanceCount,openRelocations,pendingTransfers]=await Promise.all([m.InventoryBalance.countDocuments({holdingPointId:{$in:ctx.points.map(p=>p._id)},quantityBase:{$gt:0}}),m.TransferOrder.countDocuments({'header.warehouseId':{$in:ctx.warehouses.map(w=>w._id)},'header.taskKind':'RELOCATE',workflowStatus:{$in:['OPEN','PARTIAL']}}),m.WarehouseTransferRequest.countDocuments({workflowStatus:{$nin:['COMPLETED','REJECTED','CANCELLED']},$or:[{'header.sourceWarehouseId':{$in:ctx.warehouses.map(w=>w._id)}},{'header.destinationWarehouseId':{$in:ctx.warehouses.map(w=>w._id)}}]})]);return {warehouseCount:ctx.warehouses.length,locationCount:ctx.locations.length,balanceCount,openRelocations,pendingTransfers};}

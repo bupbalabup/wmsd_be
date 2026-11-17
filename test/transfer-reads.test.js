@@ -1,10 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { listQuery, detailParams } from '../src/modules/transfers/transfer-read.validation.js';
-import { requirementBody } from '../src/modules/transfers/transfer-write.validation.js';
+import { requirementBody,taskConfirmBody,commandBody } from '../src/modules/transfers/transfer-write.validation.js';
 
 test('putaway destinations allow empty input for service-level all-damaged validation', () => {
   assert.equal(requirementBody.safeParse({idempotencyKey:'damaged-only',expectedVersion:1,destinations:[]}).success,true);
+});
+
+test('only task confirmation accepts complete bounded destination selections',()=>{
+  const input={idempotencyKey:'putaway',expectedVersion:1};
+  const target={receiptLineId:'a'.repeat(24),locationId:'b'.repeat(24)};
+  assert.equal(requirementBody.safeParse(input).success,true);
+  assert.equal(taskConfirmBody.safeParse({...input,destinations:[target]}).success,true);
+  for(const destinations of [[],[target,target],[{...target,receiptLineId:'bad'}],[{...target,qtyBase:'4'}]])assert.equal(taskConfirmBody.safeParse({...input,destinations}).success,false);
+  assert.equal(commandBody.safeParse({...input,destinations:[target]}).success,false);
 });
 
 test('transfer filters are bounded and reject operators, unknown fields and invalid dates', () => {

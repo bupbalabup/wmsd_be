@@ -15,4 +15,4 @@ export const listQuery = z.object(listFields).strict().refine(validDateRange, { 
 export const dispatchListQuery = z.object({ ...listFields, receivable: z.enum(['true', 'false']).optional() })
   .strict().refine(validDateRange, { message: 'from must be before to' });
 export const detailParams = z.object({ id: documentIdentifier }).strict();
-export const optionsQuery = z.object({ warehouseId: objectId.optional() }).strict();
+export const optionsQuery = z.object({ warehouseId: objectId.optional(), mode:z.enum(['stock','locations']).default('stock') }).strict();

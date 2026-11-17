@@ -97,4 +97,4 @@ Canvas có nút Vẽ khu vực và Vẽ ô pallet. Ô cần chọn khu vực tr�
 
 ## Chặng pallet và cảnh báo chiều cao — 12/11/2026
 
-Mỗi ô có thể có `pallets[]`. FE cho nhập mã pallet, vị trí local trong ô, rộng/dài, chiều cao đế và chiều cao hàng dự kiến. Chiều cao hiệu lực là `actualHeight` nếu có, nếu không là `baseHeight + stackHeight`. Pallet vượt giới hạn khu vực/kho hiện màu đỏ trên 2D/3D và hiện cảnh báo; bản nháp vẫn lưu, áp dụng bị chặn. Pallet vượt mép ô bị chặn ngay. Chưa có danh sách sản phẩm/lô trên pallet, chưa ghi tồn hoặc tự tạo pallet nghiệp vụ.
+Mỗi ô có thể có `pallets[]`. FE cho nhập mã pallet, vị trí local trong ô, rộng/dài, chiều cao đế và chiều cao hàng dự kiến. Chiều cao hiệu lực là `actualHeight` nếu có, nếu không là `baseHeight + stackHeight`. Pallet vượt giới hạn khu vực/kho hiện màu đỏ trên 2D/3D và hiện cảnh báo; bản nháp vẫn lưu và được áp dụng; xem cập nhật 17/11 bên dưới. Pallet vượt mép ô bị chặn ngay. Phần lớp hàng nhiều mã/lô và số đo thực tế đã bổ sung ngày 17/11 tại [chặng lớp hàng](STAGE3_PALLET_LAYERS.md). Chưa ghi tồn hoặc tự tạo pallet nghiệp vụ.

@@ -1,3 +1,9 @@
+17/11/2026 — BF04 destination receipt posts GOOD stock and automatically creates a waiting ITR/PUTAWAY TO in the same transaction. Destination staff choose STORAGE targets on a separate task page and confirm once. Full requests auto-complete after exact quantities, transit, linked task and variance guards; short requests keep reasoned partial closure. Report creation/replay requires actual destination assignment plus update permission; independent review remains. Canonical git_doc/docs/08_api/transfers/BF04_API.md. No schema migration, grants or online backfill; historical unplanned receipts use an explicit create/reuse command.
+
+17/11/2026 — BF03/BF04 field projections: list view=summary omits item arrays and execution metadata; default full preserves Excel line quantities. Detail/options/ledger/related records select only consumed fields; command versions, packaging factors, scope and posting reads retained. Canonical git_doc/docs/08_api/TRANSFER_PERFORMANCE.md. No DB migration/remote write.
+
+17/11/2026 — BF03/BF04 read performance: batched selection availability (max 4 queries), compact warehouse catalogues without 3D snapshots, optional BF04 mode=locations for destination options and parallel authorized detail reads. Transaction guards unchanged; no remote rollout. Canonical git_doc/docs/08_api/TRANSFER_PERFORMANCE.md.
+
 ## Customer details on documents — 17 November 2026
 
 User decision: customers are not managed as catalogue records. New sales orders require `customerName` (1–160 characters) and allow `customerPhone` (up to 30 characters); the delivery address remains on the order. Creating an order does not query or create a Customer. Sales options return an empty compatibility `customers` array.
@@ -17,6 +23,10 @@ Theo quyết định người dùng ngày 17/11/2026, bỏ danh mục khách hà
 ## 17 November 2026 — simplified sales and returns
 
 Latest explicit user decision supersedes manual-sale and custody requirements for new records. Sales Order → direct Goods Issue; Sales confirms evidenced customer receipt; Warehouse receives undelivered goods inline. New CR inspection records facts only, acceptance authorizes receipt, and only receipt posts STORE stock. Legacy mode markers are absent and retain original ledgers. Optional issue header/order/customer/sourceBalance and embedded customerReceipts, CR intakeMode/handbacks, and FAILED_DELIVERY receipt goodsIssueId add no collection. See [current contract](git_doc/docs/08_api/GOODS_ISSUES.md) for permissions, exact caps, schema, compatibility and setup.
+
+17/11/2026 — Kho 3D: lớp hàng nhiều mã/lô và số thùng là nhãn phương án; measuredCargoHeight là cao phần hàng, cộng đế một lần; actualHeight cũ vẫn là tổng cao. Vượt cao chỉ cảnh báo, vẫn lưu/áp dụng. X/Y pallet tương đối trong ô, xoay theo khu. Xem git_doc/docs/10_Kho3D/STAGE3_PALLET_LAYERS.md. Không ghi tồn hoặc rollout DB.
+
+17/11/2026 — Người dùng duyệt BF03 chuyển nhiều lần trên cùng lệnh: OPEN → PARTIAL → CONFIRMED; mỗi lần chỉ ghi lượng thực chuyển của các dòng chọn. Lượng còn lại tính từ ledger, hủy chỉ phần chưa chuyển, giữ lịch sử và tồn đã chuyển. Chưa có chuyến mới được sửa kế hoạch; không tự mở thùng. Hợp đồng: git_doc/docs/08_api/location-movements/README.md.
 
 17/11/2026 — Xuất hàng được mở thùng và nhập lẻ số thùng theo quyết định người dùng. Ví dụ 1,5 thùng × 4 viên = 6 viên; vẫn kiểm lượng nguyên theo ĐVT gốc. Lưu snapshot quy đổi hiện hành và phần OPEN còn lại; volumeUpperBoundMm3 là giới hạn thể tích bảo thủ, không giả số đo. Chỉ bật cho xuất bán/xuất khác, BF04 picking/dispatch, trả NCC và thực hủy; BF03/nhập kho giữ quy tắc cũ. Xem git_doc/docs/08_api/GOODS_ISSUES.md.
 
