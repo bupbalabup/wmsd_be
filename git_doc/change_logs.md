@@ -1,3 +1,22 @@
+## 17 November 2026 — UC-113 inventory report batch reads
+
+- Replaced per-balance defect/task/movement/reservation reads with snapshot-scoped batch reads and indexed in-memory lookup. Exact decimal quantities, hold resolution, warehouse authorization and response fields are preserved. See [OPERATIONAL_REPORTS.md](docs/08_api/OPERATIONAL_REPORTS.md). No database/index writes.
+- Existing operational-report tests pass (23/23). A temporary read-only mocked comparison against HEAD produced identical rows for 1 and 100 balances with partial movements, reservations and released holds; model reads changed from 15/510 to 12/12. This is fixture evidence, not database query telemetry.
+- Rebuilt local Compose API/web images. Three observed inventory responses returned HTTP 200 in 706–847 ms, versus the earlier observed approximately 74-second response; this is local timing, not a production benchmark. Frontend report tests pass (16/16), alongside lint, typecheck and UI rules. Shared-theme UI and current-filter export guards were updated in the frontend repository.
+
+## 17 November 2026 — Avoid local API host-port conflict
+
+- Source: user reported repeated `port is already allocated` startup failures; effective Compose still published host port 3000, occupied by another project's container.
+- Changed workspace `docker-compose.yml` to publish `3300:3000`. API `PORT=3000`, frontend proxy `http://api:3000`, frontend port 3334 and mount-free packaging remain unchanged. Updated [DOCKER.md](docs/09_phat_trien/DOCKER.md) with the host/internal distinction and port-only recreation command.
+- Host port 3300 was free when checked. Final effective-configuration and documentation checks are recorded in the task handoff; this edit does not start the app, stop unrelated containers or access a database. No application runtime/connectivity claim.
+
+## 17 November 2026 — Mount-free local Compose images
+
+- Source: user requested removing backend/frontend volumes so code changes require rebuilding containers.
+- The workspace `docker-compose.yml` removes both source bind mounts, both `node_modules` mounts, unused named-volume declarations and polling flags. Backend `Dockerfile` dev target now copies source into the image; frontend `Dockerfile.dev` already copies it. Ports, API proxy, runtime commands, URI handling and default disabled seeding are unchanged. Compose explicitly provides `VITE_API_URL=/api`, replacing the frontend's previous dependency on a mounted host `.env`.
+- Current setup instructions are updated in [DOCKER.md](docs/09_phat_trien/DOCKER.md): use `docker compose up -d --build api web` after changes. Restart alone is insufficient. Existing containers/old volume objects are not deleted or restarted by this edit.
+- Validation: merged Compose mount/target/port/API-environment assertions, Dockerfile checks (no warnings), both image builds, isolated read-only/network-disabled source/dependency/entrypoint and env-exclusion filesystem checks, `npm run docs:check` and `git diff --check` pass. Independent review is a separate handoff gate. Application/DB/network runtime behavior is not proven: no application startup, seed, schema/index change, database write, old-volume deletion or existing-container recreation was performed.
+
 ## 17 November 2026 — Upstream integration and conflict-resolution checkpoint
 
 - Source: user requested pulling both repositories, approved continuing the existing backend rebase and merging frontend `origin/main` while preserving local work, and explicitly requested deleting conflicting test files only. No push was requested.
