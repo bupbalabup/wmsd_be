@@ -17,13 +17,22 @@ test('Goods Issue filters bound pages, source search and issue dates', () => {
   assert.equal(listQuery.parse({ sourceRequest: 'YCX', page: '2' }).page, 2);
   for (const body of [{ status: { $ne: 'POSTED' } }, { sourceRequest: { $regex: '.' } }, { limit: 101 }, { from: '2026-11-17T00:00:00+07:00', to: '2026-11-16T00:00:00+07:00' }, { sort: '$where' }]) assert.equal(listQuery.safeParse(body).success, false);
 });
-test('manual references require no local order, validate product quantities and never accept approval or stock fields', () => {
-  const create = { ...operation, warehouseId: id, issueKind: 'SALE', referenceNo: 'MISA-NOT-IN-WMS', lines: [{ productId: id, qtyBase: '4', note: 'Manual cross-check' }] };
+test('OTHER manual references validate quantities; new manual SALE requires a Sales Order', () => {
+  const create = { ...operation, warehouseId: id, issueKind: 'OTHER', reasonText: 'Sample withdrawal', referenceNo: 'EXTERNAL-OTHER', lines: [{ productId: id, qtyBase: '4', note: 'Manual cross-check' }] };
   assert.ok(createBody.safeParse(create).success);
   assert.ok(createBody.safeParse({ ...create, issueKind: 'OTHER', reasonText: 'Sample withdrawal' }).success);
   assert.ok(createBody.safeParse({ ...create, lines: [{ productId: id, quantity: '1.5', conversionId: id }] }).success);
   assert.equal(createBody.safeParse({ ...create, lines: [{ productId: id, qtyBase: '4', conversionId: id }] }).success, false);
   for (const change of [{ referenceNo: ' ' }, { issueKind: 'TRANSFER' }, { workflowStatus: 'DRAFT' }, { approvedBy: id }, { lines: [...create.lines, ...create.lines] }, { expectedVersion: 2 }]) assert.equal(createBody.safeParse({ ...create, ...change }).success, false);
-  assert.equal(createBody.safeParse({ ...create, issueKind: 'OTHER' }).success, false);
+  assert.equal(createBody.safeParse({ ...create, reasonText: undefined }).success, false);
+  assert.equal(createBody.safeParse({ ...create, issueKind: 'SALE' }).success, false);
   assert.ok(pickingBody.safeParse({ ...operation, allocations: [{ lineId: id, sourceBalanceId: id, locationId: id, qtyBase: '4' }] }).success);
+});
+
+test('direct sales require order, warehouse and unique order-line/balance pairs', () => {
+ const create={...operation,salesOrderId:id,warehouseId:id,lines:[{salesOrderLineId:id,sourceBalanceId:id,qtyBase:'4'}]};
+ assert.equal(createBody.safeParse(create).success,true);
+ assert.equal(createBody.safeParse({...create,lines:[...create.lines,...create.lines]}).success,false);
+ assert.equal(createBody.safeParse({...create,lines:[{...create.lines[0],qtyBase:'0'}]}).success,false);
+ assert.equal(createBody.safeParse({...create,header:{fulfillmentMode:'DIRECT'}}).success,false);
 });

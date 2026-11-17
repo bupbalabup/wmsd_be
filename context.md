@@ -1,3 +1,7 @@
+## 17 November 2026 — simplified sales and returns
+
+Latest explicit user decision supersedes manual-sale and custody requirements for new records. Sales Order → direct Goods Issue; Sales confirms evidenced customer receipt; Warehouse receives undelivered goods inline. New CR inspection records facts only, acceptance authorizes receipt, and only receipt posts STORE stock. Legacy mode markers are absent and retain original ledgers. Optional issue header/order/customer/sourceBalance and embedded customerReceipts, CR intakeMode/handbacks, and FAILED_DELIVERY receipt goodsIssueId add no collection. See [current contract](git_doc/docs/08_api/GOODS_ISSUES.md) for permissions, exact caps, schema, compatibility and setup.
+
 17/11/2026 — Kho 3D: lớp hàng nhiều mã/lô và số thùng là nhãn phương án; measuredCargoHeight là cao phần hàng, cộng đế một lần; actualHeight cũ vẫn là tổng cao. Vượt cao chỉ cảnh báo, vẫn lưu/áp dụng. X/Y pallet tương đối trong ô, xoay theo khu. Xem git_doc/docs/10_Kho3D/STAGE3_PALLET_LAYERS.md. Không ghi tồn hoặc rollout DB.
 
 17/11/2026 — Người dùng duyệt BF03 chuyển nhiều lần trên cùng lệnh: OPEN → PARTIAL → CONFIRMED; mỗi lần chỉ ghi lượng thực chuyển của các dòng chọn. Lượng còn lại tính từ ledger, hủy chỉ phần chưa chuyển, giữ lịch sử và tồn đã chuyển. Chưa có chuyến mới được sửa kế hoạch; không tự mở thùng. Hợp đồng: git_doc/docs/08_api/location-movements/README.md.
@@ -29,3 +33,5 @@ The user confirmed Accountant verification with uploaded evidence for historical
 12/11/2026: Kho 3D chặng 2 mở rộng layout3d cho functions/zones/slots, maxStackHeight và snapshot layout3dApplied/layout3dAppliedAt. PUT layout thêm apply, kiểm containment khi apply và warehouse_layout_function:update khi đổi danh mục chức năng. Danh sách catalogue không trả payload thiết kế. Hợp đồng git_doc/docs/10_Kho3D/STAGE2_ZONES.md.
 
 Kho 3D: functionId rỗng hợp lệ ở nháp, không hợp lệ khi apply; functionId có giá trị phải tồn tại trong functions. Danh mục vẫn kiểm quyền quản trị, không khóa vẽ nháp khi danh mục trống.
+
+16 November 2026: Excel operational-list exports and opening-stock import are implemented in the paired frontend. Backend draft/preview/post/cancel contract, Owner-only import/self-confirmation, exact packaging and one-time warehouse initialization: [EXCEL_AND_OPENING_STOCK](git_doc/docs/08_api/EXCEL_AND_OPENING_STOCK.md). Existing local databases need additive permission/index setup; no remote rollout. Shared stock guards now serialize on warehouses.stockOperationVersion without changing catalogue updatedAt.

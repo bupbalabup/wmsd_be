@@ -6,7 +6,7 @@ import { isOwner, requirePermission, requireWarehouseAccess, hasPermission } fro
 import { currentRole } from '../../shared/utils/userRole.js';
 import { dto, serialize, page, transaction } from '../../shared/utils/persistence.js';
 import { command, checkVersion, same, saveVersion } from '../../shared/utils/document-command.js';
-import { freeQuantity, heldQuantity, unreservedPendingTaskQuantity, remainingReservation, verifyCapacity } from '../../shared/utils/stock.js';
+import { freeQuantity, heldQuantity, unreservedPendingTaskQuantity, remainingReservation, verifyCapacity, guardWarehouses } from '../../shared/utils/stock.js';
 import { notFoundError, validationError } from '../../shared/utils/ApiError.js';
 const escape = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export const warehouseScope = user => isOwner(user) ? {} : { _id: { $in: user.warehouseIds || [] } };
@@ -116,6 +116,7 @@ export function saveLocation(user,id,input) {
       row=await getLocation(actor,id,session);
       const warehouseId=input.warehouseId??String(row.warehouseId);
       requireWarehouseAccess(actor,warehouseId);
+      await guardWarehouses([warehouseId],session);
       const warehouse=await m.Warehouse.findOne({_id:warehouseId,isActive:true}).session(session);if(!warehouse)throw validationError('Kho không hoạt động');
       checkVersion(row,expectedVersion);if(!same(row.warehouseId,warehouseId))throw validationError('Không đổi kho của vị trí');
       // Contend with every stock command and stocktake activation on the same location.
@@ -132,6 +133,7 @@ export function saveLocation(user,id,input) {
       row.set(fields);row.operationVersion+=1;row=await saveVersion(row,expectedVersion,session);await verifyCapacity([id],session);
     }else{
       requireWarehouseAccess(actor,input.warehouseId);
+      await guardWarehouses([input.warehouseId],session);
       const warehouse=await m.Warehouse.findOne({_id:input.warehouseId,isActive:true}).session(session);if(!warehouse)throw validationError('Kho không hoạt động');
       row=await new m.WarehouseLocation({...fields,version:1}).save({session});
     }

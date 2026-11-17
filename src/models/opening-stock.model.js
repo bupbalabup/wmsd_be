@@ -7,6 +7,7 @@ import {
   code,
   integer,
   date,
+  decimal,
 } from "./model-utils.js";
 import { objectId, id, opt, version } from "./schema-helpers.js";
 
@@ -50,8 +51,11 @@ export function createOpeningStockSchema() {
     ownerType: opt(30),
     ownerId: id(false),
     qualityStatus: opt(30),
+    packagingState: code(['SEALED', 'OPEN', 'LOOSE'], { required: false }),
+    measuredVolumeMm3: decimal({ positive: true, required: false, scale: 3 }),
   });
   attachDocumentItems(schema, item);
   addDocumentIndexesAndRules(schema);
+  schema.index({ 'header.warehouseId': 1 }, { name: 'opening_stock_file_import_once', unique: true, partialFilterExpression: { workflowStatus: 'POSTED', 'header.openingImportSource': 'FILE' } });
   return schema;
 }

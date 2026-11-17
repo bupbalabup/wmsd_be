@@ -1,3 +1,5 @@
+import { returnedQuantity, updateOrderProgress } from '../goods-issues/direct-sales.service.js';
+import { effectivePosted } from '../return-workflows/native.shared.js';
 import { nextDocumentFields } from '../../shared/utils/document-number.js';
 import * as m from '../../models/runtime.js';
 import { exact } from '../../models/model-utils.js';
@@ -49,7 +51,10 @@ async function taskSource(user, id, session) {
 }
 async function committed(order, session) {
     const requests = await m.WarehouseIssueRequest.find({ 'header.salesOrderId': order._id, workflowStatus: { $ne: 'CANCELLED' } }).session(session);
-    return line => sum(requests.flatMap(d => d.items).filter(i => same(i.details.salesOrderLineId, line._id)), 'qtyBase')
+    const direct = await m.SalesGoodsIssue.find({ 'header.salesOrderId': order._id, workflowStatus: { $ne: 'CANCELLED' } }).session(session);
+    const usedDirect = new Map();
+    for (const issue of direct) for (const item of issue.items) { const q = (issue.workflowStatus === 'POSTED' ? await effectivePosted(issue, item._id, session) : exact(item.qtyBase)).minus(await returnedQuantity(item._id, session)); const k = String(item.salesOrderItemId); usedDirect.set(k, (usedDirect.get(k) || exact('0')).plus(q)); }
+    return line => (usedDirect.get(String(line._id)) || exact('0')).plus(sum(requests.flatMap(d => d.items).filter(i => same(i.details.salesOrderLineId, line._id)), 'qtyBase'))
         .plus(sum((order.cancellations || []).filter(c => same(c.salesOrderLineId, line._id) && c.sourceKind === 'UNISSUED'), 'cancelledQtyBase'));
 }
 export function updateSalesOrder(user, id, input) {
@@ -124,6 +129,7 @@ export function cancelSalesRemainder(user, id, input) {
         }
         if (order.items.every(i => sum(order.cancellations.filter(c => same(c.salesOrderLineId, i._id)), 'cancelledQtyBase').eq(String(i.qtyBase))))
             order.workflowStatus = 'CANCELLED';
+        if (await m.SalesGoodsIssue.exists({ 'header.salesOrderId': order._id }).session(session)) await updateOrderProgress(order, session);
         return { document: await saveVersion(order, input.expectedVersion, session), versionBefore: input.expectedVersion, reason: input.reason };
     });
 }
@@ -131,6 +137,7 @@ export function createIssueRequest(user, id, input) {
     return command(user, 'CREATE_ISSUE_REQUEST', 'issue_request:create', id, input, async (id, a, s) => { const r = await m.WarehouseIssueRequest.findById(id).session(s); if (!r)
         throw notFoundError(); await ownOrder(a, r.header.salesOrderId, s); }, async (session, actor) => {
         const order = await ownOrder(actor, id, session);
+        if (await m.SalesGoodsIssue.exists({ 'header.salesOrderId': order._id, workflowStatus: { $ne: 'CANCELLED' } }).session(session)) throw validationError('Đơn đang dùng phiếu xuất trực tiếp');
         checkVersion(order, input.expectedVersion);
         open(order);
         requireWarehouseAccess(actor, input.warehouseId);
@@ -317,7 +324,8 @@ export async function listSalesOrders(user, query) {
     let filter = currentRole(user)?.code === 'SALES' ? { createdBy: user._id } : {};
     if (!named) {
         const ids = await m.WarehouseIssueRequest.find({ 'header.requestedWarehouseId': { $in: user.warehouseIds || [] } }).distinct('header.salesOrderId');
-        filter._id = { $in: ids };
+        const directIds = await m.SalesGoodsIssue.find({ 'header.salesOrderId': { $exists: true }, 'header.warehouseId': { $in: user.warehouseIds || [] } }).distinct('header.salesOrderId');
+        filter._id = { $in: [...ids, ...directIds] };
     }
     if (query.q)
         filter.documentNo = new RegExp(escapeRegex(query.q), 'i');

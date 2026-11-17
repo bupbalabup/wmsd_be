@@ -11,6 +11,7 @@ export function createFailedDeliveryReceiptHeaderSchema() {
     embeddedOptions,
   );
   schema.add({
+    goodsIssueId: ref("SalesGoodsIssue", false),
     failedDeliveryId: ref("FailedDelivery", false),
     receivedAt: date(false),
     receivedBy: ref("User", false),

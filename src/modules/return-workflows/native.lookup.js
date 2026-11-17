@@ -18,7 +18,7 @@ function scope(user, query, field = 'header.warehouseId') {
 function authorize(user, query) {
   const permissions = query.kind === 'customers' ? ['customer_return:read', 'external_reference:create']
     : query.kind === 'suppliers' ? ['supplier_return:read', 'external_reference:create']
-    : ['documents','document-lines','evidence'].includes(query.kind) ? ['external_reference:create']
+    : ['documents','document-lines','evidence'].includes(query.kind) ? ['external_reference:create', 'goods_issue:read']
     : query.kind === 'stocktakes' ? ['defect:create']
     : query.kind === 'holds' ? ['supplier_return:create']
     : ['defect:read', 'customer_return:read', 'failed_delivery:read', 'failed_delivery:inspect', 'supplier_return:read', 'external_reference:create'];
@@ -55,7 +55,8 @@ async function sourceLookup(user, query) {
   } else {
     stages.push(join(m.DeliveryOrder, 'items.details.outboundDeliveryLineId', 'delivery', 'items._id'),
       join(m.WarehouseIssueRequest, 'delivery.header.issueRequestId', 'request'), join(m.SalesOrder, 'request.header.salesOrderId', 'sale'),
-      { $set: { customerId: first('sale.header.customerId'), salesCreatedBy: first('sale.createdBy') } });
+      join(m.SalesOrder, 'header.salesOrderId', 'directSale'),
+      { $set: { customerId: { $ifNull: ['$header.customerId', first('sale.header.customerId')] }, salesCreatedBy: { $ifNull: [first('directSale.createdBy'), first('sale.createdBy')] } } });
     if (hasPermission(user, 'customer_return:create') && !hasPermission(user, 'customer_return:inspect')) stages.push({ $match: { salesCreatedBy: oid(user._id) } });
     if (purpose === 'customer-returns') stages.push({ $unionWith: { coll: m.ExternalReference.collection.name, pipeline: [
       { $match: { ...scope(user, query, 'warehouseId'), referenceKind: 'HISTORICAL_DELIVERY', status: 'VERIFIED', 'evidenceIds.0': { $exists: true }, ...(query.documentId && { _id: oid(query.documentId) }) } },
@@ -80,7 +81,7 @@ async function sourceLookup(user, query) {
         const deliveries = await m.DeliveryOrder.find({ 'items._id': doc.items.id(row._id).details.outboundDeliveryLineId });
         const requests = await m.WarehouseIssueRequest.find({ _id: { $in: deliveries.map(d => d.header.issueRequestId) } });
         const orders = await m.SalesOrder.find({ _id: { $in: requests.map(r => r.header.salesOrderId) } });
-        const delivered = s.sum(orders.flatMap(order => order.deliveryConfirmations.filter(c => c.workflowStatus === 'CONFIRMED').flatMap(c => c.items)).filter(i => same(i.details.salesIssueLineId, row._id)));
+        const delivered = doc.header.fulfillmentMode === 'DIRECT' ? s.sum((doc.customerReceipts || []).filter(r => same(r.issueLineId, row._id)), 'quantityBase') : s.sum(orders.flatMap(order => order.deliveryConfirmations.filter(c => c.workflowStatus === 'CONFIRMED').flatMap(c => c.items)).filter(i => same(i.details.salesIssueLineId, row._id)));
         available = purpose === 'customer-returns' ? delivered.minus(await s.claimTotal(row._id, 'CR')) : available.minus(delivered).minus(await s.claimTotal(row._id, 'FD'));
       } else if (purpose === 'supplier-returns') {
         const returns = await m.SupplierReturn.find({ 'items.details.originLineId': row._id, workflowStatus: { $nin: ['CANCELLED', 'REJECTED'] } });

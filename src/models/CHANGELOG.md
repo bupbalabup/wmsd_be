@@ -1,3 +1,7 @@
+## 17 November 2026 — direct sales and no-custody customer returns
+
+User explicitly restored Sales Order and requested removal of picking/delivery/custody complexity. Added direct order-backed issue creation/posting, Sales-only evidenced customer receipt and inline undelivered goods receipt. New CR inspections have no inventory effect; accepted receipt posts STORE stock; rejected handback is an embedded event. Preserved legacy flows and history through optional mode markers. Added embedded customer receipt/handback schemas, issue stock/order/customer references and FAILED_DELIVERY receipt direct issue reference. No collection, backfill, stored identity change, commit/push or remote write. Updated current API, model map, dictionary, relationship view, contexts and local setup. Tests: isolated direct/legacy integration and standard backend suites; focused frontend tests and production build. Broader frontend verification limitations are tracked in setup/hand-off rather than claimed as passing.
+
 17/11/2026: Kho 3D mở rộng hợp đồng Mixed warehouses.layout3d / layout3dApplied bằng pallets[].layers[] (height/items nhãn mã sản phẩm/lô/số thùng) và measuredCargoHeight? (m, không gồm đế). Không thêm schema collection/index/ref hay migration. actualHeight cũ giữ tổng cao; cảnh báo vượt cao không chặn áp dụng. Hợp đồng và sơ đồ trường: git_doc/docs/10_Kho3D/STAGE3_PALLET_LAYERS.md. Kiểm schema 6 test đạt, chưa rollout/transaction DB.
 
 ## 17/11/2026 — Outbound carton opening
@@ -20,6 +24,15 @@ User explicitly replaces the mandatory internal sale-order prerequisite with man
 
 `purchase_orders.replenishmentRequestId` chuyển từ bắt buộc sang tùy chọn. Hủy PO (`DRAFT`, hoặc `OPEN` chưa có chứng từ nhận) gỡ trường này để RR lập PO mới; unique index một phần trên trường giữ nguyên nên vẫn chỉ một PO còn hiệu lực cho mỗi RR. `sources[]` và `items[].requestItemId` giữ liên kết lịch sử. Dữ liệu cũ hợp lệ, không cần migration. `replenishment_requests` thêm index `{documentKind:1, "header.warehouseId":1, createdAt:-1, _id:-1}` cho danh sách; `createIndexes` khi triển khai sẽ tạo index này.
 
+## 16 November 2026 — Opening-stock authorization correction
+
+The latest explicit user decision makes opening stock Owner-only with Owner self-confirmation, once per warehouse, superseding the preparer/verifier split in the earlier entry below. No schema/index changes in this correction. Existing opening records retain their history; posted warehouses cannot be initialized again. See [current contract](../../git_doc/docs/08_api/EXCEL_AND_OPENING_STOCK.md).
+
+## 16 November 2026 — Opening-stock import and concurrent warehouse guard
+
+User requested Excel list exports and Owner-accessible opening-stock file import. Added optional opening item packagingState and positive measuredVolumeMm3; new service requires exact packaging and independently verifies before posting. Added a unique partial POSTED file-import index on opening_stocks.header.warehouseId and warehouses.stockOperationVersion (integer default zero), incremented transactionally by shared stock/location guards without changing catalogue updatedAt. The local setup replaces the earlier broad warehouse index while preserving historical opening documents. No collections/relationships changed. Existing legacy records remain readable. Setup is additive and local-only; no live data was migrated. See [contract](../../git_doc/docs/08_api/EXCEL_AND_OPENING_STOCK.md), [setup](../../git_doc/docs/09_phat_trien/EXCEL_OPENING_SETUP.md) and [dictionary](../../git_doc/docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Data_Dictionary.md). Isolated opening transaction and reviewed-demo model tests pass; full verification is recorded in the documentation log.
+
+
 ## 14/11/2026 — Ràng buộc qtyBase của dòng chứng từ
 
 `document-item.schema.js` chấp nhận `qtyBase` bằng `enteredQty × baseUnitsPerUnit` hoặc bằng `ceil(round(tích, 6))` (số nguyên) để lưu được dòng theo đơn vị diện tích. Không đổi field, index hay dữ liệu cũ. Xem [CONVERSIONS](../../git_doc/docs/08_api/CONVERSIONS.md).
@@ -28,6 +41,10 @@ User explicitly replaces the mandatory internal sale-order prerequisite with man
 
 `uoms` thêm `areaMm2` (Decimal128 dương, tùy chọn, mặc định null, bất biến): mm² của một đơn vị, M2 = 1000000. Dữ liệu cũ hợp lệ (null); `backfillConversions --apply` gán 1000000 cho UOM M2/M². Không thêm collection hay index. Quy tắc tự sinh quy đổi và làm tròn tới viên: [CONVERSIONS](../../git_doc/docs/08_api/CONVERSIONS.md).
 
+## 13/11/2026 — Stocktake reconciliation metadata
+
+13/11/2026: `stocktake-header.schema.js` (header của `stocktakes`) thêm `selectedCounts[]` (`snapshotId`, `countId`), `lastReconciledBy`, `lastReconciledAt` để ghi kết quả đối chiếu BF-05; chốt UC-93 yêu cầu đã đối chiếu và `selectedCounts` khớp. Trường nhúng tùy chọn, không đổi collection/index, không cần migration; đợt cũ chưa đối chiếu phải đối chiếu lại trước khi chốt. Snapshot `origin: DISCOVERED` (đã có trong model) nay được tạo bởi lệnh đếm hàng phát hiện ngoài sổ. Chi tiết [vòng đời kiểm kê](../../git_doc/docs/08_api/STOCKTAKE_LIFECYCLE.md).
+
 ## 12/11/2026 — Mã chứng từ nối bằng dấu gạch ngang
 
 `DocumentIdentity` nhận mã mới nối bằng `-` liền, mã đã lưu có dấu cách quanh dấu nối và ObjectId lịch sử. Mỗi chứng từ đã lưu giữ nguyên giá trị định danh. [Hợp đồng định danh](../../git_doc/docs/08_api/DOCUMENT_IDENTITIES.md).
@@ -35,6 +52,8 @@ User explicitly replaces the mandatory internal sale-order prerequisite with man
 ## 12/11/2026 — Bãi tiếp nhận trên dòng kiểm hàng
 
 `inspection-details.schema.js` nhận `receivingLocationId` tùy chọn. Khi lưu nháp hoặc chốt kiểm nhận mua, backend kiểm vị trí `RECEIVING` cùng kho và chỉ lưu cho dòng nhận mua. Dữ liệu cũ vẫn hợp lệ. Không có collection, index hoặc migration mới.
+
+13/11/2026: `stocktake-header.schema.js` (header của `stocktakes`) thêm `selectedCounts[]` (`snapshotId`, `countId`), `lastReconciledBy`, `lastReconciledAt` để ghi kết quả đối chiếu BF-05; chốt UC-93 yêu cầu đã đối chiếu và `selectedCounts` khớp. Trường nhúng tùy chọn, không đổi collection/index, không cần migration; đợt cũ chưa đối chiếu phải đối chiếu lại trước khi chốt. Snapshot `origin: DISCOVERED` (đã có trong model) nay được tạo bởi lệnh đếm hàng phát hiện ngoài sổ. Chi tiết [vòng đời kiểm kê](../../git_doc/docs/08_api/STOCKTAKE_LIFECYCLE.md).
 
 12/11/2026: Kho 3D chặng 2 thêm danh mục chức năng theo kho, vùng chữ nhật xoay, ô local có tính kích thước theo lưới pallet; vẽ/kéo khu vực và kéo ô trong 2D, phản ánh màu/vạch trên 3D. Schema layout3d mở rộng; warehouses thêm layout3dApplied/layout3dAppliedAt. API lưu nháp giữ snapshot áp dụng, apply:true kiểm containment và ghi snapshot/audit nguyên tử với optimistic updatedAt; đổi functions cần access_control:update. Chặn chồng vùng/ô, kiểm vùng trong kho lõm theo cả cạnh; vùng ngoài do sửa đường bao lưu nháp được nhưng chặn apply. Catalogue kho loại field layout nặng khỏi response danh sách. Cập nhật MODEL_MAP, Data Dictionary, sơ đồ nhúng STAGE2_ZONES, PROJECT_GUIDE, context FE/BE và model log. Không migration/seed/ghi DB chung, không đổi tồn hoặc enum vị trí nghiệp vụ. FE 13 test Kho 3D và 6 test trang kho đạt; BE 8 test hình học/schema đạt; build (kèm typecheck), lint module và docs:check đạt. Chưa kiểm WebGL trực tiếp hoặc tích hợp ghi DB.
 
