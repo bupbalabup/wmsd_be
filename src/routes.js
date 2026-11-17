@@ -24,7 +24,7 @@ import purchaseOrderCommandsRouter from './modules/purchase-orders/purchase-orde
 import {
   inspectionRouter,
   purchaseReceivingRouter,
-  custodyReleaseRouter, custodyRouter, reversalRouter, putawayRouter, queueRouter, purchaseDocumentRouter,
+  custodyReleaseRouter, custodyRouter, reversalRouter, queueRouter, purchaseDocumentRouter,
 } from "./modules/po-receiving/po-receiving.routes.js";
 
 import returnWorkflowsRouter from './modules/return-workflows/workflow.routes.js';
@@ -61,7 +61,6 @@ router.use("/custody-receipts", custodyRouter);
 router.use("/custody-releases", custodyReleaseRouter);
 router.use('/goods-receipts', goodsReceiptRouter);
 router.use('/goods-issues', goodsIssueRouter);
-router.use('/putaway-tasks', putawayRouter);
 router.use('/purchase-receiving/queue', queueRouter);
 router.use('/purchase-documents', purchaseDocumentRouter);
 router.use(returnWorkflowsRouter);

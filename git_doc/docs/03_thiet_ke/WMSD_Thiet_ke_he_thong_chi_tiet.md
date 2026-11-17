@@ -77,7 +77,7 @@ Khóa số dư gồm account vật lý hoặc dòng TD đang chuyển, lot, qual
 
 | BF | Chuỗi và UC | Điều kiện thực hiện, ngoại lệ và tác động |
 |---|---|---|
-| BF-01 | RR UC-03, UC-04, UC-05 → Owner UC-06 → PO UC-09, UC-10, UC-11, UC-12, UC-13 → ARR/INS/GR UC-16/37 → TO UC-45/46 | Sales/Warehouse kiểm nguồn đã phủ nhu cầu trước khi đề nghị. PO theo dòng được duyệt, nhận nhiều đợt/tách quality/ownership; 0 accepted không sinh GR0. Owner chốt thiếu/vượt duyệt; hàng thay thế là receipt mới. |
+| BF-01 | RR UC-03, UC-04, UC-05 → Owner UC-06 → PO UC-09, UC-10, UC-11, UC-12, UC-13 → ARR/INS/GR UC-16/37. Sau ghi nhập có thể chuyển vị trí qua UC-45/46 (BF03) | Sales/Warehouse kiểm nguồn đã phủ nhu cầu trước khi đề nghị. PO theo dòng được duyệt, nhận nhiều đợt/tách quality/ownership; 0 accepted không sinh GR0. Owner chốt thiếu/vượt duyệt; hàng thay thế là receipt mới. |
 | BF-02 | DC/hold UC-75, UC-76 → Owner UC-77 chỉ hành động thuộc quyền → UC-78 ngoài freeze; B1 qua UC-104/105 | Hold ngay không đổi balance khi frozen; trả NCC chuyển BF-08 không Owner, GI-SR mới trừ. Hủy/đổi phẩm cấp/giải phóng ngoài kiểm kê vẫn cần Owner. |
 | BF-03 | TO-RELOCATE UC-47–50 | Hai location cùng kho, đủ nguồn, không khóa; không Owner/TR/TD/MWTR. Confirm hai vế và chuyển reservation nguyên tử. Partial giữ remainder hoặc hủy có lý do. |
 | BF-04 | TR UC-53/54 → TD nháp UC-55 → Picking TO nếu staging → post TD/HO → MWTR UC-120 → TO put-away/UC-56 | Nháp trước picking, TO là xác nhận thực hiện. Nhiều đợt TD/MWTR; chỉ đóng khi nhu cầu còn lại, transit, sai lệch và toàn bộ TO đã xử lý. |
@@ -402,7 +402,7 @@ Danh mục đồng bộ Report 3: 31 mã, 28 active; SC-25–27 retired không t
 | SC-05 | Suppliers | ACTIVE | UC-28, UC-29, UC-30, UC-31, UC-32 |
 | SC-06 | Replenishment Requests | ACTIVE | UC-01, UC-02, UC-03, UC-04, UC-05, UC-06 |
 | SC-07 | Purchase Orders | ACTIVE | UC-07, UC-08, UC-09, UC-10, UC-11, UC-12, UC-13 |
-| SC-08 | Goods Receipt, Inspection and Put-away | ACTIVE | UC-14, UC-15, UC-16, UC-37, UC-45, UC-46 |
+| SC-08 | Goods Receipt and Inspection | ACTIVE | UC-14, UC-15, UC-16, UC-37, UC-45, UC-46 |
 | SC-09 | Warehouse Locations | ACTIVE | UC-38, UC-39, UC-40, UC-41, UC-42 |
 | SC-10 | Inventory and Shortage Options | ACTIVE | UC-43, UC-44, UC-117, UC-118, UC-119 |
 | SC-11 | Defective Goods and Disposition | ACTIVE | UC-73, UC-74, UC-75, UC-76, UC-77, UC-78 |
@@ -578,8 +578,8 @@ Lần đồng bộ 25/10 sửa tài liệu hiện hành và DDL tham chiếu; l�
 | UC-42 | Change Storage Location Status | FE-04 | ACTIVE | SC-09. | Store Owner |
 | UC-43 | View stock by lot, location, and quality status | FE-04 | ACTIVE | SC-10. | Owner, Accountant, Warehouse, Sales |
 | UC-44 | View inventory balance details | FE-04 | ACTIVE | SC-10. | Owner, Accountant, Warehouse, Sales |
-| UC-45 | Create Put-away Task | FE-04 | ACTIVE | SC-08. | Warehouse |
-| UC-46 | Confirm Put-away Task | FE-04 | ACTIVE | SC-08. | Warehouse |
+| UC-45 | Create Relocation for Received Purchase Stock | FE-04 | ACTIVE | SC-08. | Warehouse |
+| UC-46 | Confirm Relocation for Received Purchase Stock | FE-04 | ACTIVE | SC-08. | Warehouse |
 | UC-47 | View location movement list | FE-04 | ACTIVE | SC-12. | Owner, Warehouse |
 | UC-48 | View location movement details | FE-04 | ACTIVE | SC-12. | Owner, Warehouse |
 | UC-49 | Create location movement | FE-04 | ACTIVE | SC-12. | Warehouse |
