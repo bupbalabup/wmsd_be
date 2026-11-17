@@ -21,13 +21,14 @@ async function task(id, user, session) {
 const replay = (id,user,session) => task(id,user,session);
 // Resolve display names only after document/warehouse scope has been checked.
 async function movementDisplay(documents, includeLines = false) {
+  if(!documents.length)return [];
   const warehouseIds = documents.map(d=>d.header.warehouseId);
-  const warehouses = await Warehouse.find({_id:{$in:warehouseIds}}).select('_id code name').lean();
   const items = includeLines ? documents.flatMap(d=>d.items) : [];
-  const [locations, batches] = includeLines ? await Promise.all([
-    WarehouseLocation.find({_id:{$in:items.flatMap(i=>[i.details.fromLocationId,i.details.toLocationId])},warehouseId:{$in:warehouseIds}}).select('_id warehouseId code name').lean(),
-    ProductBatch.find({_id:{$in:items.map(i=>i.lotId)}}).select('_id manufacturerLot').lean(),
-  ]) : [[], []];
+  const [warehouses,locations,batches] = await Promise.all([
+    Warehouse.find({_id:{$in:warehouseIds}}).select('_id code name').lean(),
+    includeLines?WarehouseLocation.find({_id:{$in:items.flatMap(i=>[i.details.fromLocationId,i.details.toLocationId])},warehouseId:{$in:warehouseIds}}).select('_id warehouseId code name').lean():[],
+    includeLines?ProductBatch.find({_id:{$in:items.map(i=>i.lotId)}}).select('_id manufacturerLot').lean():[],
+  ]);
   const reference = row => row ? {id:String(row._id),code:row.code,name:row.name||null} : null;
   return documents.map(document=>({
     ...document, warehouse:reference(warehouses.find(w=>same(w._id,document.header.warehouseId))),
@@ -75,9 +76,11 @@ export function createLocationMovement(user, input) {
 export async function getLocationMovement(user, id) {
   requirePermission(user, 'stock_relocation:read');
   const document = await task(id,user);
-  const transactions = await StockTransaction.find({ sourceType: 'transfer_orders', sourceId: id }).sort({ occurredAt: 1, _id: 1 }).lean();
+  const [transactions,[display]] = await Promise.all([
+    StockTransaction.find({ sourceType: 'transfer_orders', sourceId: id }).sort({ occurredAt: 1, _id: 1 }).lean(),
+    movementDisplay([dto(document)],true),
+  ]);
   const performers = await User.find({ _id: { $in: transactions.map(t => t.performedBy) } }).select('_id fullName username').lean();
-  const [display] = await movementDisplay([dto(document)],true);
   return { ...display, transactions: transactions.map(t => ({ ...dto(t), performedByName: performers.find(u => same(u._id, t.performedBy))?.fullName || 'Không còn trong danh mục' })) };
 }
 export async function listLocationMovements(user, query) {
@@ -86,13 +89,13 @@ export async function listLocationMovements(user, query) {
   if (query.warehouseId) requireWarehouseAccess(user, query.warehouseId);
   if (!isOwner(user)) filter['header.warehouseId'] = { $in: user.warehouseIds || [] };
   const castQuery = { ...query, ...(query.warehouseId && { warehouseId: databaseId(query.warehouseId) }) };
-  if(query.q){const regex=new RegExp(escapeRegex(query.q),'i');const products=await Product.find({$or:[{sku:regex},{name:regex}]}).select('_id').lean();const batches=await ProductBatch.find({manufacturerLot:regex}).select('_id').lean();castQuery.searchFilter={$or:[{documentNo:regex},{'items.productNameSnapshot':regex},{'items.productId':{$in:products.map(p=>p._id)}},{'items.lotId':{$in:batches.map(b=>b._id)}}]};}
+  if(query.q){const regex=new RegExp(escapeRegex(query.q),'i');const [products,batches]=await Promise.all([Product.find({$or:[{sku:regex},{name:regex}]}).select('_id').lean(),ProductBatch.find({manufacturerLot:regex}).select('_id').lean()]);castQuery.searchFilter={$or:[{documentNo:regex},{'items.productNameSnapshot':regex},{'items.productId':{$in:products.map(p=>p._id)}},{'items.lotId':{$in:batches.map(b=>b._id)}}]};}
   const result = await movementList(TransferOrder, filter, castQuery, ['header.warehouseId'], 'CONFIRMED');
   return { ...result, items: await movementDisplay(result.items) };
 }
 export async function locationMovementOptions(user, warehouseId) {
   requirePermission(user, 'stock_relocation:create');
-  const warehouses = await Warehouse.find({ isActive: true, ...(isOwner(user) ? {} : { _id: { $in: user.warehouseIds || [] } }) }).lean();
+  const warehouses = await Warehouse.find({ isActive: true, ...(isOwner(user) ? {} : { _id: { $in: user.warehouseIds || [] } }) }).select('_id code name isActive').lean();
   if (!warehouseId) return { warehouses: warehouses.map(dto), locations: [], balances: [] };
   requireWarehouseAccess(user, warehouseId);
   const locations = await WarehouseLocation.find({ warehouseId, isActive: true }).lean();
@@ -100,8 +103,8 @@ export async function locationMovementOptions(user, warehouseId) {
   const balances = await InventoryBalance.find({ holdingPointId: { $in: points.map(row=>row._id) }, quantityBase: { $gt: 0 } }).lean();
   const batches = await ProductBatch.find({ _id: { $in: balances.map(row=>row.batchId) } }).lean();
   const products = await Product.find({ _id: { $in: batches.map(row=>row.productId) } }).lean();
-  const units = await Uom.find({isActive:true}).lean();
-  const conversions = await Conversion.find({productId:{$in:products.map(p=>p._id)},validFrom:{$lte:new Date()}}).sort({validFrom:-1}).lean();
+  const [units,conversions] = await Promise.all([Uom.find({isActive:true}).select('_id code name isCarton').lean(),
+    Conversion.find({productId:{$in:products.map(p=>p._id)},validFrom:{$lte:new Date()}}).sort({validFrom:-1}).lean()]);
   return { units: units.map(dto), conversions: conversions.map(dto), warehouses: warehouses.map(dto), locations: locations.map(dto), holdingPoints: points.map(dto), balances: balances.map(dto), batches: batches.map(dto), products: products.map(dto) };
 }
 export function editLocationMovement(user,id,input) {
