@@ -120,3 +120,7 @@ Response data giữ items/total/page/limit và thêm summary={total,incomplete,c
 ### UX trang riêng — 12/11/2026
 
 Quyết định người dùng thay việc mở form trong danh sách: FE dùng `/location-moves/create`, `/location-moves/:id`, `/location-moves/:id/edit` cho tạo/xem/cập nhật. Header có đường dẫn quay lại, mã đơn, trạng thái; thông tin chung và hàng hóa được nhóm riêng. Trang edit kiểm create permission, người tạo và OPEN; backend vẫn kiểm lại khi ghi. Lưu thành công chuyển về chi tiết và tải lại dữ liệu. Không đổi API hoặc vòng đời.
+
+## Read performance — 17 November 2026
+
+See [BF03/BF04 performance contract](../TRANSFER_PERFORMANCE.md) for compact catalogues, batched availability, parallel authorized reads, destination mode=locations and verification limits. Write transaction checks remain unchanged.
