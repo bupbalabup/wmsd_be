@@ -57,6 +57,8 @@ Duyệt RR (`POST /api/replenishments/:id/review`, từng dòng `lines[]`): FE g
 
 FE lấy đơn vị và hệ số đang hiệu lực qua `GET /api/replenishments/options?mode=FILTER` bằng quyền `replenishment_request:read`. Form tạo mặc định theo RR và form sửa nháp mặc định theo mã đơn vị PO đã lưu.
 
+Khi tạo hoặc sửa PO, nếu lượng sau quy đổi không nguyên trong khi sản phẩm yêu cầu lượng nguyên theo đơn vị gốc, API trả 400 với thông báo `Số lượng sau quy đổi sang đơn vị gốc phải là số nguyên`. Số thập phân theo đơn vị đặt vẫn hợp lệ nếu quy đổi ra lượng gốc nguyên và thỏa các giới hạn khác.
+
 Trạng thái PO: `DRAFT`, `OPEN`, `PARTIAL`, `COMPLETED` (nhận đủ), `CLOSED` (đã chốt thiếu và hủy phần còn lại), `CANCELLED` (đã hủy trước khi nhận hàng). `PARTIAL` chỉ đặt khi có phiếu nhập `POSTED`. Đảo phiếu nhập tính lại `PARTIAL`/`OPEN` cho PO `OPEN`, `PARTIAL` hoặc `COMPLETED`, còn PO `CLOSED` giữ nguyên `CLOSED` (quyết định user, 2026-11-11). `GET /api/purchase-orders` và `GET /api/purchase-orders/:id` trả thêm `hasOpenReceivingWork`: `true` khi PO `OPEN`/`PARTIAL` còn phiếu nhập nháp hoặc kiểm nhận nháp, để FE hiện nhãn “Đang nhận hàng” mà không thêm trạng thái PO.
 
 `POST /api/purchase-orders/:id/supplier-confirmations` và `POST /api/purchase-orders/:id/amendments` đã được gỡ và trả 404. DTO PO bỏ thông tin xác nhận NCC trên đầu phiếu và dòng. Chi tiết FE hiện vẫn có cột “NCC xác nhận” với giá trị rỗng từ bộ ánh xạ phía FE.
