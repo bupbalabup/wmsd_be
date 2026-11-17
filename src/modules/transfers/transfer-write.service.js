@@ -150,7 +150,34 @@ export function confirmTask(user,id,input) {
       }
     }
     await verifyCapacity(locations,session);await posting.save({session});
-    if(picking){outbound.handovers ??= [];outbound.handovers.push({...await nextDocumentFields(Dispatch,'HO',outbound.header.sourceWarehouseId,session),workflowStatus:'CONFIRMED',version:1,createdBy:actor._id,header:{relatedDocumentId:outbound._id,recipientName:input.recipientName,vehiclePlate:input.vehiclePlate,handedOverAt:new Date(),confirmedBy:actor._id},items:outbound.items.map((i,index)=>copyItem(i,i.qtyBase,{lineNo:index+1,sources:[sourceLink(outbound,i,i.qtyBase)]}))});outbound.workflowStatus='POSTED';outbound.header.dispatchedBy=actor._id;outbound.header.dispatchedAt=new Date();outbound.stockTransactionId=posting._id;await saveVersion(outbound,outbound.version,session);}
+    if(picking){outbound.handovers ??= [];outbound.handovers.push({...await nextDocumentFields(Dispatch,'HO',outbound.header.sourceWarehouseId,session),workflowStatus:'CONFIRMED',version:1,createdBy:actor._id,header:{relatedDocumentId:outbound._id,recipientName:input.recipientName,vehiclePlate:input.vehiclePlate,handedOverAt:new Date(),confirmedBy:actor._id},items:outbound.items.map((i,index)=>copyItem(i,i.qtyBase,{lineNo:index+1,sources:[sourceLink(outbound,i,i.qtyBase)]}))});outbound.workflowStatus='POSTED';outbound.header.dispatchedBy=actor._id;outbound.header.dispatchedAt=new Date();outbound.stockTransactionId=posting._id;await saveVersion(outbound,outbound.version,session);
+      let draftReceipt = await Receipt.findOne({ 'header.dispatchId': outbound._id, workflowStatus: 'DRAFT' }).session(session);
+      if (!draftReceipt) {
+        draftReceipt = await document(
+          Receipt,
+          'MWTR',
+          actor,
+          {
+            dispatchId: outbound._id,
+            warehouseId: request.header.destinationWarehouseId,
+            receivedBy: actor._id,
+            receivedAt: new Date(),
+          },
+          session,
+          outbound.items.map((origin, index) =>
+            copyItem(origin, origin.qtyBase, {
+              lineNo: index + 1,
+              lineKind: 'TRANSFER_RECEIPT',
+              sources: [sourceLink(outbound, origin, origin.qtyBase)],
+              details: { dispatchLineId: origin._id, qualityCode: 'GOOD' },
+            }),
+          ),
+          'DRAFT',
+        );
+        draftReceipt.sources = [sourceLink(outbound)];
+        await draftReceipt.save({ session });
+      }
+    }
     requirement.workflowStatus='COMPLETED';await saveVersion(requirement,requirement.version,session);
     task.workflowStatus='CONFIRMED';task.header.confirmedBy=actor._id;task.header.confirmedAt=new Date();task.stockTransactionId=posting._id;
     return{document:await saveVersion(task,input.expectedVersion,session),versionBefore:input.expectedVersion,stockTransactionId:posting._id};
@@ -163,7 +190,35 @@ export function receiveTransfer(user,id,input) {
     if(outbound.workflowStatus!=='POSTED'||request.workflowStatus!=='APPROVED')throw validationError('Nguồn chưa thực xuất hoặc đã đóng');
     if(same(outbound.header.dispatchedBy,actor._id))throw forbiddenError('Người nhận phải khác người xuất');
     await guardLocations(input.lines.map(row=>row.locationId),session);
-    const receipt=await document(Receipt,'MWTR',actor,{dispatchId:outbound._id,warehouseId:request.header.destinationWarehouseId,receivedBy:actor._id,receivedAt:new Date()},session,[],'POSTED');
+    const now = new Date();
+    const existingDraft = await Receipt.findOne({ 'header.dispatchId': outbound._id, workflowStatus: 'DRAFT' }).session(session);
+    const receipt = existingDraft ?? await document(
+      Receipt,
+      'MWTR',
+      actor,
+      {
+        dispatchId: outbound._id,
+        warehouseId: request.header.destinationWarehouseId,
+        receivedBy: actor._id,
+        receivedAt: now,
+      },
+      session,
+      [],
+      'POSTED',
+    );
+    if (existingDraft) {
+      receipt.workflowStatus = 'POSTED';
+      receipt.postedBy = actor._id;
+      receipt.postedAt = now;
+      receipt.occurredAt = now;
+      receipt.header.receivedBy = actor._id;
+      receipt.header.receivedAt = now;
+      receipt.header.damageReportIds = [];
+      receipt.items = [];
+    } else {
+      receipt.postedBy = actor._id;
+      receipt.postedAt = now;
+    }
     const posting=beginStock(receipt,actor,'TRANSFER_RECEIPT',input);
     for(const [i,row]of input.lines.entries()){
       const origin=outbound.items.id(row.dispatchLineId);if(!origin)throw validationError('Dòng không thuộc phiếu xuất');
@@ -182,6 +237,44 @@ export function receiveTransfer(user,id,input) {
     await verifyCapacity(input.lines.map(row=>row.locationId),session);await posting.save({session});
     receipt.stockTransactionId=posting._id;receipt.sources=[sourceLink(outbound)];await receipt.save({session});
     await saveVersion(outbound,outbound.version,session);
+    const remainingItems = [];
+    for (const origin of outbound.items) {
+      const point = await StockHoldingPoint.findOne({ type: 'IN_TRANSIT', dispatchLineId: origin._id }).session(session);
+      const transit = point && await InventoryBalance.findOne({
+        holdingPointId: point._id,
+        batchId: origin.lotId,
+        ownerType: 'STORE',
+        qualityStatus: 'GOOD',
+      }).session(session);
+      if (transit && exact(transit.quantityBase).gt(0)) {
+        remainingItems.push(
+          copyItem(origin, String(transit.quantityBase), {
+            lineNo: remainingItems.length + 1,
+            lineKind: 'TRANSFER_RECEIPT',
+            sources: [sourceLink(outbound, origin, String(transit.quantityBase))],
+            details: { dispatchLineId: origin._id, qualityCode: 'GOOD' },
+          }),
+        );
+      }
+    }
+    if (remainingItems.length) {
+      const nextDraft = await document(
+        Receipt,
+        'MWTR',
+        actor,
+        {
+          dispatchId: outbound._id,
+          warehouseId: request.header.destinationWarehouseId,
+          receivedBy: actor._id,
+          receivedAt: now,
+        },
+        session,
+        remainingItems,
+        'DRAFT',
+      );
+      nextDraft.sources = [sourceLink(outbound)];
+      await nextDraft.save({ session });
+    }
     return{document:receipt,stockTransactionId:posting._id};
   });
 }
