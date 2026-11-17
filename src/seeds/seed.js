@@ -137,7 +137,7 @@ export async function syncExistingRolePermissions() {
 export async function grantPurchaseReadPermissions() {
   const Permission = mongoose.connection.model('Permission');
   const Role = mongoose.connection.model('Role');
-  const codes = ['purchase_order:read', 'goods_receipt_inspection:read', 'putaway_task:read'];
+  const codes = ['purchase_order:read', 'goods_receipt_inspection:read'];
   const permissions = await Permission.find({ code: { $in: codes } }).lean();
 
   for (const code of codes) {
