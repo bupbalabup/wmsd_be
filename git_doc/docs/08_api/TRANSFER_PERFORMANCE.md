@@ -27,6 +27,18 @@ BF04 detail reads independent requirements, approvals, differences, transit poin
 - BF03 presentation indexes products, lots, locations, holding points and conversions with Maps; ledger totals are grouped by line once. Decimal totals, first/latest conversion precedence and packaging restrictions remain unchanged.
 - Existing RTK mutation invalidation, explicit command refresh, version conflicts and uncertain-command retry are retained. No global stock cache or longer stale-stock TTL is introduced.
 
+## Field projections — 17 November 2026
+
+Source: user requested reading only fields actually consumed. `movement-read-fields.js` defines inclusion projections used by BF03/BF04 read services. MongoDB excludes unused fields before returning records to Node; trimming is not limited to frontend presentation.
+
+BF03 list, BF04 request list and BF04 dispatch list accept `view=summary|full` (optional, default `full`). Summary rows contain `_id`/derived `id`, documentNo, workflowStatus, createdAt, the relevant header warehouse IDs and authorized catalogue warehouse labels. They omit items, version, creator and execution metadata. Paired FE tables and the receivable-dispatch picker request summary; detail endpoints still provide versions and the line data needed for edits/commands. Counts, filters, ordering, pagination and warehouse facets are unchanged. Excel callers keep the default full view, including product/lot snapshots, units, entered/base quantities and conversion factors. Full is a projected read DTO, not an unrestricted persisted document.
+
+Option queries project location identity/type/allocatability, holding-point identity/location/type, balance identity/version/quantity/quality/owner/packaging state, product and lot labels/units/carton factors, and conversion identity/product/batch/unit/factor. Warehouse layout snapshots, unused product attributes, complete packaging measurements and other unused master metadata are excluded. All active products remain selectable in BF04; this change does not restrict requested products to currently available stock.
+
+Detail queries retain document identity/state/version/creator/date, required warehouse/source links, reasons, line IDs/snapshots/units/quantities, carton factors and operational location/balance references. Related ITR/task/discrepancy/approval reads have separate projections; approval reviewed-content and authority snapshots are not loaded by the transfer screen. BF03 ledger reads retain time, operation, performer and source-line quantities, and performer lookup reads only ID/full name. Effective receipt/reversal totals load transaction IDs, reversal links and source-line quantities only, and skip empty inputs. Stored evidence, audit records and posting command reads are unchanged; these read projections must not be reused by transactional write commands.
+
+Deploy the paired BE query validation/projections and FE summary/mode callers together. Synthetic projection tests assert omitted fields really disappear while quantities, versions, packaging and warehouse scope remain valid. No online latency reduction is claimed from these fixtures.
+
 ## Verification and rollout limits
 
 Tests compare batch/scalar availability, partial execution, covered reservations and resolved holds; verify a constant query budget for 1,000 balances; check locations-only scope/payload and stock-query absence; verify scoped transfer detail progress. FE tests cover the completed-request skip behavior plus existing relocation, transfer, receipt and 3D flows. Exact results are in [change log](../../change_logs.md).
