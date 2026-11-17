@@ -334,6 +334,21 @@ run("review skips new warnings and keeps quantity and separation-of-duties check
   assert.equal(approved.body.data.workflowStatus, "APPROVED");
 });
 
+run("review derives the base amount from the approved amount in the line unit", async () => {
+  const document = await create(draft({ action: "SUBMIT" }));
+  const reviewPath = rr + "/" + document._id + "/review";
+  const line = { lineId: String(document.items[0]._id), reason: "Giảm theo nhu cầu đã kiểm" };
+  const over = await api(reviewPath, owner, { ...decision(document), lines: [{ ...line, approvedEnteredQty: "21" }] });
+  assert.equal(over.status, 400, JSON.stringify(over.body));
+  assert.match(over.body.message, /vượt lượng đề nghị/);
+
+  const approved = await api(reviewPath, owner, { ...decision(document), lines: [{ ...line, approvedEnteredQty: "12" }] });
+  assert.equal(approved.status, 200, JSON.stringify(approved.body));
+  const saved = await m.ReplenishmentRequest.findById(document._id);
+  assert.equal(String(saved.items[0].approvedEnteredQty), "12");
+  assert.equal(String(saved.items[0].approvedQtyBase), "12");
+});
+
 run("creation and cancellation replay their original receipts", async () => {
   const body = draft();
   const document = await create(body);
