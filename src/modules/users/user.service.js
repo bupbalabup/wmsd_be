@@ -142,12 +142,13 @@ export const toggleUserStatus = async (id, isActive, currentUserId, reason) => {
     throw new ApiError(404, 'Không tìm thấy người dùng');
   }
 
-  if (!isActive && !reason?.trim()) throw new ApiError(400, 'Cần nhập lý do khóa tài khoản');
-  const before = user.isActive;
+  const trimmedReason = reason?.trim();
+  if (!isActive && !trimmedReason) throw new ApiError(400, 'Cần nhập lý do khóa tài khoản');
+  const needsAudit = user.isActive !== isActive || (!isActive && user.lockReason !== trimmedReason);
   user.isActive = isActive;
-  user.lockReason = isActive ? undefined : reason.trim();
+  user.lockReason = isActive ? undefined : trimmedReason;
   await user.save();
-  if (before !== isActive) await appendAudit({ actorId: currentUserId, action: isActive ? 'UNLOCK_USER' : 'LOCK_USER', entityType: 'users', entityId: user._id, details: { reason: reason?.trim() || 'Kích hoạt tài khoản' } });
+  if (needsAudit) await appendAudit({ actorId: currentUserId, action: isActive ? 'UNLOCK_USER' : 'LOCK_USER', entityType: 'users', entityId: user._id, details: { reason: trimmedReason || 'Kích hoạt tài khoản' } });
   return getUserById(user._id);
 };
 

@@ -1,3 +1,9 @@
+## 17/11/2026 - Kiểm thử giữ hộ và nhật ký khoá tài khoản
+
+- Ba test giữ hộ trong `test/return-workflows.integration.test.js` dùng nguồn giao hàng lịch sử có `customerId` của chủ hàng. Test xác minh nguồn mới dùng `customerName` và kiểm tra phiếu trả có chế độ `DIRECT`.
+- `src/modules/users/user.service.js` ghi `LOCK_USER` khi thay đổi lý do của tài khoản đang khoá. Trước đây lệnh chỉ ghi nhật ký khi trạng thái đổi. [Hợp đồng trạng thái tài khoản](docs/08_api/USER_ACCESS_STATUS.md)
+- Ba tệp test về trả hàng, bán trực tiếp và trạng thái tài khoản đạt 36/36. Test tích hợp dùng MongoDB replica set local với cơ sở dữ liệu riêng. Test audit dùng model giả lập.
+
 ## 17/11/2026 - Báo lỗi trùng mã nhà cung cấp
 
 - Nguồn: người dùng yêu cầu sửa lỗi trùng key MongoDB khi tạo NCC. `createSupplier` chuyển lỗi `11000` của key `code` thành HTTP `409`, mã `ERR-CORE-409-002`, thông báo tiếng Việt và `fieldErrors` tại `body.code`. Trước đó API trả `500` kèm thông báo MongoDB.
