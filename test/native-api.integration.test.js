@@ -430,7 +430,7 @@ run('purchase putaway uses each receipt line’s measured portions and blocks mi
   await assert.rejects(transaction(session=>moveStock(source._id,target._id,'3',b.items[0]._id,{movements:[]},worker,session,
     {excludeTaskId:taskB.id,portionIds:[]})),/Quy cách tồn không đủ số lượng/);
 });
-run('BF03 confirms one complete relocation only and an idempotent retry posts once',async()=>{
+run('BF03 whole-carton confirmation stays compatible and an idempotent retry posts once',async()=>{
  const relocations=await import('../src/modules/location-movements/location-movement.service.js');
  const overflow=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'BF03-ALT',locationType:'STORAGE',usableLengthMm:'5000',usableWidthMm:'5000'});
  const point=await m.StockHoldingPoint.findOne({locationId:storageLocation._id});
@@ -443,7 +443,7 @@ run('BF03 confirms one complete relocation only and an idempotent retry posts on
  const other=await m.User.findById(otherRaw._id).populate({path:'roleId',populate:{path:'permissionIds'}});
  await assert.rejects(relocations.confirmLocationMovement(other,created.id,{idempotencyKey:key(),expectedVersion:1,lines:[{lineId:String((await m.TransferOrder.findById(created.id)).items[0]._id),actualQtyBase:'4'}]}),/người lập/);
  const open=await m.TransferOrder.findById(created.id);
- await assert.rejects(relocations.confirmLocationMovement(worker,created.id,{idempotencyKey:key(),expectedVersion:open.version,lines:[{lineId:String(open.items[0]._id),actualQtyBase:'1'}]}),/bằng lượng lệnh/);
+ await assert.rejects(relocations.confirmLocationMovement(worker,created.id,{idempotencyKey:key(),expectedVersion:open.version,lines:[{lineId:String(open.items[0]._id),actualQtyBase:'1'}]}),/nguyên thùng/);
  const confirmInput={idempotencyKey:key(),expectedVersion:open.version,lines:[{lineId:String(open.items[0]._id),actualQtyBase:'4'}]};
  await relocations.confirmLocationMovement(worker,created.id,confirmInput);
  await relocations.confirmLocationMovement(worker,created.id,confirmInput);
