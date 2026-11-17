@@ -1,4 +1,4 @@
-import { ProductBatch, GoodsArrival, GoodsInspection, PurchaseReceipt, CustodyReceipt, SupplierReturn, AuditLog, StockTransaction, Supplier, User, Warehouse, PurchaseOrder, TransferOrder, InventoryBalance, StockHoldingPoint, WarehouseLocation } from '../../models/runtime.js';
+import { ProductBatch, GoodsArrival, GoodsInspection, PurchaseReceipt, CustodyReceipt, SupplierReturn, AuditLog, StockTransaction, Supplier, User, Warehouse, PurchaseOrder, InventoryBalance, StockHoldingPoint, WarehouseLocation } from '../../models/runtime.js';
 import { freeQuantity } from '../../shared/utils/stock.js';
 import { requirePermission, hasPermission, canAccessWarehouse } from '../../shared/utils/access.js';
 import { currentRole } from '../../shared/utils/userRole.js';
@@ -6,8 +6,7 @@ import { dto, serialize } from '../../shared/utils/persistence.js';
 import { escapeRegex } from '../../shared/utils/domain.js';
 import { exact } from '../../models/model-utils.js';
 import { same } from '../../shared/utils/document-command.js';
-import { findPurchase, purchaseModels } from './purchase-core.js';
-import { placementQuantities, purchaseWarehouseFilter as warehouseFilter } from './purchase-putaway.service.js';
+import { findPurchase, purchaseModels, purchaseWarehouseFilter as warehouseFilter } from './purchase-core.js';
 import { getPurchaseOrder } from '../purchase-orders/purchase-order.service.js';
 import { redactPrices } from '../sales-orders/sales-read.service.js';
 const financial=u=>['OWNER','ACCOUNTANT'].includes(currentRole(u)?.code);
@@ -99,6 +98,18 @@ async function enriched(user,document){
   const posted = document.workflowStatus === 'POSTED';
   const canUpdate = writeWarehouse && hasPermission(user, 'goods_receipt_inspection:update');
   const canPost = writeWarehouse && hasPermission(user, 'goods_receipt_inspection:post');
+  if (kind === 'PURCHASE') {
+    value.header.postedAt = value.postedAt;
+    value.reversed = document.workflowStatus === 'REVERSED' ||
+      Boolean(document.stockTransactionId && await StockTransaction.exists({ reversedTransactionId: document.stockTransactionId }));
+    if (posted && !value.reversed && document.stockTransactionId) {
+      const posting = await StockTransaction.findById(document.stockTransactionId).select('movements.sourceLineId movements.toBalanceId').lean();
+      for (const item of value.items) {
+        const movement = posting?.movements.find(move => move.toBalanceId && same(move.sourceLineId, item._id));
+        if (movement) item.receivingBalanceId = String(movement.toBalanceId);
+      }
+    }
+  }
   value.capabilities = {
     createSupplierReturn: kind === 'CUSTODY_RECEIPT' && posted && document.header?.ownerType === 'SUPPLIER' && writeWarehouse && hasPermission(user, 'supplier_return:create'),
     writeWarehouse,
@@ -109,7 +120,7 @@ async function enriched(user,document){
       : kind === 'CUSTODY_RECEIPT' && document.header?.ownerType === 'SUPPLIER'),
     cancel: draft && canUpdate,
     reversePreflight: kind === 'PURCHASE' && posted && canPost && hasPermission(user, 'goods_receipt_inspection:reverse'),
-    planPutaway: kind === 'PURCHASE' && posted && writeWarehouse && hasPermission(user, 'putaway_task:create'),
+    relocate: kind === 'PURCHASE' && posted && writeWarehouse && !value.reversed && hasPermission(user, 'stock_relocation:create'),
   };
   if(['PURCHASE','CUSTODY_RECEIPT'].includes(kind)){
     for(const item of value.items){
@@ -120,7 +131,6 @@ async function enriched(user,document){
     }
   }
   if (kind === 'CUSTODY_RECEIPT') await custodyMetadata(document, value);
-  if(kind==='PURCHASE'){value.header.postedAt=value.postedAt;value.reversed=!!document.stockTransactionId&&!!await StockTransaction.exists({reversedTransactionId:document.stockTransactionId});if(document.workflowStatus==='POSTED')value.placements=await placementQuantities(document);}
   return financial(user)?value:redactPrices(value);
 }
 export async function getDocument(user, id, kind) {
@@ -204,16 +214,10 @@ export async function receivingSummary(user, id) {
     PurchaseReceipt.find({ 'header.purchaseOrderId': id }),
   ]);
   const arrivalsById = new Map(arrivals.map(arrival => [String(arrival._id), arrival]));
-  const [custody, tasks] = await Promise.all([
-    CustodyReceipt.find({ ...fromInspections(inspections.map(d => d._id)), 'header.ownerType': 'SUPPLIER' }),
-    TransferOrder.find({ 'header.taskKind': 'PUTAWAY', sources: { $elemMatch: {
-      subjectCollection: 'goods_receipts', documentId: { $in: receipts.map(d => d._id) },
-    } } }),
-  ]);
+  const custody = await CustodyReceipt.find({ ...fromInspections(inspections.map(d => d._id)), 'header.ownerType': 'SUPPLIER' });
   const poLineByInspection = new Map(inspections.flatMap(inspection => inspection.items.map(item => [
     String(item._id), arrivalsById.get(String(inspection.header.arrivalId))?.items.id(item.details?.inspectedSourceLineId)?.purchaseOrderItemId,
   ])));
-  const poLineByReceipt = new Map(receipts.flatMap(receipt => receipt.items.map(item => [String(item._id), item.purchaseOrderItemId])));
   const documents = [
     ...inspections.map(inspection => {
       const arrival = arrivalsById.get(String(inspection.header.arrivalId));
@@ -223,12 +227,8 @@ export async function receivingSummary(user, id) {
     ...receipts.map(receipt => receivingDocument('GR_PURCHASE', receipt, item => item.purchaseOrderItemId)),
     ...custody.map(document => receivingDocument('CUSTODY_RECEIPT', document, item =>
       poLineByInspection.get(String(item.sources?.find(ref => ref.subjectCollection === 'goods_inspections')?.itemId)))),
-    ...tasks.map(document => receivingDocument('PUTAWAY', document, item =>
-      poLineByReceipt.get(String(item.sources?.find(ref => ref.subjectCollection === 'goods_receipts')?.itemId)))),
   ].sort((a, b) => (b.occurredAt ?? b.createdAt ?? '').localeCompare(a.occurredAt ?? a.createdAt ?? '')
     || b.id.localeCompare(a.id));
-  const placements = (await Promise.all(receipts.filter(r => r.workflowStatus === 'POSTED').map(r => placementQuantities(r))))
-    .flat().filter(q => exact(q.unplacedQtyBase).gt(0));
   const summary = {
     purchaseOrder: { id: po.id, documentNo: po.documentNo, workflowStatus: po.workflowStatus, version: po.version },
     poVersion: po.version,
@@ -239,18 +239,18 @@ export async function receivingSummary(user, id) {
     openWork: {
       draftInspections: inspections.filter(d => d.workflowStatus === 'DRAFT').length,
       draftReceipts: receipts.filter(d => d.workflowStatus === 'DRAFT').length,
-      unplacedReceiptLines: placements.length,
-      unplacedQtyBase: placements.reduce((n, q) => n.plus(q.unplacedQtyBase), exact('0')).toFixed(),
     },
   };
   return financial(user) ? summary : redactPrices(summary);
 }
 export async function receivingTrips(user,id,query){await findPurchase(id,user,null,{kind:'PO',readOnly:true});return listDocuments(user,'INSPECTION',{...query,purchaseOrderId:id});}
 export async function receivingQueue(user,query){
-  const kind=query.stage==='DRAFT_INSPECTION'||query.stage==='CORRECTION'?'INSPECTION':'GR_PURCHASE';const status=query.stage==='AWAITING_PUTAWAY'?'POSTED':'DRAFT';
-  // Filter computed remaining quantities before paging so page totals stay correct.
-  const all=await listDocuments(user,kind,{...query,status,page:1,limit:Number.MAX_SAFE_INTEGER});
-  const rows=all.items.filter(d=>query.stage==='AWAITING_PUTAWAY'?d.placements?.some(q=>exact(q.unplacedQtyBase).gt(0)):query.stage==='CORRECTION'?!!d.header.previousInspectionId:true);
+  const kind = query.stage === 'AWAITING_POST' ? 'GR_PURCHASE' : 'INSPECTION';
+  if (query.stage !== 'CORRECTION') {
+    return { ...await listDocuments(user, kind, { ...query, status: 'DRAFT' }), stage: query.stage };
+  }
+  const all = await listDocuments(user, kind, { ...query, status: 'DRAFT', page: 1, limit: Number.MAX_SAFE_INTEGER });
+  const rows = all.items.filter(d => d.header.previousInspectionId);
   return {items:rows.slice((query.page-1)*query.limit,query.page*query.limit),total:rows.length,page:query.page,limit:query.limit,stage:query.stage};
 }
 export async function receivingHistory(user,id,query){

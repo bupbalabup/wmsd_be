@@ -1,11 +1,20 @@
 import { newBusinessDocument } from '../../shared/utils/document-number.js';
 import { PurchaseOrder, GoodsArrival, GoodsInspection, PurchaseReceipt, TransferOrder, CustodyReceipt, CustodyRelease, OtherGoodsReceipt, Attachment } from '../../models/runtime.js';
-import { requirePermission, requireWarehouseAccess } from '../../shared/utils/access.js';
+import { isOwner, requireWarehouseAccess } from '../../shared/utils/access.js';
 import { currentRole } from '../../shared/utils/userRole.js';
 import { notFoundError, validationError } from '../../shared/utils/ApiError.js';
 import { newId, same } from '../../shared/utils/document-command.js';
 export const purchaseModels={PO:PurchaseOrder,ARRIVAL:GoodsArrival,INSPECTION:GoodsInspection,GR_PURCHASE:PurchaseReceipt,OTHER:OtherGoodsReceipt,TO:TransferOrder,CUSTODY_RECEIPT:CustodyReceipt,CUSTODY_RELEASE:CustodyRelease};
 export const newDocument=(Model,prefix,user,header,items=[],status='DRAFT')=>newBusinessDocument(Model,user,header,items,status);
+export function purchaseWarehouseFilter(user, id) {
+  const all = isOwner(user) || currentRole(user)?.code === 'ACCOUNTANT';
+  if (id) {
+    if (!all) requireWarehouseAccess(user, id);
+    return { 'header.warehouseId': id };
+  }
+  return all ? {} : { 'header.warehouseId': { $in: user.warehouseIds ?? [] } };
+}
+
 export async function findPurchase(id,user,session,{kind,readOnly=false}={}){
   let document;
   const isHex = /^[a-f\d]{24}$/i.test(id);

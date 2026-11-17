@@ -1,3 +1,11 @@
+## 17/11/2026 - Báo lỗi trùng mã nhà cung cấp
+
+- Nguồn: người dùng yêu cầu sửa lỗi trùng key MongoDB khi tạo NCC. `createSupplier` chuyển lỗi `11000` của key `code` thành HTTP `409`, mã `ERR-CORE-409-002`, thông báo tiếng Việt và `fieldErrors` tại `body.code`. Trước đó API trả `500` kèm thông báo MongoDB.
+- Sửa `src/modules/suppliers/supplier.service.js`, thêm `test/supplier-create.test.js` và cập nhật [hợp đồng NCC](docs/08_api/ITERATION1_NATIVE_2026-11-06.md#api-và-quyền). FE đã xử lý mã lỗi này dưới ô mã NCC, không cần sửa consumer. Lỗi DB khác giữ nguyên; unique index và transaction/audit không đổi.
+- Không đổi schema, dữ liệu, quyền hay cấu hình DB; không cần migration. Backend đã fast-forward `origin/main` trước khi sửa và giữ các thay đổi đang dở.
+- Kiểm tra: `node --test test/supplier-create.test.js` đạt 4/4, gồm response qua controller/middleware, metadata keyValue, lỗi khác và tạo thành công có audit. FE `npm test -- src/features/suppliers/step/SupplierCreatePage.test.tsx` đạt 6/6.
+- Giới hạn: test backend dùng model/session giả lập; chưa thử race hoặc unique index trên MongoDB thật, chưa chạy trình duyệt hay toàn bộ suite. Không commit/push.
+
 ## Customer details on documents — 17 November 2026
 
 User decision: customers are not managed as catalogue records. New sales orders require `customerName` (1–160 characters) and allow `customerPhone` (up to 30 characters); the delivery address remains on the order. Creating an order does not query or create a Customer. Sales options return an empty compatibility `customers` array.
@@ -7,6 +15,25 @@ Customer-return creation sends warehouse and source lines only, without `custome
 Historical verification requires customer name text and optional phone from the external document; verification/evidence remains mandatory. New historical sources with customer snapshots use the current inspection/acceptance/receipt flow without custody. Previously stored sources and custody ledgers retain their legacy behavior. Optional legacy customerId fields and the Customer collection remain readable; no records or collections are deleted or backfilled. Deploy FE and BE together; old clients sending customerId to new creation endpoints must update.
 
 Validation: focused sales/return contract tests and the local direct-sales transaction test passed using an isolated database on the local rs0 replica set (port 27017). The transaction fixture creates a new sale and return with no Customer record, and separately verifies legacy custody compatibility. No Atlas write or migration was performed.
+
+## 17/11/2026 - Chuyển hàng nhập mua bằng BF03
+
+Theo plan `ancient-launching-zebra.md`, phiếu nhập mua hoàn tất ở `POSTED` và PO ghi nhận lượng đã nhập cùng mốc. Gỡ hàng đợi Chờ cất và API lệnh cất mua. Chi tiết phiếu trả `receivingBalanceId` và `capabilities.relocate`. FE dùng quyền Chuyển vị trí và mở form BF03 tại vị trí tiếp nhận đầu tiên. ITR tiếp tục xử lý xếp hàng của điều chuyển liên kho.
+
+Backend cập nhật `po-receiving`, permission seed và lệnh mẫu dùng `RELOCATE`. Trên `wmsd_demo_tile_shop_v9`, lượt áp dụng tắt bốn quyền cũ. Lượt xem trước và lượt áp dụng đều trả danh sách lệnh rỗng. [Hợp đồng GoodsReceipt](docs/08_api/GOODS_RECEIPTS.md) · [Hướng dẫn migration local](docs/09_phat_trien/MONGODB_LOCAL.md#ngừng-lệnh-cất-hàng-mua).
+
+Native integration đạt 26 ca. Trên Chromium 1440 px và 390 px, form điền đúng nguồn và dòng hàng cho phiếu `PNM-TEST-261117-000001`. Kế toán bị chặn tạo lệnh. Xác nhận `LCV-TEST-261117-000001` đưa 8 viên vào nguồn xuất bán và preflight chặn Bỏ ghi. Đối soát đạt trên DB thử riêng. DB demo còn báo `RR_ALLOWANCE` ở một PO mẫu.
+
+BE test mặc định có 237 ca đạt, 123 ca skip và một ca TODO. FE có 49 ca liên quan đạt cùng build, typecheck và lint trong `src`. Suite FE toàn bộ còn 10 ca lỗi ở các luồng khác, trong đó 5 ca tái hiện trên HEAD sạch. Lint toàn repo báo lỗi cú pháp trong hook `.claude/hooks/agent-guard.mjs`. Checkout FE thiếu hai script `ui:check` và `ui:cleanup`.
+
+## 17/11/2026 - Bỏ danh mục khách hàng và delivery riêng khỏi phạm vi
+
+- Nguồn: người dùng yêu cầu cập nhật cả Report 3/Report 4 và xác nhận chỉ bỏ danh mục khách hàng, giữ đơn bán cùng khách trả.
+- Report 3 sửa phạm vi, context, BF-06/BF-07, ERD nhúng, thực thể, catalogue/chi tiết UC, ma trận quyền, màn hình và quy tắc. Giữ 132 mã: 113 ACTIVE, 19 RETIRED; giữ 31 mã màn: 23 ACTIVE, 8 RETIRED. UC-129 chuyển thành bằng chứng khách nhận trên phiếu xuất, không còn màn delivery riêng.
+- Report 4 sửa luồng SO -> phiếu xuất trực tiếp, khách trả, quan hệ nhúng và trạng thái thiết kế. Danh mục khách/WIR/OD/FD riêng được đánh dấu ngoài phạm vi; schema cũ được phân biệt là tương thích runtime, không giả đã xóa collection.
+- Đồng bộ PROJECT_GUIDE, context BE và README tài liệu. Giữ lịch sử/Change Log cũ của báo cáo và mã UC/SC để truy vết.
+- Không sửa source, test, quyền DB, dữ liệu hay tham chiếu lịch sử; không commit/push. API/model vẫn cần thay phần bắt buộc customer master trước khi triển khai phạm vi mới. Bản Word/Google Docs bên ngoài chưa đồng bộ.
+- Checks passed: npm run docs:check (3 identical instruction files, 58 collections, 869 local links); 132 unique UC IDs, 113 active/19 retired, 23 active/8 retired screens, no grants on retired UCs and no active screen linked to a retired UC. Active normal flows and historical Report 3 Change Log are retained. Mermaid fences/declarations checked; diagrams were not rendered.
 
 ## 17 November 2026 — Upstream integration and conflict-resolution checkpoint
 

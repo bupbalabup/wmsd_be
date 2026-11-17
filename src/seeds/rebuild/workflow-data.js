@@ -23,6 +23,19 @@ export function link(parent,source,child,target) {
   target.sources.push({_id:fixtureId('item-link:'+source._id+':'+target._id),documentId:parent._id,
     subjectCollection:documentCollections[parent.documentKind],itemId:source._id,relationCode:'SOURCE',linkedQty:target.qtyBase});
 }
+export function convertPurchasePutawayExamples(data) {
+  for (const task of data.transfer_orders) {
+    if (task.header.taskKind === 'PUTAWAY' && !task.header.requirementId &&
+      task.sources.some(source => source.subjectCollection === 'purchase_receipts')) {
+      task.header.taskKind = 'RELOCATE';
+      if (task.workflowStatus === 'CONFIRMED') {
+        task.header.confirmedBy ??= task.createdBy;
+        task.header.confirmedAt ??= task.postedAt ?? task.occurredAt;
+      }
+    }
+  }
+}
+
 function locationBalance(data,location,batch) {
   let point=data.stock_holding_points.find(row=>String(row.locationId)===String(location._id));
   if(!point) {

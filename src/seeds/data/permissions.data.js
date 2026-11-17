@@ -59,11 +59,7 @@ export const PERMISSION_CATALOGUE = [
   { code: 'stock_reversal:approve', description: 'Duyệt độc lập và ghi đảo giao dịch tồn', uc: ['UC-37'], roles: [OWNER] },
   { code: 'goods_receipt_inspection:reverse', description: 'Warehouse đảo phiếu nhập ghi nhầm, có chứng cứ và kiểm phụ thuộc', uc: ['UC-37'], roles: [WAREHOUSE] },
   { code: 'purchase_order:approve_exception', description: 'Duyệt chốt thiếu PO đúng phiên bản', uc: ['UC-13'], roles: [OWNER] },
-  { code: 'putaway_task:cancel', description: 'Hủy phần chưa cất của task nhận mua', uc: ['UC-45', 'UC-46'], roles: [WAREHOUSE] },
 
-  { code: 'putaway_task:read', description: 'Xem nhiệm vụ cất hàng', uc: ['UC-32', 'UC-33'], roles: [OWNER, ACCOUNTANT, WAREHOUSE] },
-  { code: 'putaway_task:create', description: 'Tạo nhiệm vụ cất hàng', uc: ['UC-32'], roles: [WAREHOUSE] },
-  { code: 'putaway_task:confirm', description: 'Xác nhận cất hàng thực tế', uc: ['UC-33'], roles: [WAREHOUSE] },
 
   // ---------- FE-02: Dữ liệu chủ ----------
   { code: 'product:read', description: 'Xem sản phẩm', uc: ['UC-17', 'UC-18'], roles: BUSINESS_ROLES },
