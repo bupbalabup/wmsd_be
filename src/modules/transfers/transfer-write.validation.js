@@ -16,11 +16,11 @@ export const dispatchBody = z.object({ idempotencyKey: key, expectedVersion: ver
   lines: z.array(z.object({ requestLineId: oid, sourceBalanceId: oid, stagingLocationId: oid, qtyBase: qty }).strict()).min(1).max(100),
 }).strict();
 export const requirementBody = z.object({ idempotencyKey: key, expectedVersion: version,
-  // A receipt containing only damaged goods has no putaway destinations, but it
-  // still needs a completed ITR/TO pair so the request can close.
+  // Omit destinations to open/reuse a waiting PUTAWAY task for a historical receipt.
   destinations: z.array(z.object({ receiptLineId: oid, locationId: oid }).strict()).max(100).refine(unique('receiptLineId')).optional(),
 }).strict();
 export const commandBody = z.object({ idempotencyKey: key, expectedVersion: version, recipientName:z.string().trim().min(1).max(160).optional(), vehiclePlate:z.string().trim().min(1).max(20).optional() }).strict();
+export const taskConfirmBody=commandBody.extend({destinations:z.array(z.object({receiptLineId:oid,locationId:oid}).strict()).min(1).max(100).refine(unique('receiptLineId')).optional()});
 export const receiptBody = z.object({ idempotencyKey: key, expectedVersion: version,
   lines: z.array(z.object({ dispatchLineId: oid, locationId: oid, qtyBase: qty,
     qualityCode: z.enum(['GOOD', 'DAMAGED']), damageReason: z.string().trim().min(1).max(1000).optional(),
