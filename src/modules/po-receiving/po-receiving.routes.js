@@ -8,6 +8,7 @@ import { catchAsync } from '../../shared/utils/catchAsync.js';
 import { formatApiResponse } from '../../shared/utils/ApiResponse.js';
 import { ApiError } from '../../shared/utils/ApiError.js';
 import { objectIdString as oid, decimalStringSchema } from '../../shared/utils/domain.js';
+import { PACKAGING_CONDITIONS } from '../../models/constants.js';
 import * as service from './po-receiving.service.js';
 import * as reads from './purchase-read.service.js';
 import * as tasks from './purchase-putaway.service.js';
@@ -24,8 +25,8 @@ export const evidenceIds = z.array(oid).min(1).max(20).refine(a => new Set(a).si
 const optionalText = max => z.string().trim().min(1).max(max).optional();
 const searchText = optionalText(100);
 const iso = z.string().datetime({ offset: true }).refine(v => Date.parse(v) <= Date.now(), 'Thời điểm đến không được ở tương lai');
-const line = z.object({ id: oid.optional(), poLineId: oid, lotId: oid, enteredQty: qty, enteredUnit: z.string().trim().min(1).max(60).optional(), qualityCode: z.enum(['GOOD','DAMAGED','PENDING','BLOCKED']), ownershipDecision: z.enum(['ACCEPT','CUSTODY','REJECT']), packagingCondition: z.enum(['SEALED','OPENED','TORN','UNKNOWN']), handlingNote: optionalText(2000), receivingLocationId: oid.optional() }).strict();
-const form = { expectedPoVersion: ver, arrivedAt: iso, deliveryReference: optionalText(100), deliveredBy: optionalText(160), lines: z.array(line).max(100) };
+const line = z.object({ id: oid.optional(), poLineId: oid, lotId: oid, enteredQty: qty, enteredUnit: z.string().trim().min(1).max(60).optional(), qualityCode: z.enum(['GOOD','DAMAGED','PENDING','BLOCKED']), ownershipDecision: z.enum(['ACCEPT','CUSTODY','REJECT']), packagingCondition: z.enum(PACKAGING_CONDITIONS), handlingNote: optionalText(2000), receivingLocationId: oid.optional() }).strict();
+const form = { expectedPoVersion: ver, arrivedAt: iso, deliveryReference: optionalText(100), deliveredBy: optionalText(160), lines: z.array(line).min(1).max(100) };
 const pager = z.string().regex(/^[1-9]\d*$/).transform(Number).pipe(z.number().int().safe());
 export const pagination = { page: pager.default(1), limit: pager.pipe(z.number().max(100)).default(10) };
 export const paged = fields => z.object({ ...pagination, ...fields }).strict().refine(q => Number.isSafeInteger((q.page - 1) * q.limit));

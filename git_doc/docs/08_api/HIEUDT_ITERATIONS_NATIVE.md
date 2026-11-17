@@ -71,7 +71,7 @@ Các mảng lệnh có 1–200 dòng, trường lạ bị từ chối. quantity 
 
 Yêu cầu xuất là bước nguồn cần thiết cho UC51, tạo từ SO tại `/sales-orders/:id/issue-requests`; không ghi tồn. OD ghi trạng thái RELEASED và reservation trong một transaction, kiểm phiên bản số dư, hàng GOOD/STORE, lô VERIFIED, vị trí STORAGE pickable, kho, khóa kiểm kê và khả dụng. Khóa nguồn SO/WIR ngăn hai lệnh đồng thời vượt lượng.
 
-Tạo picking sinh SalesGoodsIssue DRAFT và TransferOrder PICK OPEN, chuyển quyền giữ hàng từ OD sang nhiệm vụ. Chưa trừ tồn. Xác nhận từng phần chỉ do người được giao, chuyển lượng thực từ storage sang STAGING, chuyển reservations và ghi StockTransaction SALES_PICK. Tổng tồn không đổi; PARTIAL rồi CONFIRMED khi đủ. GI trở thành PICKED, **chưa phải POSTED/xuất bán**. Việc đăng xuất GI, POD, thanh toán thuộc UC khác.
+Theo [Goods Issue UC-69–72](GOODS_ISSUES.md), luồng UI mới tạo SalesGoodsIssue DRAFT riêng từ OD, sau đó tạo TransferOrder PICK OPEN từ phiếu xuất. Endpoint OD → picking cũ vẫn tương thích và tạo cả GI/TO trong một transaction. Chưa trừ tồn khi lập phiếu/lệnh. Xác nhận từng phần chỉ do người được giao, chuyển lượng thực từ storage sang STAGING, chuyển reservations và ghi StockTransaction SALES_PICK. Tổng tồn không đổi; PARTIAL rồi CONFIRMED khi đủ. GI trở thành PICKED, **chưa phải POSTED/xuất bán**. UC-72 ghi POSTED khi bàn giao; POD và thanh toán vẫn riêng.
 
 Khả dụng trừ reservations và phần nhiệm vụ chưa có reservation; không trừ một nhiệm vụ hai lần. Số lượng thập phân dùng exact decimal, không cộng khác đơn vị thành tổng chứng từ.
 
@@ -101,7 +101,7 @@ Mỗi dòng phải có executionRecords đủ lượng, performedAt sau quyết 
 
 DELTA tạo StockAdjustment cho chênh lệch khác 0; RECLASS chuyển chất lượng tại cùng vị trí; RELOCATE chỉ chuyển vị trí và giữ chủ/lô/chất lượng cùng cam kết. Không dùng hai DELTA trái dấu để che đổi chất lượng/vị trí. Tổng dự kiến phải khớp mọi count. RECLASS còn reservation bị từ chối. Sau thực hiện kiểm sức chứa và reservation không vượt tồn, ghi ledger và mở khóa cùng transaction. Nhánh không lệch không tạo ADJ hay ledger lượng 0; audit ghi count đã dùng.
 
-DELTA dương hàng mở/lẻ nhận `packaging:[{lineId,portions:[{packagingState,quantityBase,measuredVolumeMm3,...}]}]`. FE cho nhập thể tích thực đo phần tăng (mm³), ghi LOOSE đủ lượng; bỏ trống chỉ khi toàn bộ là thùng nguyên theo quy cách lô. API cũng nhận nhiều portions. Không tự bịa thể tích hàng mở/lẻ.
+DELTA dương hàng mở/lẻ nhận `packaging:[{lineId,portions:[{packagingState,quantityBase,measuredVolumeMm3,...}]}]`. Nếu nhập thể tích thực đo, FE gửi một phần `LOOSE` cho toàn bộ lượng tăng. Nếu bỏ trống, BE tự tách thùng nguyên và phần lẻ. API nhận nhiều phần và [ước tính thể tích](NATIVE_MODEL_RUNTIME.md#mua-và-nhập) cho từng phần `OPEN` hoặc `LOOSE` thiếu số đo.
 
 Các UC tạo đợt/snapshot, nhập đếm, lập/duyệt phương án và ghi executionRecords là dữ liệu đầu vào của UC93, không nằm trong 18 UC này. Dòng phát hiện mới phải được đối chiếu sourceBalance trước chốt; dữ liệu thiếu bị từ chối thay vì ghi hoàn tất giả.
 

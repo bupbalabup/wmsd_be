@@ -1,9 +1,15 @@
+17/11/2026 — Xuất hàng được mở thùng và nhập lẻ số thùng theo quyết định người dùng. Ví dụ 1,5 thùng × 4 viên = 6 viên; vẫn kiểm lượng nguyên theo ĐVT gốc. Lưu snapshot quy đổi hiện hành và phần OPEN còn lại; volumeUpperBoundMm3 là giới hạn thể tích bảo thủ, không giả số đo. Chỉ bật cho xuất bán/xuất khác, BF04 picking/dispatch, trả NCC và thực hủy; BF03/nhập kho giữ quy tắc cũ. Xem docs/08_api/GOODS_ISSUES.md.
+
+16/11/2026 — Quyết định mới UC-69–72: form tạo chung 5 lý do xuất; Xuất bán và Xuất khác nhập mã tham chiếu tay, sản phẩm/số lượng/ghi chú, không bắt buộc SO/WIR/OD. SALES chỉ Xuất bán, tạo PENDING_APPROVAL; Owner khác creator duyệt đúng phiếu sang DRAFT, không sinh SO/phiếu mới/giữ hàng/trừ tồn. Kho chọn lô/ô khi tạo TO, PGI mới trừ tồn. Điều chuyển/trả NCC/hủy dùng chứng từ nguồn và native command trong form chung. Seed quyền bổ sung create/update cho SALES, approve cho OWNER, giữ các quyền khác. Hợp đồng chính: docs/08_api/GOODS_ISSUES.md.
+
 15 November 2026 — quantity workflow refinements: CR can split a verified sale source into independently inspected/decided request parts, retaining cumulative source caps. BF02 can propose multiple disposition outcomes against one hold, with combined in-flight plan limits. Refused CR parts can be handed back after the accepted part is received; approved stock cannot be consumed by handback. Details expose posted-document quantity progress and remaining caps. See docs/08_api/RETURN_WORKFLOWS_NATIVE.md for the current DTO, historical conversion and stage rules.
 
 > 13/11/2026: [Vòng đời kiểm kê BF-05](docs/08_api/STOCKTAKE_LIFECYCLE.md) là hợp đồng hiện hành cho các lệnh kiểm kê trước bước chốt UC-93.
 
 14 November 2026 — user-approved receiving alternate flow: non-GOOD inspection quantities must enter supplier custody. Confirm creates CustodyReceipt DRAFT; Warehouse posts before starting SupplierReturn. Custody detail offers a scoped per-line proposal, then Accountant agreement, Warehouse CustodyRelease dispatch and Accountant ACK/closure. No DefectReport or store-owned issue for this intake incident. Canonical API contracts: docs/08_api/NATIVE_MODEL_RUNTIME.md and RETURN_WORKFLOWS_NATIVE.md.
 
+
+> 13/11/2026: [Vòng đời kiểm kê BF-05](docs/08_api/STOCKTAKE_LIFECYCLE.md) là hợp đồng hiện hành cho các lệnh kiểm kê trước bước chốt UC-93.
 > 12/11/2026: [Phạm vi HieuDT 20 UC mới](docs/08_api/HIEUDT_WAREHOUSE_SCOPE.md) theo bảng người dùng: kho/vị trí, tồn, BF03, BF04, đối soát và nhật ký. Đây là nguồn đối chiếu phạm vi hiện tại; các khả năng 18 UC trước vẫn được giữ. Native warehouse-stock thay route demo, không fallback dữ liệu mẫu.
 
 > 11/11/2026: BF03 dùng bảng chọn hàng theo kho/vị trí, chỉ số nguyên thùng/viên; không tự mở thùng. Luồng tạo/sửa kiểm quy cách ngay trước lưu. Thử đơn vị/quy đổi trên DB local riêng và chờ người dùng kiểm tra trước triển khai lên wmsd_database.
@@ -76,6 +82,7 @@ Không tạo general policy editor. Danh mục quyền được định nghĩa b
 - Xác nhận tồn phải nguyên tử với balance, transaction, movement, chứng từ, hạn mức/giữ hàng, audit và outbox. Cùng request key/payload trả lại kết quả cũ, key khác nội dung phải báo xung đột.
 - Kiểm active user, permission hiện tại, warehouseIds, nguồn, creator/approver/receiver, trạng thái, revision, freeze, số lượng còn lại và sức chứa ngay khi ghi. UI không thay kiểm quyền BE.
 - Khoá tài khoản qua lệnh đổi trạng thái phải nhập lý do; tài khoản giữ `lockReason` trong thời gian bị khoá và ghi sự kiện audit. Mở khoá xoá lý do hiện tại. Cập nhật thông tin người dùng thông thường không được đổi `isActive`.
+- Yêu cầu đặt lại mật khẩu qua email đang chờ triển khai. Người dùng tự yêu cầu OTP ở màn đăng nhập (UC-131) hoặc Administrator yêu cầu OTP từ chi tiết tài khoản (UC-132). Hệ thống gửi mã đến email đã đăng ký và chủ tài khoản dùng mã để tự đặt mật khẩu mới. Luồng, quyền và ngoại lệ nằm trong [Report 3](docs/01_bao_cao/WMSD_Report3_Fix.docx.txt).
 - Chứng từ đã ghi tồn, snapshot, kết quả đếm và lịch sử duyệt giữ dấu vết. Sửa sai dùng phiếu đảo/điều chỉnh có nguồn và kiểm phụ thuộc.
 - Tệp/bằng chứng theo quyền phiếu và kho. Không lộ giá mua, giá bán hoặc chứng cứ nội bộ qua DTO, export hay audit ngoài quyền.
 - Email/notification qua outbox sau commit. Lỗi gửi thư chỉ thử gửi lại.

@@ -78,16 +78,41 @@ export function beginStock(document, user, operation, input) {
     requestHash, performedBy: user._id, occurredAt: new Date(), recordedAt: new Date(), movements: [] });
 }
 
-// Whole portions retain identity. Splitting sealed groups retains the measured
-// carton specification. Loose/open packaging needs a fresh measurement to split.
-export function splitPortions(portions, quantity, actorId) {
+// Outbound may open cartons using conservative volume bounds; other movements
+// keep the existing whole-carton / whole-measured-portion restriction.
+export function splitPortions(portions, quantity, actorId, { allowOpening = false } = {}) {
   let remaining = exact(quantity);
   const kept = [], taken = [];
-  for (const original of portions) {
+  const ordered = allowOpening ? [...portions].sort((a, b) => Number(a.packagingState === 'SEALED') - Number(b.packagingState === 'SEALED')) : portions;
+  for (const original of ordered) {
     const portion = original.toObject ? original.toObject() : { ...original };
     const available = exact(portion.quantityBase);
     if (remaining.isZero()) { kept.push(portion); continue; }
     if (remaining.gte(available)) { taken.push(portion); remaining = remaining.minus(available); continue; }
+    if (allowOpening && (portion.packagingState !== 'SEALED' || portion.measuredVolumeMm3 != null || exact(portion.extraOccupiedVolumeMm3 || '0').gt(0) || !remaining.div(String(portion.packagingSnapshot?.baseUnitsPerPackage || '1')).isInteger())) {
+      const snapshot = portion.packagingSnapshot;
+      const cartonVolume = snapshot?.outerLengthMm && snapshot.outerWidthMm && snapshot.outerHeightMm
+        ? exact(String(snapshot.outerLengthMm)).mul(String(snapshot.outerWidthMm)).mul(String(snapshot.outerHeightMm)) : null;
+      const perPack = exact(String(snapshot?.baseUnitsPerPackage || '1'));
+      const cartonBound = cartonVolume?.mul(available.div(perPack).ceil());
+      let bound = portion.measuredVolumeMm3 ?? portion.volumeUpperBoundMm3 ?? cartonBound?.toFixed();
+      if (portion.packagingState === 'SEALED' && cartonBound && (bound == null || cartonBound.gt(String(bound)))) bound = cartonBound.toFixed();
+      if (bound == null || !exact(bound).gt(0)) throw validationError('Thiếu kích thước hoặc giới hạn thể tích đã biết để mở/tách thùng');
+      const open = (qty, id, upperBound) => ({ ...portion, _id: id, packagingState: portion.packagingState === 'LOOSE' ? 'LOOSE' : 'OPEN', quantityBase: qty.toFixed(),
+        sealedPackCount: undefined, measuredVolumeMm3: undefined, extraOccupiedVolumeMm3: undefined,
+        volumeUpperBoundMm3: exact(upperBound).plus(String(portion.extraOccupiedVolumeMm3 || '0')).mul(1000000).ceil().div(1000000).toFixed(), updatedBy: actorId });
+      if (portion.packagingState === 'SEALED' && cartonVolume && portion.measuredVolumeMm3 == null && !exact(portion.extraOccupiedVolumeMm3 || '0').gt(0)) {
+        const wholeTaken = remaining.dividedToIntegerBy(perPack), looseTaken = remaining.mod(perPack), wholeKept = exact(portion.sealedPackCount).minus(wholeTaken).minus(1);
+        if (wholeTaken.gt(0)) taken.push({ ...portion, _id: newId(), sealedPackCount: wholeTaken.toNumber(), quantityBase: wholeTaken.mul(perPack).toFixed(), updatedBy: actorId });
+        taken.push(open(looseTaken, newId(), cartonVolume));
+        if (wholeKept.gt(0)) kept.push({ ...portion, sealedPackCount: wholeKept.toNumber(), quantityBase: wholeKept.mul(perPack).toFixed(), updatedBy: actorId });
+        kept.push(open(perPack.minus(looseTaken), wholeKept.gt(0) ? newId() : portion._id, cartonVolume));
+      } else {
+        taken.push(open(remaining, newId(), bound));
+        kept.push(open(available.minus(remaining), portion._id, bound));
+      }
+      remaining = exact('0'); continue;
+    }
     if (portion.packagingState !== 'SEALED' || portion.measuredVolumeMm3 != null || exact(portion.extraOccupiedVolumeMm3 ?? '0').gt(0)) {
       throw validationError('Phần hàng mở/lẻ cần được đo và tách quy cách trước khi chuyển một phần');
     }
@@ -100,13 +125,22 @@ export function splitPortions(portions, quantity, actorId) {
   if (!remaining.isZero()) throw validationError('Quy cách tồn không đủ số lượng');
   return { kept, taken };
 }
+export function retainPortions(balance, kept) {
+  const keptIds = new Set(kept.map(row => String(row._id)));
+  balance.packagingPortions.pull(...balance.packagingPortions.filter(row => !keptIds.has(String(row._id))).map(row => row._id));
+  for (const portion of kept) {
+    const retained = balance.packagingPortions.id(portion._id);
+    if (!retained) { balance.packagingPortions.push(portion); continue; }
+    for (const field of ['quantityBase', 'packagingState', 'sealedPackCount', 'measuredVolumeMm3', 'volumeUpperBoundMm3', 'extraOccupiedVolumeMm3', 'updatedBy']) retained[field] = portion[field];
+  }
+}
 async function saveBalance(balance, beforeVersion, session) {
   await balance.validate();
   const result = await InventoryBalance.updateOne({ _id: balance._id, version: beforeVersion },
     { $set: { quantityBase: balance.quantityBase, packagingPortions: balance.packagingPortions }, $inc: { version: 1 } }, { session });
   if (result.matchedCount !== 1) throw versionConflict('Tồn đã thay đổi');
 }
-export async function moveStock(sourceId, destinationId, quantity, itemId, stockTransaction, user, session, { preserveReservations = false, excludeTaskId } = {}) {
+export async function moveStock(sourceId, destinationId, quantity, itemId, stockTransaction, user, session, { preserveReservations = false, excludeTaskId, portionIds, allowOpening = false } = {}) {
   if (same(sourceId, destinationId)) throw validationError('Nguồn và đích phải khác nhau');
   const source = await InventoryBalance.findById(sourceId).session(session);
   const destination = await InventoryBalance.findById(destinationId).session(session);
@@ -121,17 +155,13 @@ export async function moveStock(sourceId, destinationId, quantity, itemId, stock
   const pending = await unreservedPendingTaskQuantity(sourceId, session, excludeTaskId);
   if (amount.plus(pending).plus(preserveReservations ? '0' : reserved).plus(await heldQuantity(sourceId, session)).gt(from)) throw validationError('Lượng chuyển thuộc phần hàng đang bị chặn');
   if (amount.plus(pending).plus(preserveReservations ? '0' : reserved).gt(from)) throw validationError('Tồn đã được giữ hoặc lập lệnh khác');
-  const { kept, taken } = splitPortions(source.packagingPortions, amount, user._id);
+  // portionIds limits the split to the portions of one source line (e.g. one receipt line in a shared receiving balance).
+  const inPool = row => portionIds === undefined || portionIds.some(id => same(id, row._id));
+  const split = splitPortions(source.packagingPortions.filter(inPool), amount, user._id, { allowOpening });
+  const kept = [...source.packagingPortions.filter(row => !inPool(row)).map(row => row.toObject ? row.toObject() : { ...row }), ...split.kept], taken = split.taken;
   // Retain existing subdocuments rather than recasting their immutable creation
   // timestamps when an earlier portion is removed from the array.
-  const keptIds = new Set(kept.map(row => String(row._id)));
-  source.packagingPortions.pull(...source.packagingPortions.filter(row => !keptIds.has(String(row._id))).map(row => row._id));
-  for (const portion of kept) {
-    const retained = source.packagingPortions.id(portion._id);
-    retained.quantityBase = portion.quantityBase;
-    if (portion.sealedPackCount != null) retained.sealedPackCount = portion.sealedPackCount;
-    if (portion.updatedBy) retained.updatedBy = portion.updatedBy;
-  }
+  retainPortions(source, kept);
   destination.packagingPortions.push(...taken);
   source.quantityBase = from.minus(amount).toFixed(); destination.quantityBase = to.plus(amount).toFixed();
   const movementId = newId();
@@ -168,32 +198,65 @@ export async function verifyCapacity(locationIds, session) {
   catch (error) { throw validationError(error.message); }
 }
 
-export async function receiveStock(balance, item, portions, posting, user, session) {
+const missingVolumeDimensions = 'Thiếu kích thước lô/sản phẩm, cần nhập thể tích thực đo';
+function isPositiveDecimal(value) {
+  const decimal = exact(value ?? 0);
+  return decimal.isFinite() && decimal.gt(0);
+}
+
+function estimateVolume(state, quantity, batch, product) {
+  const dims = state === 'OPEN'
+    ? [batch?.cartonLengthMm, batch?.cartonWidthMm, batch?.cartonHeightMm]
+    : [product?.lengthMm, product?.widthMm, product?.heightMm];
+  if (!dims.every(isPositiveDecimal) || (state === 'OPEN' && !isPositiveDecimal(batch?.piecesPerCarton))) {
+    throw validationError(missingVolumeDimensions);
+  }
+  const units = state === 'OPEN' ? exact(quantity).div(batch.piecesPerCarton).ceil() : exact(quantity);
+  return dims.reduce((volume, dim) => volume.mul(String(dim)), units).toDecimalPlaces(3).toFixed();
+}
+
+export async function receiveStock(balance, item, portions, posting, user, session, condition) {
   const batch = await ProductBatch.findById(balance.batchId).session(session);
   const product = batch && await Product.findById(batch.productId).session(session);
   const amount = exact(item.qtyBase);
+  if ((!batch || !product) && (!portions?.length || portions.some(row => row.packagingState !== 'SEALED' && row.measuredVolumeMm3 == null))) {
+    throw validationError(missingVolumeDimensions);
+  }
   if (!batch || batch.identificationStatus !== 'VERIFIED' || !product?.isActive || !same(batch.productId, item.productId) || (product.wholeBaseUnits && !amount.isInteger())) throw validationError('Lô hoặc lượng nhập không hợp lệ');
   let packaging = portions;
   if (!packaging?.length) {
-    const perCarton = exact(String(batch.piecesPerCarton));
-    const fullCartons = amount.dividedToIntegerBy(perCarton);
-    const looseQty = amount.mod(perCarton);
-    const packagingSnapshot = { packageUnit: 'Thùng', baseUnitsPerPackage: String(batch.piecesPerCarton),
-      outerLengthMm: batch.cartonLengthMm, outerWidthMm: batch.cartonWidthMm, outerHeightMm: batch.cartonHeightMm };
-    packaging = [];
-    if (fullCartons.gt(0)) {
-      packaging.push({ packagingState: 'SEALED', sealedPackCount: fullCartons.toNumber(), quantityBase: fullCartons.mul(perCarton).toFixed(), packagingSnapshot });
-    }
-    if (looseQty.gt(0)) {
-      const cartonVolume = exact(String(batch.cartonLengthMm)).mul(String(batch.cartonWidthMm)).mul(String(batch.cartonHeightMm));
-      const measuredVolumeMm3 = cartonVolume.mul(looseQty).div(perCarton).toDecimalPlaces(3).toFixed();
-      packaging.push({ packagingState: 'LOOSE', quantityBase: looseQty.toFixed(), measuredVolumeMm3, packagingSnapshot });
+    const cartonDims = [batch.cartonLengthMm, batch.cartonWidthMm, batch.cartonHeightMm];
+    const hasCartonSize = isPositiveDecimal(batch.piecesPerCarton) && cartonDims.every(isPositiveDecimal);
+    const packagingSnapshot = hasCartonSize ? { packageUnit: 'Thùng', baseUnitsPerPackage: String(batch.piecesPerCarton),
+      outerLengthMm: batch.cartonLengthMm, outerWidthMm: batch.cartonWidthMm, outerHeightMm: batch.cartonHeightMm } : undefined;
+    if (condition === 'LOOSE' || ['OPENED', 'TORN', 'UNKNOWN'].includes(condition)) {
+      packaging = [{ packagingState: condition === 'LOOSE' ? 'LOOSE' : 'OPEN', quantityBase: amount.toFixed(), packagingSnapshot }];
+    } else {
+      if (!isPositiveDecimal(batch.piecesPerCarton)) throw validationError(missingVolumeDimensions);
+      const perCarton = exact(batch.piecesPerCarton);
+      const fullCartons = amount.dividedToIntegerBy(perCarton);
+      const looseQty = amount.mod(perCarton);
+      packaging = [];
+      if (fullCartons.gt(0)) {
+        if (!hasCartonSize) throw validationError(missingVolumeDimensions);
+        packaging.push({ packagingState: 'SEALED', sealedPackCount: fullCartons.toNumber(), quantityBase: fullCartons.mul(perCarton).toFixed(), packagingSnapshot });
+      }
+      if (looseQty.gt(0)) {
+        packaging.push({ packagingState: 'LOOSE', quantityBase: looseQty.toFixed(), packagingSnapshot });
+      }
     }
   }
   if (!packaging.reduce((sum,row) => sum.plus(String(row.quantityBase)), exact('0')).eq(amount)) throw validationError('Tổng quy cách khác lượng thực nhập');
+  const received = packaging.map(row => ({
+    ...row,
+    ...(row.packagingState !== 'SEALED' && row.measuredVolumeMm3 == null
+      ? { measuredVolumeMm3: estimateVolume(row.packagingState, row.quantityBase, batch, product) }
+      : {}),
+    _id: newId(),
+    createdBy: user._id,
+  }));
   const before = exact(balance.quantityBase);
   balance.quantityBase = before.plus(amount).toFixed();
-  const received=packaging.map(row => ({ ...row, _id: newId(), createdBy: user._id }));
   balance.packagingPortions.push(...received);
   await saveBalance(balance, balance.version, session);
   posting.movements.push({ transactionId: posting._id, lineNo: posting.movements.length + 1,

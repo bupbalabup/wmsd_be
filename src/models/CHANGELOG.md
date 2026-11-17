@@ -1,3 +1,23 @@
+## 17/11/2026 — Outbound carton opening
+
+User permits fractional cartons and carton opening for issues. Embedded packaging portions add optional Decimal128 volumeUpperBoundMm3 (mm³), absent by default, for OPEN/LOOSE fragments. Capacity uses actual measurement first, then the conservative bound; splitting retains safe bounds without inventing measured volume. Quantities, whole cartons and residual identity remain exact. No collection/index change, backfill or remote DB write. Default relocation/receiving splitting is unchanged. Unit and isolated issue transaction tests cover opening, loose-first reuse, unknown-volume rejection and capacity overflow. Current contract: ../../git_doc/docs/08_api/GOODS_ISSUES.md.
+
+## 16/11/2026 — Goods Issue manual references and Sales approval
+
+User explicitly replaces the mandatory internal sale-order prerequisite with manual MISA eShop order references, product quantities and notes. SalesGoodsIssue now accepts GI_OTHER alongside GI_SALE; header.issueKind adds OTHER (SALE remains default), optional referenceNo max160 and reasonText max500. Optional approvedBy(User)/approvedAt record the same-document PENDING_APPROVAL → DRAFT transition. SalesGoodsIssueDetails.outboundDeliveryLineId is optional for manual planned rows, still checked at legacy command boundaries. No new collection/index, required field on old documents, backfill or stored ID rewrite. New GI_OTHER numbering uses PXK and the existing transactional allocator. Updated MODEL_MAP, current Data Dictionary and Goods Issue contract with its relationship diagram and compatibility notes. Isolated integration tests exercise source-free creation/approval/picking/posting and legacy compatibility; no remote write.
+
+## 16/11/2026 - Hàng lẻ và thể tích chiếm chỗ
+
+`inspection-details.schema.js` và `return-inspection-portions.schema.js` nhận thêm `LOOSE` từ `PACKAGING_CONDITIONS`. `inventory_balances.packagingPortions[].measuredVolumeMm3` lưu giá trị thực đo hoặc giá trị ước tính lúc ghi tồn. Dữ liệu cũ vẫn hợp lệ và không cần migration. Xem [hợp đồng ước tính](../../git_doc/docs/08_api/NATIVE_MODEL_RUNTIME.md#mua-và-nhập).
+
+## 16/11/2026 — Lý do quyết định từng dòng 2.000 ký tự
+
+`approval-history-item-decisions.schema.js`: `reason` tăng từ 1.000 lên 2.000 ký tự để khớp API duyệt RR và quyết định giữ hộ (trước đây lý do 1.001–2.000 ký tự làm lỗi khi lưu; giữ hộ phải cắt còn 1.000). Không đổi field, index; dữ liệu cũ hợp lệ, không cần migration. `capacity.js`: portion `SEALED` luôn tính tối thiểu thể tích thùng ngoài × số thùng.
+
+## 16/11/2026 — PO hủy được và giải phóng RR; index danh sách RR
+
+`purchase_orders.replenishmentRequestId` chuyển từ bắt buộc sang tùy chọn. Hủy PO (`DRAFT`, hoặc `OPEN` chưa có chứng từ nhận) gỡ trường này để RR lập PO mới; unique index một phần trên trường giữ nguyên nên vẫn chỉ một PO còn hiệu lực cho mỗi RR. `sources[]` và `items[].requestItemId` giữ liên kết lịch sử. Dữ liệu cũ hợp lệ, không cần migration. `replenishment_requests` thêm index `{documentKind:1, "header.warehouseId":1, createdAt:-1, _id:-1}` cho danh sách; `createIndexes` khi triển khai sẽ tạo index này.
+
 ## 14/11/2026 — Ràng buộc qtyBase của dòng chứng từ
 
 `document-item.schema.js` chấp nhận `qtyBase` bằng `enteredQty × baseUnitsPerUnit` hoặc bằng `ceil(round(tích, 6))` (số nguyên) để lưu được dòng theo đơn vị diện tích. Không đổi field, index hay dữ liệu cũ. Xem [CONVERSIONS](../../git_doc/docs/08_api/CONVERSIONS.md).
@@ -5,6 +25,10 @@
 ## 14/11/2026 — uoms.areaMm2
 
 `uoms` thêm `areaMm2` (Decimal128 dương, tùy chọn, mặc định null, bất biến): mm² của một đơn vị, M2 = 1000000. Dữ liệu cũ hợp lệ (null); `backfillConversions --apply` gán 1000000 cho UOM M2/M². Không thêm collection hay index. Quy tắc tự sinh quy đổi và làm tròn tới viên: [CONVERSIONS](../../git_doc/docs/08_api/CONVERSIONS.md).
+
+## 13/11/2026 — Stocktake reconciliation metadata
+
+13/11/2026: `stocktake-header.schema.js` (header của `stocktakes`) thêm `selectedCounts[]` (`snapshotId`, `countId`), `lastReconciledBy`, `lastReconciledAt` để ghi kết quả đối chiếu BF-05; chốt UC-93 yêu cầu đã đối chiếu và `selectedCounts` khớp. Trường nhúng tùy chọn, không đổi collection/index, không cần migration; đợt cũ chưa đối chiếu phải đối chiếu lại trước khi chốt. Snapshot `origin: DISCOVERED` (đã có trong model) nay được tạo bởi lệnh đếm hàng phát hiện ngoài sổ. Chi tiết [vòng đời kiểm kê](../../git_doc/docs/08_api/STOCKTAKE_LIFECYCLE.md).
 
 ## 12/11/2026 — Mã chứng từ nối bằng dấu gạch ngang
 

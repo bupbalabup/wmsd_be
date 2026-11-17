@@ -175,7 +175,7 @@ test('five receipt APIs, per-kind rights and OTHER correction flow', { skip: !en
   assert.equal(replacedReverse.status, 200, JSON.stringify(replacedReverse.body));
   const changed = await api('POST', '/goods-receipts/other', worker,
     { ...createBody, operationKey: key(), originalReceiptId: String(replacementDoc._id),
-      lines: [{ ...createBody.lines[0], enteredQty: '8' }] });
+      lines: [{ ...createBody.lines[0], enteredQty: '9' }] });
   assert.equal(changed.status, 200, JSON.stringify(changed.body));
   let changedDoc = await m.OtherGoodsReceipt.findById(changed.body.data.id);
   const proof3 = await m.Attachment.create({ ownerDocumentType: 'goods_receipts', ownerDocumentId: changedDoc._id,
@@ -193,5 +193,14 @@ test('five receipt APIs, per-kind rights and OTHER correction flow', { skip: !en
     { expectedVersion: 2, operationKey: key(), decision: 'APPROVE', reason: 'Duyệt lượng mới' })).status, 200);
   assert.equal((await api('POST', `/goods-receipts/other/${changedDoc._id}/post`, worker,
     { expectedVersion: 3, operationKey: key() })).status, 200);
-  assert.equal(String((await m.InventoryBalance.findById(targetId)).quantityBase), '8');
+  const balance = await m.InventoryBalance.findById(targetId);
+  assert.equal(String(balance.quantityBase), '9');
+  assert.deepEqual(balance.packagingPortions.map(portion => ({
+    state: portion.packagingState,
+    qty: String(portion.quantityBase),
+    volume: portion.measuredVolumeMm3?.toString(),
+  })), [
+    { state: 'SEALED', qty: '8', volume: undefined },
+    { state: 'LOOSE', qty: '1', volume: '3600000' },
+  ]);
 });

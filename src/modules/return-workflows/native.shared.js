@@ -5,7 +5,7 @@ import { ApiError, validationError, notFoundError, versionConflict } from '../..
 import { requirePermission, requireWarehouseAccess, canAccessWarehouse, hasPermission } from '../../shared/utils/access.js';
 import { command, newId, same, saveVersion, checkVersion, hash } from '../../shared/utils/document-command.js';
 import { transaction, serialize } from '../../shared/utils/persistence.js';
-import { balanceAt, sourceContext, guardLocations, locationAt, beginStock, splitPortions, remainingReservation, pendingTaskQuantity, heldQuantity, verifyCapacity, receiveStock } from '../../shared/utils/stock.js';
+import { balanceAt, sourceContext, guardLocations, locationAt, beginStock, splitPortions, retainPortions, remainingReservation, pendingTaskQuantity, heldQuantity, verifyCapacity, receiveStock } from '../../shared/utils/stock.js';
 export { m, exact, ApiError, validationError, notFoundError, versionConflict, requirePermission, requireWarehouseAccess, canAccessWarehouse, hasPermission, command, newId, same, saveVersion, checkVersion, hash, transaction, serialize, balanceAt, sourceContext, guardLocations, locationAt, beginStock, splitPortions, remainingReservation, pendingTaskQuantity, heldQuantity, verifyCapacity, receiveStock };
 export const resources = {
  'defects': [m.DefectReport,'defect:read'], 'customer-returns': [m.CustomerReturn,'customer_return:read'],
@@ -92,7 +92,7 @@ export async function issueSource(itemId,user,session) {
  const delivered=sum(so.deliveryConfirmations.filter(c=>c.workflowStatus==='CONFIRMED').flatMap(c=>c.items).filter(i=>same(i.details.salesIssueLineId,itemId)));
  return {doc,item,od,odItem,wir,wirItem,so,soItem,issued,delivered};
 }
-export async function takeStock(balanceId,quantity,itemId,posting,user,session,{holdId,reservationDocumentId}={}) {
+export async function takeStock(balanceId,quantity,itemId,posting,user,session,{holdId,reservationDocumentId,allowOpening=false}={}) {
  const ctx=await sourceContext(balanceId,session),{balance,location,product}=ctx;
  if(!location)throw validationError('Tồn nguồn không nằm trong ô kho');requireWarehouseAccess(user,location.warehouseId);await guardLocations([location._id],session);
  const amount=exact(quantity),before=exact(balance.quantityBase);
@@ -101,11 +101,9 @@ export async function takeStock(balanceId,quantity,itemId,posting,user,session,{
  const own=reservations.filter(r=>same(r.demandRef.documentId,reservationDocumentId)),other=reservations.filter(r=>!same(r.demandRef.documentId,reservationDocumentId));
  const blocked=await heldQuantity(balanceId,session,holdId),pending=await pendingTaskQuantity(balanceId,session);
  if(amount.plus(sum(other.map(r=>({qtyBase:remainingReservation(r)})))).plus(blocked).plus(pending).gt(before))throw validationError('Không đủ tồn tự do hoặc tồn đang bị chặn');
- const {kept,taken}=splitPortions(balance.packagingPortions,amount,user._id);balance.quantityBase=before.minus(amount).toFixed();
+ const {kept,taken}=splitPortions(balance.packagingPortions,amount,user._id,{allowOpening});balance.quantityBase=before.minus(amount).toFixed();
  // Keep subdocument identity when consuming an earlier arrival, as moveStock does.
- const keptIds=new Set(kept.map(row=>String(row._id)));
- balance.packagingPortions.pull(...balance.packagingPortions.filter(row=>!keptIds.has(String(row._id))).map(row=>row._id));
- for(const portion of kept){const retained=balance.packagingPortions.id(portion._id);retained.quantityBase=portion.quantityBase;if(portion.sealedPackCount!=null)retained.sealedPackCount=portion.sealedPackCount;if(portion.updatedBy)retained.updatedBy=portion.updatedBy;}
+ retainPortions(balance,kept);
  await balance.validate();
  // The document is validated above; native persistence preserves each retained
  // portion's timestamps instead of applying array-replacement timestamps.

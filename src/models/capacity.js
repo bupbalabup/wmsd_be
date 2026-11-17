@@ -44,13 +44,18 @@ export function checkBinCapacity(data) {
         assertBatchPackaging(batch,portion.packagingSnapshot);
         if(!estimateCartonCapacity(location,warehouse,batch).fits)throw new Error('Carton dimensions do not fit bin');
       }
-      if (portion.measuredVolumeMm3 != null) {
-        volume = volume.plus(String(portion.measuredVolumeMm3));
-      } else {
+      if (portion.packagingState === 'SEALED') {
+        // Intact cartons occupy at least their outer size; a smaller declared volume must not free space.
         const p = portion.packagingSnapshot;
-        if (portion.packagingState !== 'SEALED' || !p?.outerLengthMm || !p.outerWidthMm || !p.outerHeightMm) throw new Error('Packaging volume measurement required');
+        if (!p?.outerLengthMm || !p.outerWidthMm || !p.outerHeightMm) throw new Error('Packaging volume measurement required');
         if (!exact(portion.quantityBase).eq(exact(p.baseUnitsPerPackage).mul(portion.sealedPackCount))) throw new Error('Sealed carton quantity mismatch');
-        volume = volume.plus(exact(p.outerLengthMm).mul(String(p.outerWidthMm)).mul(String(p.outerHeightMm)).mul(portion.sealedPackCount));
+        const cartons = exact(p.outerLengthMm).mul(String(p.outerWidthMm)).mul(String(p.outerHeightMm)).mul(portion.sealedPackCount);
+        const measured = portion.measuredVolumeMm3 != null ? exact(String(portion.measuredVolumeMm3)) : cartons;
+        volume = volume.plus(measured.gt(cartons) ? measured : cartons);
+      } else {
+        const knownVolume = portion.measuredVolumeMm3 ?? portion.volumeUpperBoundMm3;
+        if (knownVolume == null) throw new Error('Packaging volume measurement required');
+        volume = volume.plus(String(knownVolume));
       }
       volume = volume.plus(String(portion.extraOccupiedVolumeMm3 || 0));
     }

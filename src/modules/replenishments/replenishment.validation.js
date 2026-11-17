@@ -4,7 +4,8 @@ import { decimalStringSchema } from "../../shared/utils/domain.js";
 
 export const objectIdSchema = z
   .string()
-  .regex(/^[a-f\d]{24}$/i, "ObjectId không hợp lệ");
+  .regex(/^[a-f\d]{24}$/i, "ObjectId không hợp lệ")
+  .transform((value) => value.toLowerCase());
 const positiveInteger = (fallback, max = Number.MAX_SAFE_INTEGER) =>
   z
     .string()
@@ -175,7 +176,7 @@ const updateLineSchema = z
     productId: objectIdSchema,
     enteredUnit: z.string().trim().min(1).max(60), lotId: objectIdSchema.optional(),
     enteredQty: lineQty,
-    reasonNote: reasonNote.optional(),
+    reasonNote: reasonNote.nullable().optional(),
     source: sourceSchema.optional(),
     ...assessmentFields,
   })

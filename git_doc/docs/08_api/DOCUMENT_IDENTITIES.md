@@ -3,6 +3,9 @@
 Chứng từ mới dùng mã phiếu dạng `LoạiPhiếu-MãKhoHoặcBộPhận-YYMMDD-SốThứTự`. Dấu nối giữa các phần là `-` liền.
 
 Ví dụ `ĐMH-K-GACH-01-261113-000001` và `YCĐC-KG1-261113-000001`.
+Quyết định 16/11/2026: GI_OTHER dùng tiền tố `PXK` (ví dụ `PXK-K-GACH-01-261116-000001`),
+GI_SALE tiếp tục dùng `PXB`. Cả hai thuộc SalesGoodsIssue/sales_goods_issues và dùng
+cùng bộ cấp số transaction; duyệt phiếu giữ nguyên ID, không cấp lại số hoặc tạo bản sao.
 
 - Ngày dùng múi giờ Asia/Ho_Chi_Minh và gồm hai số cuối năm, tháng, ngày.
 - Loại phiếu là mã tiếng Việt khai báo trong src/shared/utils/document-number.js; không dùng mã ngẫu nhiên hoặc mã theo ObjectId.

@@ -8,7 +8,7 @@ export function createApprovalHistoryItemDecisionsSchema() {
       itemId: id(),
       approvedQtyBase: decimal(),
       outcome: text(40),
-      reason: str(1000),
+      reason: str(2000),
     },
     embeddedOptions,
   );

@@ -10,6 +10,7 @@ import { validationError, notFoundError } from '../../shared/utils/ApiError.js';
 import { guardLocations, sourceContext, freeQuantity, locationAt, balanceAt, beginStock, moveStock, remainingReservation, verifyCapacity } from '../../shared/utils/stock.js';
 import { orderSource, redactPrices } from './sales-read.service.js';
 import { escapeRegex } from '../../shared/utils/domain.js';
+import { issueSource } from '../goods-issues/goods-issue.service.js';
 const sum = (rows, field) => rows.reduce((n, row) => n.plus(String(row[field])), exact('0'));
 function unique(rows, key) { if (new Set(rows.map(r => r[key])).size !== rows.length)
     throw validationError('Không được lặp dòng nguồn'); }
@@ -44,10 +45,7 @@ async function taskSource(user, id, session) {
     if (!task)
         throw notFoundError();
     requireWarehouseAccess(user, task.header.warehouseId);
-    const issue = await m.SalesGoodsIssue.findById(task.sources[0].documentId).session(session);
-    if (!issue)
-        throw notFoundError();
-    return { task, issue, ...await deliverySource(user, issue.header.deliveryOrderId, session) };
+    return { task, ...await issueSource(user, task.sources[0].documentId, session) };
 }
 async function committed(order, session) {
     const requests = await m.WarehouseIssueRequest.find({ 'header.salesOrderId': order._id, workflowStatus: { $ne: 'CANCELLED' } }).session(session);
@@ -296,7 +294,7 @@ export function confirmPicking(user, id, input) {
             const dest = await balanceAt({ type: 'LOCATION', locationId: item.details.toLocationId }, ctx.balance, 'GOOD', session);
             reservation.movedQty = exact(reservation.movedQty).plus(row.qtyBase).toFixed();
             await saveVersion(reservation, reservation.version, session);
-            await moveStock(ctx.balance._id, dest._id, row.qtyBase, item._id, posting, actor, session, { excludeTaskId: task._id });
+            await moveStock(ctx.balance._id, dest._id, row.qtyBase, item._id, posting, actor, session, { excludeTaskId: task._id, allowOpening: true });
             await new m.StockReservation({ demandRef: reservation.demandRef, executionRef: { documentType: 'sales_goods_issues', documentId: issue._id, itemId: item.sources[0].itemId }, balanceId: dest._id, reservedQty: row.qtyBase, previousReservationId: reservation._id, originMovementId: posting.movements.at(-1)._id, creationKey: hash({ posting: String(posting._id), item: String(item._id) }), createdBy: actor._id }).save({ session });
             destinations.push(item.details.toLocationId);
         }
@@ -355,5 +353,5 @@ export async function listPicking(user, query) { requirePermission(user, 'pickin
 } if (query.status)
     filter.workflowStatus = query.status; if (query.q)
     filter.documentNo = new RegExp(escapeRegex(query.q), 'i'); return page(m.TransferOrder, filter, query); }
-export async function getPicking(user, id) { requirePermission(user, 'picking_task:read'); return transaction(async (session) => { const { task, issue, delivery } = await taskSource(user, id, session); const postings = await m.StockTransaction.find({ sourceId: task._id, operation: 'SALES_PICK' }).session(session); return { ...dto(task), issue: redactedIssue(user, issue), deliveryId: String(delivery._id), items: task.items.map(i => ({ ...dto(i), actualQtyBase: sum(postings.flatMap(p => p.movements).filter(v => same(v.sourceLineId, i._id)), 'quantityBase').toFixed() })) }; }); }
+export async function getPicking(user, id) { requirePermission(user, 'picking_task:read'); return transaction(async (session) => { const { task, issue, delivery } = await taskSource(user, id, session); const postings = await m.StockTransaction.find({ sourceId: task._id, operation: 'SALES_PICK' }).session(session); return { ...dto(task), issue: redactedIssue(user, issue), deliveryId: delivery ? String(delivery._id) : null, items: task.items.map(i => ({ ...dto(i), actualQtyBase: sum(postings.flatMap(p => p.movements).filter(v => same(v.sourceLineId, i._id)), 'quantityBase').toFixed() })) }; }); }
 function redactedIssue(user, issue) { return ['OWNER', 'ACCOUNTANT', 'SALES'].includes(currentRole(user)?.code) ? dto(issue) : redactPrices(dto(issue)); }
