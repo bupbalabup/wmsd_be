@@ -33,10 +33,19 @@ Các model có `documentNo` dùng `DocumentIdentity` cho `_id`. Kiểu này hỗ
 ## Toàn bộ collection
 
 BF04 (07/11/2026): `internal_transfer_requirements.header.sourceDocumentId` có
-unique partial index khi là ObjectId; `transfer_orders.header.requirementId`
+unique partial index cho DocumentIdentity chuỗi/ObjectId; `transfer_orders.header.requirementId`
 có cùng ràng buộc. Một nguồn sinh một ITR, một ITR sinh một TO. RELOCATE không
 có requirementId. Trước triển khai index lên DB đã có dữ liệu, rà và xử lý
 nguồn/requirement trùng; không tự xóa bản ghi hoặc dựng lại DB.
+
+BF04 lifecycle (17/11/2026): posting a GOOD transfer receipt automatically creates
+an OPEN ITR/PUTAWAY TO with header source links and empty items while destinations
+are unplanned. Receipt lines remain authoritative for product/lot/quantity and
+receiving balances. Confirmation fills the existing item/source/detail fields after
+destination selection and posts stock atomically, then completes the request when
+ready. No fake/null required location, new field, model, collection, index or schema
+migration is introduced. Existing planned TOs remain readable/confirmable; historical
+receipts without an ITR use the explicit legacy open-task command. See [BF04 API](docs/08_api/transfers/BF04_API.md).
 
 | Collection | Một bản ghi dùng để làm gì | Nơi bắt đầu đọc trong src/models |
 |---|---|---|
