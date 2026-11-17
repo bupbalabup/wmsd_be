@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import { Warehouse } from '../../models/runtime.js';
 import { dto, serialize } from './persistence.js';
+import { movementSummaryProjection,movementFullProjection } from './movement-read-fields.js';
 
 export const movementListFields = {
   q: z.string().trim().min(1).max(80).optional(),
+  view: z.enum(['summary','full']).optional(),
   from: z.iso.datetime({ offset: true }).optional(),
   to: z.iso.datetime({ offset: true }).optional(),
   sortBy: z.enum(['createdAt', 'documentNo', 'workflowStatus', 'warehouse', 'destinationWarehouse']).default('createdAt'),
@@ -25,17 +27,18 @@ export function movementListPipeline(scope, query, warehouseFields, warehouseCol
   if (query.from || query.to) filters.createdAt = { ...(query.from && { $gte: new Date(query.from) }), ...(query.to && { $lte: new Date(query.to) }) };
   const sortField = query.sortBy === 'warehouse' ? warehouseFields[0] : query.sortBy === 'destinationWarehouse' ? warehouseFields.at(-1) : null;
   const lookups = sortField ? [
-    { $lookup: { from: warehouseCollection, localField: sortField, foreignField: '_id', as: '_sortWarehouse' } },
+    { $lookup: { from: warehouseCollection, localField: sortField, foreignField: '_id', pipeline:[{$project:{name:1}}], as: '_sortWarehouse' } },
     { $set: { _warehouseName: { $ifNull: [{ $arrayElemAt: ['$_sortWarehouse.name', 0] }, ''] } } },
   ] : [];
   const direction = query.sortOrder === 'asc' ? 1 : -1;
   return [{ $match: scope }, { $facet: {
     summary: [{ $group: { _id: '$workflowStatus', count: { $sum: 1 } } }],
     warehouses: [{ $project: { ids: warehouseFields.map(field => '$' + field) } }, { $unwind: '$ids' },
-      { $group: { _id: '$ids' } }, { $lookup: { from: warehouseCollection, localField: '_id', foreignField: '_id', as: 'warehouse' } },
+      { $group: { _id: '$ids' } }, { $lookup: { from: warehouseCollection, localField: '_id', foreignField: '_id', pipeline:[{$project:{_id:1,name:1,code:1}}], as: 'warehouse' } },
       { $unwind: '$warehouse' }, { $replaceRoot: { newRoot: '$warehouse' } }, { $project: { _id: 1, name: 1, code: 1 } }, { $sort: { name: 1, _id: 1 } }],
     items: [{ $match: filters }, ...lookups, { $sort: { [sortField ? '_warehouseName' : query.sortBy || 'createdAt']: direction, _id: -1 } },
-      { $skip: ((query.page || 1) - 1) * (query.limit || 20) }, { $limit: Number(query.limit || 20) }, { $project: { _sortWarehouse: 0, _warehouseName: 0 } }],
+      { $skip: ((query.page || 1) - 1) * (query.limit || 20) }, { $limit: Number(query.limit || 20) },
+      { $project: query.view==='summary'?movementSummaryProjection:movementFullProjection }],
     total: [{ $match: filters }, { $count: 'value' }],
   } }];
 }

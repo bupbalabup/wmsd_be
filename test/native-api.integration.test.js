@@ -408,8 +408,7 @@ run('retiring purchase putaway previews changes and preserves partially moved st
  assert.equal((await m.Permission.findById(legacyPermission._id)).isActive, false);
  assert.deepEqual((await runScript('--apply')).tasks, []);
 });
-
-run('BF03 confirms one complete relocation only and an idempotent retry posts once',async()=>{
+run('BF03 whole-carton confirmation stays compatible and an idempotent retry posts once',async()=>{
  const relocations=await import('../src/modules/location-movements/location-movement.service.js');
  const overflow=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'BF03-ALT',locationType:'STORAGE',usableLengthMm:'5000',usableWidthMm:'5000'});
  const point=await m.StockHoldingPoint.findOne({locationId:storageLocation._id});
@@ -422,7 +421,7 @@ run('BF03 confirms one complete relocation only and an idempotent retry posts on
  const other=await m.User.findById(otherRaw._id).populate({path:'roleId',populate:{path:'permissionIds'}});
  await assert.rejects(relocations.confirmLocationMovement(other,created.id,{idempotencyKey:key(),expectedVersion:1,lines:[{lineId:String((await m.TransferOrder.findById(created.id)).items[0]._id),actualQtyBase:'4'}]}),/người lập/);
  const open=await m.TransferOrder.findById(created.id);
- await assert.rejects(relocations.confirmLocationMovement(worker,created.id,{idempotencyKey:key(),expectedVersion:open.version,lines:[{lineId:String(open.items[0]._id),actualQtyBase:'1'}]}),/bằng lượng lệnh/);
+ await assert.rejects(relocations.confirmLocationMovement(worker,created.id,{idempotencyKey:key(),expectedVersion:open.version,lines:[{lineId:String(open.items[0]._id),actualQtyBase:'1'}]}),/nguyên thùng/);
  const confirmInput={idempotencyKey:key(),expectedVersion:open.version,lines:[{lineId:String(open.items[0]._id),actualQtyBase:'4'}]};
  await relocations.confirmLocationMovement(worker,created.id,confirmInput);
  await relocations.confirmLocationMovement(worker,created.id,confirmInput);
@@ -476,6 +475,18 @@ run('PO exposes hasOpenReceivingWork for draft inspections without changing its 
 });
 run('native transfer dispatch, independent receipt and putaway reconcile all movement legs',async()=>{
  const transfers=await import('../src/modules/transfers/transfer-write.service.js');
+ const differences=await import('../src/modules/transfers/transfer-differences.js');
+ const initialPoint=await m.StockHoldingPoint.findOne({locationId:storageLocation._id});
+ const initialBalance=initialPoint&&await m.InventoryBalance.findOne({holdingPointId:initialPoint._id,batchId:batch._id,qualityStatus:'GOOD',ownerType:'STORE'});
+ // Bootstrap stock only when running this scenario alone in the isolated test database.
+ if(!initialBalance||Number(initialBalance.quantityBase)<8){
+   const receipt=await postedReceipt();
+   const posting=await m.StockTransaction.findById(receipt.stockTransactionId);
+   const stock=await m.InventoryBalance.findById(posting.movements[0].toBalanceId);
+   const move=await createLocationMovement(worker,{idempotencyKey:key(),warehouseId:String(warehouse._id),reason:'BF04 isolated fixture',lines:[{sourceBalanceId:String(stock._id),sourceBalanceVersion:stock.version,toLocationId:String(storageLocation._id),enteredUnit:'PIECE',enteredQty:'8'}]});
+   const task=await m.TransferOrder.findById(move.id);
+   await confirmLocationMovement(worker,move.id,{idempotencyKey:key(),expectedVersion:task.version,lines:[{lineId:String(task.items[0]._id),actualQtyBase:'8'}]});
+ }
  const destination=await m.Warehouse.create({code:'DEST',name:'Destination',lengthMm:'10000',widthMm:'10000',clearHeightMm:'3000'});
  const staging=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'OUT',locationType:'STAGING',usableLengthMm:'5000',usableWidthMm:'5000'});
  const inbound=await m.WarehouseLocation.create({warehouseId:destination._id,code:'IN',locationType:'RECEIVING',usableLengthMm:'5000',usableWidthMm:'5000'});
@@ -496,6 +507,8 @@ run('native transfer dispatch, independent receipt and putaway reconcile all mov
  const pick=await transfers.createRequirement(worker,dispatch.id,{idempotencyKey:key(),expectedVersion:1});
  await transfers.confirmTask(worker,pick.id,{idempotencyKey:key(),expectedVersion:1,recipientName:'Transporter'});
  let shipped=await m.TransferDispatch.findById(dispatch.id);assert.equal(shipped.handovers.length,1);
+ await assert.rejects(differences.proposeDifference(worker,dispatch.id,{idempotencyKey:key(),expectedVersion:shipped.version,reason:'Source cannot report',lines:[{dispatchLineId:String(shipped.items[0]._id),qtyBase:'4'}]}),error=>error.statusCode===403);
+ await assert.rejects(differences.proposeDifference(owner,dispatch.id,{idempotencyKey:key(),expectedVersion:shipped.version,reason:'Global view is not destination assignment',lines:[{dispatchLineId:String(shipped.items[0]._id),qtyBase:'4'}]}),error=>error.statusCode===403);
  const eligible = { receivable: 'true', page: 1, limit: 10, destinationWarehouseId: String(destination._id), status: ['POSTED', 'DRAFT'] };
  assert.deepEqual((await reads.listDispatches(actor, eligible)).items.map(row => row._id), [dispatch.id]);
  assert.equal((await reads.listDispatches(worker, eligible)).total, 0);
@@ -505,10 +518,21 @@ run('native transfer dispatch, independent receipt and putaway reconcile all mov
  const received=await transfers.receiveTransfer(actor,dispatch.id,{idempotencyKey:key(),expectedVersion:shipped.version,lines:[{dispatchLineId:String(shipped.items[0]._id),locationId:String(inbound._id),qtyBase:'8',qualityCode:'GOOD'}]});
  assert.equal((await reads.listDispatches(actor, eligible)).total, 0);
  const receivingDoc=await m.TransferReceipt.findById(received.id);
- const putting=await transfers.createRequirement(actor,received.id,{idempotencyKey:key(),expectedVersion:1,destinations:[{receiptLineId:String(receivingDoc.items[0]._id),locationId:String(target._id)}]});
- assert.equal((await m.TransferOrder.findById(putting.id)).header.taskKind, 'PUTAWAY');
- await transfers.confirmTask(actor,putting.id,{idempotencyKey:key(),expectedVersion:1});
- const current=await m.WarehouseTransferRequest.findById(request.id);await transfers.closeRequest(actor,request.id,{idempotencyKey:key(),expectedVersion:current.version});
+ const autoRequirement=await m.InternalTransferRequirement.findOne({'header.sourceDocumentId':received.id});
+ const putting=await m.TransferOrder.findOne({'header.requirementId':autoRequirement._id});
+ assert.equal(putting.header.taskKind,'PUTAWAY');assert.equal(putting.items.length,0);
+ assert.equal((await m.WarehouseTransferRequest.findById(request.id)).workflowStatus,'APPROVED');
+ const sameTask=await transfers.createRequirement(actor,received.id,{idempotencyKey:key(),expectedVersion:1});
+ assert.equal(sameTask.id,String(putting._id));assert.equal(await m.InternalTransferRequirement.countDocuments({'header.sourceDocumentId':received.id}),1);
+ await assert.rejects(reads.getPutawayTask(worker,String(putting._id)));
+ const taskView=await reads.getPutawayTask(actor,String(putting._id));assert.equal(taskView.lines[0].toLocationId,null);
+ assert.equal(taskView.warehouseLabel,destination.name);assert.equal(taskView.lines[0].lotLabel,batch.manufacturerLot);assert.equal(taskView.lines[0].fromLocationLabel,inbound.code);
+ await assert.rejects(transfers.confirmTask(actor,String(putting._id),{idempotencyKey:key(),expectedVersion:1}),/vị trí đích/);
+ await assert.rejects(transfers.confirmTask(actor,String(putting._id),{idempotencyKey:key(),expectedVersion:1,destinations:[{receiptLineId:String(receivingDoc.items[0]._id),locationId:String(storageLocation._id)}]}));
+ assert.equal((await m.TransferOrder.findById(putting._id)).items.length,0);
+ const putInput={idempotencyKey:key(),expectedVersion:1,destinations:[{receiptLineId:String(receivingDoc.items[0]._id),locationId:String(target._id)}]};
+ await transfers.confirmTask(actor,String(putting._id),putInput);await transfers.confirmTask(actor,String(putting._id),putInput);
+ assert.equal(await m.StockTransaction.countDocuments({sourceId:putting._id}),1);
  assert.equal((await m.WarehouseTransferRequest.findById(request.id)).workflowStatus,'COMPLETED');assert.deepEqual((await reconcilePurchasing()).issues,[]);
  const reverseStaging=await m.WarehouseLocation.create({warehouseId:destination._id,code:'BACK-OUT',locationType:'STAGING',usableLengthMm:'5000',usableWidthMm:'5000'});
  const quarantine=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'BF04-Q',locationType:'QUARANTINE',usableLengthMm:'5000',usableWidthMm:'5000'});
@@ -518,13 +542,27 @@ run('native transfer dispatch, independent receipt and putaway reconcile all mov
  const reverseDispatch=await transfers.createDispatch(actor,reverseRequest.id,{idempotencyKey:key(),expectedVersion:reverseDoc.version,lines:[{requestLineId:String(reverseDoc.items[0]._id),sourceBalanceId:String(targetBalance._id),stagingLocationId:String(reverseStaging._id),qtyBase:'4'}]});
  const reversePick=await transfers.createRequirement(actor,reverseDispatch.id,{idempotencyKey:key(),expectedVersion:1});
  await transfers.confirmTask(actor,reversePick.id,{idempotencyKey:key(),expectedVersion:1,recipientName:'Return carrier'});
- const reverseShipped=await m.TransferDispatch.findById(reverseDispatch.id);
+ let reverseShipped=await m.TransferDispatch.findById(reverseDispatch.id);
+ const discrepancy=await differences.proposeDifference(worker,reverseDispatch.id,{idempotencyKey:key(),expectedVersion:reverseShipped.version,reason:'Destination reported missing before final inspection',lines:[{dispatchLineId:String(reverseShipped.items[0]._id),qtyBase:'4'}]});
+ reverseShipped=await m.TransferDispatch.findById(reverseDispatch.id);
  const damagedReceipt=await transfers.receiveTransfer(worker,reverseDispatch.id,{idempotencyKey:key(),expectedVersion:reverseShipped.version,lines:[{dispatchLineId:String(reverseShipped.items[0]._id),locationId:String(quarantine._id),qtyBase:'4',qualityCode:'DAMAGED',damageReason:'Damaged in test'}]});
- await assert.rejects(transfers.createRequirement(worker,damagedReceipt.id,{idempotencyKey:key(),expectedVersion:1,destinations:[]}),/không cần lệnh xếp hàng/);
  assert.equal(await m.InternalTransferRequirement.countDocuments({'header.sourceDocumentId':damagedReceipt.id}),0);
- const requestToClose=await m.WarehouseTransferRequest.findById(reverseRequest.id);
- await transfers.closeRequest(worker,reverseRequest.id,{idempotencyKey:key(),expectedVersion:requestToClose.version});
+ assert.equal((await m.WarehouseTransferRequest.findById(reverseRequest.id)).workflowStatus,'APPROVED');
+ await differences.reviewDifference(owner,discrepancy.id,{idempotencyKey:key(),expectedVersion:1,decision:'APPROVE',reason:'Receipt resolves the reported difference',receiptId:damagedReceipt.id});
  assert.equal((await m.WarehouseTransferRequest.findById(reverseRequest.id)).workflowStatus,'COMPLETED');
+ const partial=await transfers.createRequest(actor,{idempotencyKey:key(),sourceWarehouseId:String(destination._id),destinationWarehouseId:String(warehouse._id),reason:'Partial completion remains explicit',lines:[{productId:String(product._id),enteredUnit:'PIECE',enteredQty:'8'}]});
+ await transfers.reviewRequest(owner,partial.id,{idempotencyKey:key(),expectedVersion:1,decision:'APPROVE',reason:'Approved partial fixture'});
+ const partialReq=await m.WarehouseTransferRequest.findById(partial.id),remaining=await m.InventoryBalance.findOne({holdingPointId:(await m.StockHoldingPoint.findOne({locationId:target._id}))._id,batchId:batch._id});
+ const partDispatch=await transfers.createDispatch(actor,partial.id,{idempotencyKey:key(),expectedVersion:partialReq.version,lines:[{requestLineId:String(partialReq.items[0]._id),sourceBalanceId:String(remaining._id),stagingLocationId:String(reverseStaging._id),qtyBase:'4'}]});
+ const partPick=await transfers.createRequirement(actor,partDispatch.id,{idempotencyKey:key(),expectedVersion:1});
+ await transfers.confirmTask(actor,partPick.id,{idempotencyKey:key(),expectedVersion:1,recipientName:'Partial carrier'});
+ const partShipped=await m.TransferDispatch.findById(partDispatch.id);
+ const partReceipt=await transfers.receiveTransfer(worker,partDispatch.id,{idempotencyKey:key(),expectedVersion:partShipped.version,lines:[{dispatchLineId:String(partShipped.items[0]._id),locationId:String(receivingLocation._id),qtyBase:'4',qualityCode:'GOOD'}]});
+ const partRequirement=await m.InternalTransferRequirement.findOne({'header.sourceDocumentId':partReceipt.id}),partTask=await m.TransferOrder.findOne({'header.requirementId':partRequirement._id}),partReceived=await m.TransferReceipt.findById(partReceipt.id);
+ await transfers.confirmTask(worker,String(partTask._id),{idempotencyKey:key(),expectedVersion:1,destinations:[{receiptLineId:String(partReceived.items[0]._id),locationId:String(storageLocation._id)}]});
+ const beforePartialClose=await m.WarehouseTransferRequest.findById(partial.id);assert.equal(beforePartialClose.workflowStatus,'APPROVED');
+ const closed=await transfers.closePartialRequest(worker,partial.id,{idempotencyKey:key(),expectedVersion:beforePartialClose.version,reason:'Stop after one trip'});
+ assert.equal(closed.workflowStatus,'COMPLETED');assert.equal((await reads.getTransfer(worker,partial.id)).lineProgress[0].dispatchedQtyBase,'4');assert.equal((await m.WarehouseTransferRequest.findById(partial.id)).header.closureMode,'PARTIAL');
 });
 
 run('purchase and custody intake estimate occupied volume and retain measured overrides', async () => {

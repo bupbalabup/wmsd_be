@@ -1,4 +1,5 @@
 import { nextDocumentFields } from '../../shared/utils/document-number.js';
+import { completeTransferIfReady,completionBlocker,putawayBlocker } from './transfer-completion.js';
 import { WarehouseTransferRequest as Request, TransferDispatch as Dispatch, TransferReceipt as Receipt,
   InternalTransferRequirement as Requirement, TransferOrder as Task, Warehouse, ApprovalHistory,
   StockHoldingPoint, InventoryBalance, StockReservation, StockDiscrepancy, DefectReport } from '../../models/runtime.js';
@@ -32,6 +33,39 @@ async function taskReplay(id,user,session) {
   return task;
 }
 const document=async(Model,prefix,user,header,session,items=[],status='OPEN')=>new Model({...await nextDocumentFields(Model,prefix,header.warehouseId||header.sourceWarehouseId,session),workflowStatus:status,version:1,createdBy:user._id,header,items});
+async function automaticPutaway(receipt,actor,session) {
+  if(!receipt.items.some(item=>item.details.qualityCode!=='DAMAGED'))return null;
+  const existing=await Requirement.findOne({'header.sourceDocumentId':receipt._id}).session(session);
+  if(existing)return {requirement:existing,task:await Task.findOne({'header.requirementId':existing._id}).session(session)};
+  const requirement=await document(Requirement,'ITR',actor,{warehouseId:receipt.header.warehouseId,sourceDocumentId:receipt._id,sourceType:receipt.constructor.collection.name,taskKind:'PUTAWAY'},session);
+  const task=await document(Task,'TO',actor,{warehouseId:receipt.header.warehouseId,taskKind:'PUTAWAY',assignedTo:actor._id,requirementId:requirement._id},session);
+  // No physical target is invented: task lines are planned when the receiver selects destinations.
+  requirement.sources=[sourceLink(receipt)];task.sources=[sourceLink(requirement)];
+  await requirement.save({session});await task.save({session});return {requirement,task};
+}
+async function planPutaway(task,requirement,receipt,destinations,session) {
+  const rows=receipt.items.filter(item=>item.details.qualityCode!=='DAMAGED');
+  if(destinations.length!==rows.length||new Set(destinations.map(row=>String(row.receiptLineId))).size!==rows.length||destinations.some(row=>!rows.some(item=>same(item._id,row.receiptLineId))))throw validationError('Chọn vị trí đích cho tất cả dòng hàng tốt');
+  if(task.items.length){
+    for(const item of task.items){
+      const source=item.sources.find(link=>same(link.documentId,receipt._id));
+      const selected=destinations.find(row=>same(row.receiptLineId,source?.itemId));
+      if(!selected)throw validationError('Dòng cất hàng không khớp phiếu nhận');
+      await locationAt(selected.locationId,task.header.warehouseId,['STORAGE'],session);
+      item.details.toLocationId=selected.locationId;
+    }
+    return;
+  }
+  for(const [i,row]of rows.entries()){
+    const ctx=await sourceContext(row.details.destinationBalanceId,session);
+    if(ctx.balance.qualityStatus!=='GOOD'||ctx.balance.ownerType!=='STORE'||!same(ctx.batch._id,row.lotId)||!same(ctx.product._id,row.productId)||ctx.location?.locationType!=='RECEIVING')throw validationError('Tồn cất hàng không khớp phiếu nhận hàng tốt');
+    const selected=destinations.find(value=>same(value.receiptLineId,row._id));
+    const target=await locationAt(selected.locationId,task.header.warehouseId,['STORAGE'],session);
+    if(!ctx.location||!same(ctx.location.warehouseId,task.header.warehouseId)||same(ctx.location._id,target._id))throw validationError('Vị trí nguồn hoặc đích không hợp lệ');
+    const fields={lineNo:i+1,lineKind:'WAREHOUSE_TASK',sources:[sourceLink(receipt,row,row.qtyBase)],details:{sourceBalanceId:ctx.balance._id,sourceBalanceVersion:ctx.balance.version,fromLocationId:ctx.location._id,toLocationId:target._id,qualityCode:ctx.balance.qualityStatus}};
+    requirement.items.push(copyItem(row,row.qtyBase,fields));task.items.push(copyItem(row,row.qtyBase,fields));
+  }
+}
 export function createRequest(user,input) {
   return command(user,'CREATE_TRANSFER_REQUEST','stock_transfer:create',null,input,requestReplay,async(session,actor)=>{
     requireWarehouseAccess(actor,input.sourceWarehouseId);
@@ -88,11 +122,21 @@ export function createRequirement(user,id,input) {
   return command(user,'CREATE_TRANSFER_REQUIREMENT','stock_transfer:read',id,input,taskReplay,async(session,actor)=>{
     let source=await Dispatch.findById(id).session(session),picking=Boolean(source);
     if(!source)source=await find(Receipt,id,session);
-    checkVersion(source,input.expectedVersion);
     const outbound=picking?source:await find(Dispatch,source.header.dispatchId,session);
     const request=await find(Request,outbound.header.requestId,session);
     requirePermission(actor,picking?'stock_transfer:dispatch':'stock_transfer:receive');
     const warehouseId=picking?request.header.sourceWarehouseId:request.header.destinationWarehouseId;requireWarehouseAccess(actor,warehouseId);
+    if(!picking&&!input.destinations){
+      const existing=await Requirement.findOne({'header.sourceDocumentId':source._id}).session(session);
+      if(existing){const task=await Task.findOne({'header.requirementId':existing._id}).session(session);if(!task)throw validationError('Yêu cầu nội bộ thiếu TO');return {document:task,versionBefore:task.version};}
+      checkVersion(source,input.expectedVersion);
+      if(source.workflowStatus!=='POSTED'||request.workflowStatus!=='APPROVED')throw validationError('Nguồn chưa đủ điều kiện');
+      await saveVersion(request,request.version,session);await saveVersion(source,source.version,session);
+      const created=await automaticPutaway(source,actor,session);
+      if(!created)throw validationError('Phiếu nhận toàn hàng lỗi không cần lệnh xếp hàng');
+      return {document:created.task,resultRefs:[{documentType:'internal_transfer_requirements',documentId:created.requirement._id,revision:created.requirement.version}]};
+    }
+    checkVersion(source,input.expectedVersion);
     if(source.workflowStatus!==(picking?'DRAFT':'POSTED')||request.workflowStatus!=='APPROVED')throw validationError('Nguồn chưa đủ điều kiện');
     // Lock the source document before checking the one-to-one relationship. A
     // concurrent creator will retry against the new version and see the ITR.
@@ -129,11 +173,15 @@ export function confirmTask(user,id,input) {
     const task=await taskReplay(id,actor,session);checkVersion(task,input.expectedVersion);
     if(task.workflowStatus!=='OPEN'||!task.header.requirementId)throw validationError('Lệnh không còn mở hoặc không thuộc BF04');
     const requirement=await find(Requirement,task.header.requirementId,session),picking=task.header.taskKind==='PICK';
+    if(picking&&input.destinations)throw validationError('Đích cất hàng chỉ dùng cho TO PUTAWAY');
     requirePermission(actor,picking?'stock_transfer:dispatch':'stock_transfer:receive');
     const source=await find(picking?Dispatch:Receipt,requirement.header.sourceDocumentId,session);
     const outbound=picking?source:await find(Dispatch,source.header.dispatchId,session),request=await find(Request,outbound.header.requestId,session);
     if(request.workflowStatus!=='APPROVED'||source.workflowStatus!==(picking?'DRAFT':'POSTED')||requirement.workflowStatus!=='OPEN')throw validationError('Nguồn không còn hiệu lực');
     if(picking&&!same(outbound.createdBy,actor._id))throw forbiddenError('Chỉ người lập phiếu xuất được xác nhận');
+    await saveVersion(request,request.version,session);
+    if(!picking&&input.destinations)await planPutaway(task,requirement,source,input.destinations,session);
+    if(!picking&&!task.items.length)throw validationError('Chọn vị trí đích cho tất cả dòng hàng tốt');
     const locations=task.items.flatMap(item=>[item.details.fromLocationId,item.details.toLocationId]);await guardLocations(locations,session);
     if(picking&&!input.recipientName?.trim())throw validationError('Cần tên người nhận bàn giao');
     if(picking){const reservations=await StockReservation.find({'executionRef.documentType':'transfer_orders','executionRef.documentId':task._id}).session(session);for(const r of reservations){r.consumedQty=exact(r.consumedQty).plus(remainingReservation(r)).toFixed();r.updatedBy=actor._id;await saveVersion(r,r.version,session);}}
@@ -150,10 +198,39 @@ export function confirmTask(user,id,input) {
       }
     }
     await verifyCapacity(locations,session);await posting.save({session});
-    if(picking){outbound.handovers ??= [];outbound.handovers.push({...await nextDocumentFields(Dispatch,'HO',outbound.header.sourceWarehouseId,session),workflowStatus:'CONFIRMED',version:1,createdBy:actor._id,header:{relatedDocumentId:outbound._id,recipientName:input.recipientName,vehiclePlate:input.vehiclePlate,handedOverAt:new Date(),confirmedBy:actor._id},items:outbound.items.map((i,index)=>copyItem(i,i.qtyBase,{lineNo:index+1,sources:[sourceLink(outbound,i,i.qtyBase)]}))});outbound.workflowStatus='POSTED';outbound.header.dispatchedBy=actor._id;outbound.header.dispatchedAt=new Date();outbound.stockTransactionId=posting._id;await saveVersion(outbound,outbound.version,session);}
+    if(picking){outbound.handovers ??= [];outbound.handovers.push({...await nextDocumentFields(Dispatch,'HO',outbound.header.sourceWarehouseId,session),workflowStatus:'CONFIRMED',version:1,createdBy:actor._id,header:{relatedDocumentId:outbound._id,recipientName:input.recipientName,vehiclePlate:input.vehiclePlate,handedOverAt:new Date(),confirmedBy:actor._id},items:outbound.items.map((i,index)=>copyItem(i,i.qtyBase,{lineNo:index+1,sources:[sourceLink(outbound,i,i.qtyBase)]}))});outbound.workflowStatus='POSTED';outbound.header.dispatchedBy=actor._id;outbound.header.dispatchedAt=new Date();outbound.stockTransactionId=posting._id;await saveVersion(outbound,outbound.version,session);
+      let draftReceipt = await Receipt.findOne({ 'header.dispatchId': outbound._id, workflowStatus: 'DRAFT' }).session(session);
+      if (!draftReceipt) {
+        draftReceipt = await document(
+          Receipt,
+          'MWTR',
+          actor,
+          {
+            dispatchId: outbound._id,
+            warehouseId: request.header.destinationWarehouseId,
+            receivedBy: actor._id,
+            receivedAt: new Date(),
+          },
+          session,
+          outbound.items.map((origin, index) =>
+            copyItem(origin, origin.qtyBase, {
+              lineNo: index + 1,
+              lineKind: 'TRANSFER_RECEIPT',
+              sources: [sourceLink(outbound, origin, origin.qtyBase)],
+              details: { dispatchLineId: origin._id, qualityCode: 'GOOD' },
+            }),
+          ),
+          'DRAFT',
+        );
+        draftReceipt.sources = [sourceLink(outbound)];
+        await draftReceipt.save({ session });
+      }
+    }
     requirement.workflowStatus='COMPLETED';await saveVersion(requirement,requirement.version,session);
     task.workflowStatus='CONFIRMED';task.header.confirmedBy=actor._id;task.header.confirmedAt=new Date();task.stockTransactionId=posting._id;
-    return{document:await saveVersion(task,input.expectedVersion,session),versionBefore:input.expectedVersion,stockTransactionId:posting._id};
+    const saved=await saveVersion(task,input.expectedVersion,session);
+    if(!picking)await completeTransferIfReady(request,actor,session);
+    return{document:saved,versionBefore:input.expectedVersion,stockTransactionId:posting._id};
   });
 }
 export function receiveTransfer(user,id,input) {
@@ -162,8 +239,37 @@ export function receiveTransfer(user,id,input) {
     const request=await find(Request,outbound.header.requestId,session);requireWarehouseAccess(actor,request.header.destinationWarehouseId);
     if(outbound.workflowStatus!=='POSTED'||request.workflowStatus!=='APPROVED')throw validationError('Nguồn chưa thực xuất hoặc đã đóng');
     if(same(outbound.header.dispatchedBy,actor._id))throw forbiddenError('Người nhận phải khác người xuất');
+    await saveVersion(request,request.version,session);
     await guardLocations(input.lines.map(row=>row.locationId),session);
-    const receipt=await document(Receipt,'MWTR',actor,{dispatchId:outbound._id,warehouseId:request.header.destinationWarehouseId,receivedBy:actor._id,receivedAt:new Date()},session,[],'POSTED');
+    const now = new Date();
+    const existingDraft = await Receipt.findOne({ 'header.dispatchId': outbound._id, workflowStatus: 'DRAFT' }).session(session);
+    const receipt = existingDraft ?? await document(
+      Receipt,
+      'MWTR',
+      actor,
+      {
+        dispatchId: outbound._id,
+        warehouseId: request.header.destinationWarehouseId,
+        receivedBy: actor._id,
+        receivedAt: now,
+      },
+      session,
+      [],
+      'POSTED',
+    );
+    if (existingDraft) {
+      receipt.workflowStatus = 'POSTED';
+      receipt.postedBy = actor._id;
+      receipt.postedAt = now;
+      receipt.occurredAt = now;
+      receipt.header.receivedBy = actor._id;
+      receipt.header.receivedAt = now;
+      receipt.header.damageReportIds = [];
+      receipt.items = [];
+    } else {
+      receipt.postedBy = actor._id;
+      receipt.postedAt = now;
+    }
     const posting=beginStock(receipt,actor,'TRANSFER_RECEIPT',input);
     for(const [i,row]of input.lines.entries()){
       const origin=outbound.items.id(row.dispatchLineId);if(!origin)throw validationError('Dòng không thuộc phiếu xuất');
@@ -181,26 +287,55 @@ export function receiveTransfer(user,id,input) {
     }
     await verifyCapacity(input.lines.map(row=>row.locationId),session);await posting.save({session});
     receipt.stockTransactionId=posting._id;receipt.sources=[sourceLink(outbound)];await receipt.save({session});
+    const putaway=await automaticPutaway(receipt,actor,session);
     await saveVersion(outbound,outbound.version,session);
-    return{document:receipt,stockTransactionId:posting._id};
+    const remainingItems = [];
+    for (const origin of outbound.items) {
+      const point = await StockHoldingPoint.findOne({ type: 'IN_TRANSIT', dispatchLineId: origin._id }).session(session);
+      const transit = point && await InventoryBalance.findOne({
+        holdingPointId: point._id,
+        batchId: origin.lotId,
+        ownerType: 'STORE',
+        qualityStatus: 'GOOD',
+      }).session(session);
+      if (transit && exact(transit.quantityBase).gt(0)) {
+        remainingItems.push(
+          copyItem(origin, String(transit.quantityBase), {
+            lineNo: remainingItems.length + 1,
+            lineKind: 'TRANSFER_RECEIPT',
+            sources: [sourceLink(outbound, origin, String(transit.quantityBase))],
+            details: { dispatchLineId: origin._id, qualityCode: 'GOOD' },
+          }),
+        );
+      }
+    }
+    if (remainingItems.length) {
+      const nextDraft = await document(
+        Receipt,
+        'MWTR',
+        actor,
+        {
+          dispatchId: outbound._id,
+          warehouseId: request.header.destinationWarehouseId,
+          receivedBy: actor._id,
+          receivedAt: now,
+        },
+        session,
+        remainingItems,
+        'DRAFT',
+      );
+      nextDraft.sources = [sourceLink(outbound)];
+      await nextDraft.save({ session });
+    }
+    await completeTransferIfReady(request,actor,session);
+    return{document:receipt,stockTransactionId:posting._id,...(putaway&&{resultRefs:[{documentType:'transfer_orders',documentId:putaway.task._id,revision:putaway.task.version}]})};
   });
 }
 export function closeRequest(user,id,input) {
   return command(user,'CLOSE_TRANSFER_REQUEST','stock_transfer:receive',id,input,requestReplay,async(session,actor)=>{
     const request=await find(Request,id,session);checkVersion(request,input.expectedVersion);requireWarehouseAccess(actor,request.header.destinationWarehouseId);
     if(request.workflowStatus!=='APPROVED')throw validationError('Yêu cầu không còn mở');
-    const dispatches=await Dispatch.find({'header.requestId':id,workflowStatus:{$ne:'CANCELLED'}}).session(session);
-    if(!dispatches.length||dispatches.some(row=>row.workflowStatus!=='POSTED'))throw validationError('Còn phiếu xuất chưa hoàn tất');
-    for(const item of request.items){
-      const shipped=dispatches.flatMap(row=>row.items).filter(row=>same(row.details.requestLineId,item._id)).reduce((sum,row)=>sum.plus(String(row.qtyBase)),exact('0'));
-      if(!shipped.eq(String(item.approvedQtyBase)))throw validationError('Chưa xuất đủ lượng duyệt');
-    }
-    if(await StockDiscrepancy.exists({'header.sourceRef.documentId':{$in:dispatches.map(d=>d._id)},workflowStatus:{$ne:'RESOLVED'}}).session(session))throw validationError('Còn hồ sơ chênh lệch chưa giải quyết');
-    const points=await StockHoldingPoint.find({dispatchLineId:{$in:dispatches.flatMap(row=>row.items.map(item=>item._id))}}).session(session);
-    if(await InventoryBalance.exists({holdingPointId:{$in:points.map(row=>row._id)},quantityBase:{$gt:0}}).session(session))throw validationError('Còn hàng đang chuyển hoặc chênh lệch chưa giải quyết');
-    const receipts=await Receipt.find({'header.dispatchId':{$in:dispatches.map(row=>row._id)},workflowStatus:'POSTED'}).session(session);
-    if(!receipts.length)throw validationError('Chưa nhận hàng');
-    for(const receipt of receipts)if(receipt.items.some(i=>i.details.qualityCode!=='DAMAGED')&&!await Requirement.exists({'header.sourceDocumentId':receipt._id,workflowStatus:'COMPLETED'}).session(session))throw validationError('Chưa cất xong mọi phiếu nhận');
+    const blocker=await completionBlocker(request,session);if(blocker)throw validationError(blocker);
     request.workflowStatus='COMPLETED';request.header.closedBy=actor._id;request.header.closedAt=new Date();
     return{document:await saveVersion(request,input.expectedVersion,session),versionBefore:input.expectedVersion};
   });
@@ -217,9 +352,9 @@ export function closePartialRequest(user,id,input) {
     if(await StockDiscrepancy.exists({'header.sourceRef.documentId':{$in:dispatches.map(d=>d._id)},workflowStatus:{$ne:'RESOLVED'}}).session(session))throw validationError('Còn hồ sơ chênh lệch chưa giải quyết');
     const receipts=await Receipt.find({'header.dispatchId':{$in:dispatches.map(row=>row._id)},workflowStatus:'POSTED'}).session(session);
     if(!receipts.length)throw validationError('Chưa nhận hàng tại kho đích');
-    for(const receipt of receipts)if(receipt.items.some(i=>i.details.qualityCode!=='DAMAGED')&&!await Requirement.exists({'header.sourceDocumentId':receipt._id,workflowStatus:'COMPLETED'}).session(session))throw validationError('Chưa cất xong mọi phiếu nhận');
+    const pendingPutaway=await putawayBlocker(receipts,session,dispatches.map(row=>row._id));if(pendingPutaway)throw validationError(pendingPutaway);
     const shipped=request.items.map(item=>{const dispatched=dispatches.flatMap(row=>row.items).filter(row=>same(row.details.requestLineId,item._id)).reduce((sum,row)=>sum.plus(String(row.qtyBase)),exact('0'));return {itemId:item._id,approvedQtyBase:String(item.approvedQtyBase),dispatchedQtyBase:dispatched.toFixed(),shortfallQtyBase:exact(String(item.approvedQtyBase)).minus(dispatched).toFixed()};});
-    if(!shipped.some(row=>exact(row.shortfallQtyBase).gt(0)))throw validationError('Đơn đã đủ lượng duyệt; hãy dùng thao tác hoàn tất thông thường');
+    if(!shipped.some(row=>exact(row.shortfallQtyBase).gt(0)))throw validationError('Đơn đã đủ lượng duyệt; hệ thống tự hoàn tất khi các TO và kiểm nhận đã xong');
     request.workflowStatus='COMPLETED';request.header.closedBy=actor._id;request.header.closedAt=new Date();request.header.closureMode='PARTIAL';request.header.closureReason=input.reason;
     return{document:await saveVersion(request,input.expectedVersion,session),versionBefore:input.expectedVersion,shipped};
   });

@@ -20,7 +20,7 @@ router.put('/:id', handle(validation.updateRequestBody, service.updateRequest));
 router.post('/:id/review', handle(validation.reviewBody, service.reviewRequest));
 router.post('/:id/outbound-deliveries', handle(validation.dispatchBody, service.createDispatch));
 router.post('/documents/:id/internal-requirements', handle(validation.requirementBody, service.createRequirement));
-router.post('/tasks/:id/confirm', handle(validation.commandBody, service.confirmTask));
+router.post('/tasks/:id/confirm', handle(validation.taskConfirmBody, service.confirmTask));
 router.post('/dispatches/:id/cancel', handle(validation.cancelDispatchBody, service.cancelDraftDispatch));
 router.post('/dispatches/:id/receipts', handle(validation.receiptBody, service.receiveTransfer));
 router.post('/dispatches/:id/differences', handle(difference.proposalBody, difference.proposeDifference));

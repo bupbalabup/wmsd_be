@@ -721,8 +721,8 @@ Operation/sub-operation rights require assigned warehouse, document state/versio
 | UC-68 |Confirm Picking Task [RETIRED] | — | — | — | — | — |
 | UC-69 | View goods issue list | View | Reconciliation scope | Assigned warehouse | Related progress | — |
 | UC-70 | View goods issue details | View | Reconciliation scope | Assigned warehouse | Related progress | — |
-| UC-71 | Post Actual Goods Issue | — | — | Perform within existing scope | — | — |
-| UC-72 | Prepare Goods Issue Draft | — | — | Perform within existing scope | — | — |
+| UC-71 | Create goods issue | — | — | Perform within existing scope | — | — |
+| UC-72 | Update goods issue | — | — | Perform within existing scope | — | — |
 | UC-73 | View defective goods list | View | — | View | — | — |
 | UC-74 | View defective goods details | View | — | View | — | — |
 | UC-75 | Record Defect Inspection and Immediate Hold | — | — | Perform within existing scope | — | — |
@@ -1817,7 +1817,7 @@ Alternate flows: empty→MSG-01; invalid filter→MSG-02 and no mutation; unauth
 Postconditions: Information displayed; no creation, decision, reservation, status transition or inventory movement.
 Current view expansion: distinguish actual owned/physical/available/held/custody/transit and outstanding quantity in the related source chain; do not pool ownership or treat transit as a quality grade.
 
-UC-71: Post Actual Goods Issue
+UC-71: Create goods issue
 Status: ACTIVE. Feature: FE-06.
 Primary actors and operations: Warehouse Staff — Perform.
 Screen(s): SC-17.
@@ -1831,7 +1831,7 @@ Normal flow:
 Alternate/exception flows: EX-01 permission/identity/scope rejects without disclosure; EX-02 stale version/source or quantity conflict preserves input for review; EX-03 unknown commit requires same-key lookup before retry; EX-04 freeze blocks unauthorized mutation; EX-05 evidence/output failure preserves valid state and retries output only. No direct editing of posted history.
 Postconditions / exact inventory effect: Warehouse posts a direct DRAFT goods issue from SO using actual eligible stock. Recheck source/order allowance, stock, scope, versions, packaging, holds and freeze. Post the ledger and stock deduction once; print the committed snapshot.
 
-UC-72: Prepare Goods Issue Draft
+UC-72: Update goods issue
 Status: ACTIVE. Feature: FE-06.
 Primary actors and operations: Warehouse Staff — Perform.
 Screen(s): SC-17.

@@ -47,6 +47,12 @@ GET detail exposes per-item `issuedQtyBase`, `customerReceivedQtyBase`, `undeliv
 
 New requests carry `header.intakeMode=DIRECT` regardless of whether their source is a confirmed direct issue, a historical legacy chain, or a verified historical delivery. Sales requests → Warehouse records physical condition, actual quantity and evidence → Sales accepts/rejects → Warehouse posts only the accepted amount as CUSTOMER_RETURN receipt. Inspection changes no balances and asks for no custody location. Rejected handbacks are embedded evidence/recipient/quantity events with no ledger or inventory effect. Reassessment is blocked after any posted receipt or handback. See [return workflow contract](RETURN_WORKFLOWS_NATIVE.md).
 
+## Transfer dispatch creation — 17 November 2026
+
+Latest user decision: create transfer dispatches exclusively in **Tạo phiếu xuất kho**, reason **Xuất điều chuyển**. The transfer request detail lists its dispatches/receipts and navigates to the shared create page with reason=TRANSFER and an encoded transferId; it no longer embeds stock selection or dispatch creation. The shared page selects an approved request, enters quantities for one dispatch, calls the existing native POST /warehouse-transfers/:id/outbound-deliveries, then returns to the parent request. Parent/line references, version, availability/approval caps and transactional checks are preserved. It creates a TransferDispatch, not a duplicate SalesGoodsIssue; later picking/confirmation/receiving/putaway retain their existing workflow.
+
+The create route accepts goods_issue:create or stock_transfer:dispatch. An account with only the latter sees TRANSFER only; it cannot create Sale/Other/Supplier Return/Scrap issues through this change. Approval, read scope and assigned source warehouse still apply server-side, and query parameters are only initial UI selection. No role grants or database models change. Transfer creation freezes reason, source and quantities during pending/uncertain commands, retries the same payload/key and avoids loading unrelated issue catalogues. See [BF04 current flow](transfers/BF04_API.md#main-flow).
+
 ## Persistence and compatibility
 
 No collection, stored ID rewrite or backfill. Additive optional fields:
@@ -68,9 +74,12 @@ The remaining text describes manual/external and old OD-backed issue records. It
 
 ### Previous Goods Issue — UC-69–72
 
-Decision source: user confirmation on 16/11/2026. UC-71 creates a goods issue;
-UC-72 updates its information and supported workflow states. The latest decision
-replaces the mandatory SO → WIR → OD prerequisite for new sale issues.
+- **UC-69:** View goods issue list (`GET /api/goods-issues`)
+- **UC-70:** View goods issue details (`GET /api/goods-issues/:id`)
+- **UC-71:** Create goods issue (`POST /api/goods-issues`)
+- **UC-72:** Update goods issue (`PUT /api/goods-issues/:id`, `POST /api/goods-issues/:id/approve|picking-tasks|cancel|post`)
+
+Decision source: user confirmation on 16/11/2026 & 17/11/2026. UC-71 is Create goods issue and UC-72 is Update goods issue. The latest decision replaces the mandatory SO → WIR → OD prerequisite for new sale issues.
 
 ## One create form, five reasons
 
