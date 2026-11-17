@@ -3,7 +3,7 @@ import { escapeRegex } from '../../shared/utils/domain.js';
 import mongoose from 'mongoose';
 import { movementList } from '../../shared/utils/movement-list.js';
 import { nextDocumentFields } from '../../shared/utils/document-number.js';
-import { TransferOrder, Warehouse, WarehouseLocation, InventoryBalance, StockHoldingPoint, StockTransaction, ProductBatch, Product, Uom, Conversion } from '../../models/runtime.js';
+import { TransferOrder, Warehouse, WarehouseLocation, InventoryBalance, StockHoldingPoint, StockTransaction, ProductBatch, Product, Uom, Conversion, User } from '../../models/runtime.js';
 import { exact } from '../../models/model-utils.js';
 import { requirePermission, requireWarehouseAccess, isOwner } from '../../shared/utils/access.js';
 import { notFoundError, validationError, forbiddenError, versionConflict } from '../../shared/utils/ApiError.js';
@@ -75,9 +75,10 @@ export function createLocationMovement(user, input) {
 export async function getLocationMovement(user, id) {
   requirePermission(user, 'stock_relocation:read');
   const document = await task(id,user);
-  const transactions = await StockTransaction.find({ sourceType: 'transfer_orders', sourceId: id }).lean();
+  const transactions = await StockTransaction.find({ sourceType: 'transfer_orders', sourceId: id }).sort({ occurredAt: 1, _id: 1 }).lean();
+  const performers = await User.find({ _id: { $in: transactions.map(t => t.performedBy) } }).select('_id fullName username').lean();
   const [display] = await movementDisplay([dto(document)],true);
-  return { ...display, transactions: transactions.map(dto) };
+  return { ...display, transactions: transactions.map(t => ({ ...dto(t), performedByName: performers.find(u => same(u._id, t.performedBy))?.fullName || 'Không còn trong danh mục' })) };
 }
 export async function listLocationMovements(user, query) {
   requirePermission(user, 'stock_relocation:read');
@@ -117,7 +118,7 @@ export function cancelLocationMovement(user,id,input) {
   return command(user,'CANCEL_RELOCATION','stock_relocation:create',id,input,replay,async(session,actor)=>{
     const document = await task(id,actor,session); checkVersion(document,input.expectedVersion);
     if (!same(document.createdBy,actor._id)) throw forbiddenError('Chỉ người lập được hủy lệnh');
-    if (document.workflowStatus !== 'OPEN') throw validationError('Lệnh không còn mở');
+    if (!['OPEN', 'PARTIAL'].includes(document.workflowStatus)) throw validationError('Lệnh không còn mở');
     await guardLocations(document.items.map(item=>item.details.fromLocationId),session);
     document.workflowStatus='CANCELLED'; document.cancelReason=input.reason; document.cancelledBy=actor._id; document.cancelledAt=new Date();
     return { document:await saveVersion(document,input.expectedVersion,session),versionBefore:input.expectedVersion };
@@ -127,26 +128,40 @@ export function confirmLocationMovement(user,id,input) {
   return command(user,'CONFIRM_RELOCATION','stock_relocation:confirm',id,input,replay,async(session,actor)=>{
     const document=await task(id,actor,session); checkVersion(document,input.expectedVersion);
     if (!same(document.createdBy,actor._id)) throw forbiddenError('Chỉ người lập được xác nhận lệnh');
-    if (document.workflowStatus!=='OPEN') throw validationError('Lệnh không còn mở');
-    if(input.lines.length!==document.items.length || new Set(input.lines.map(row=>row.lineId)).size!==document.items.length) throw validationError('Xác nhận toàn bộ dòng một lần');
-    for(const item of document.items) {
-      const actual=input.lines.find(row=>same(row.lineId,item._id));
-      if(!actual || !exact(actual.actualQtyBase).eq(String(item.qtyBase))) throw validationError('Lượng xác nhận phải bằng lượng lệnh');
-      const ctx=await sourceContext(item.details.sourceBalanceId,session);
-      if(ctx.balance.version!==item.details.sourceBalanceVersion) throw versionConflict('Tồn đã thay đổi; sửa lại lệnh trước khi xác nhận');
-      if(!same(ctx.batch._id,item.lotId)||ctx.balance.qualityStatus!==item.details.qualityCode) throw validationError('Tồn không khớp lệnh');
-      await locationAt(item.details.toLocationId,document.header.warehouseId,null,session);
+    if (!['OPEN', 'PARTIAL'].includes(document.workflowStatus)) throw validationError('Lệnh không còn mở');
+    if (!input.lines.length || new Set(input.lines.map(row => String(row.lineId))).size !== input.lines.length) throw validationError('Dòng xác nhận phải khác nhau');
+    const previous = await StockTransaction.find({ sourceType: 'transfer_orders', sourceId: id, operation: 'RELOCATE' }).session(session);
+    const moved = item => previous.flatMap(t => t.movements).filter(m => same(m.sourceLineId, item._id)).reduce((n, m) => n.plus(String(m.quantityBase)), exact('0'));
+    const selected = input.lines.map(actual => {
+      const item = document.items.find(i => same(i._id, actual.lineId));
+      if (!item || !/^\d{1,14}$/.test(actual.actualQtyBase) || !exact(actual.actualQtyBase).gt(0) || exact(actual.actualQtyBase).gt(exact(item.qtyBase).minus(moved(item)))) throw validationError('Lượng thực chuyển phải lớn hơn 0 và không vượt phần còn lại');
+      return { item, quantity: actual.actualQtyBase };
+    });
+    const before = await InventoryBalance.find({ _id: { $in: document.items.map(i => i.details.sourceBalanceId) } }).select('_id version').session(session);
+    for (const { item } of selected) {
+      const ctx = await sourceContext(item.details.sourceBalanceId, session);
+      if (ctx.balance.version !== item.details.sourceBalanceVersion) throw versionConflict('Tồn đã thay đổi; hủy phần còn lại và lập lại lệnh nếu đã chuyển một phần');
+      if (!same(ctx.batch._id, item.lotId) || ctx.balance.qualityStatus !== item.details.qualityCode || ctx.balance.ownerType !== item.details.ownerType || ((ctx.balance.ownerId != null || item.details.ownerId != null) && !same(ctx.balance.ownerId, item.details.ownerId))) throw validationError('Tồn không khớp lệnh');
+      await locationAt(item.details.toLocationId, document.header.warehouseId, null, session);
     }
-    const locations=document.items.flatMap(item=>[item.details.fromLocationId,item.details.toLocationId]);
-    await guardLocations(locations,session);
-    const posting=beginStock(document,actor,'RELOCATE',input);
-    for(const item of document.items) {
-      const ctx=await sourceContext(item.details.sourceBalanceId,session);
-      const destination=await balanceAt({type:'LOCATION',locationId:item.details.toLocationId},ctx.balance,ctx.balance.qualityStatus,session);
-      await moveStock(ctx.balance._id,destination._id,item.qtyBase,item._id,posting,actor,session,{preserveReservations:true,excludeTaskId:id});
+    const locations = selected.flatMap(({ item }) => [item.details.fromLocationId, item.details.toLocationId]);
+    await guardLocations(locations, session);
+    const posting = beginStock(document, actor, 'RELOCATE', input);
+    for (const { item, quantity } of selected) {
+      const ctx = await sourceContext(item.details.sourceBalanceId, session);
+      const destination = await balanceAt({ type: 'LOCATION', locationId: item.details.toLocationId }, ctx.balance, ctx.balance.qualityStatus, session);
+      await moveStock(ctx.balance._id, destination._id, quantity, item._id, posting, actor, session, { preserveReservations: true, excludeTaskId: id });
     }
-    await verifyCapacity(locations,session); await posting.save({session});
-    document.workflowStatus='CONFIRMED'; document.header.confirmedBy=actor._id; document.header.confirmedAt=new Date(); document.stockTransactionId=posting._id;
+    await verifyCapacity(locations, session); await posting.save({ session });
+    const after = await InventoryBalance.find({ _id: { $in: before.map(b => b._id) } }).select('_id version').session(session);
+    for (const item of document.items) {
+      const old = before.find(b => same(b._id, item.details.sourceBalanceId));
+      if (old && old.version === item.details.sourceBalanceVersion) item.details.sourceBalanceVersion = after.find(b => same(b._id, old._id)).version;
+    }
+    const complete = document.items.every(item => moved(item).plus(posting.movements.filter(m => same(m.sourceLineId, item._id)).reduce((n, m) => n.plus(String(m.quantityBase)), exact('0'))).eq(String(item.qtyBase)));
+    document.workflowStatus = complete ? 'CONFIRMED' : 'PARTIAL';
+    if (complete) { document.header.confirmedBy = actor._id; document.header.confirmedAt = new Date(); }
+    document.stockTransactionId = posting._id;
     return {document:await saveVersion(document,input.expectedVersion,session),versionBefore:input.expectedVersion,stockTransactionId:posting._id};
   });
 }
