@@ -36,11 +36,13 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
     const point = await m.StockHoldingPoint.create({ type: 'LOCATION', locationId: storage._id });
     const balance = await m.InventoryBalance.create({ holdingPointId: point._id, batchId: batch._id, ownerType: 'STORE', qualityStatus: 'GOOD', quantityBase: '16', version: 1,
       packagingPortions: [{ packagingState: 'SEALED', sealedPackCount: 4, quantityBase: '16', packagingSnapshot: { packageUnit: 'BOX', baseUnitsPerPackage: '4', outerLengthMm: '620', outerWidthMm: '620', outerHeightMm: '50' }, createdBy: worker._id }] });
-    const customer = await m.Customer.create({ code: 'CUS', name: 'GI customer', phone: '0900000000' });
+    assert.equal(await m.Customer.countDocuments(), 0);
     const evidenceReceipt = jwt.sign({ actorId: String(seller._id), storageKey: 'sep490/sales-source/test', checksum: 'a'.repeat(64), mediaType: 'image/png', sizeBytes: 12, originalName: 'source.png' }, process.env.JWT_SECRET, { audience: 'sales-source-evidence', expiresIn: '1h' });
-    const createdOrder = await createSalesOrder(seller, { idempotencyKey: key(), customerId: String(customer._id), neededOn: '2026-12-01T00:00:00Z', deliveryAddress: 'Test address', currencyCode: 'VND', evidenceReceipt,
+    const createdOrder = await createSalesOrder(seller, { idempotencyKey: key(), customerName: 'GI customer', customerPhone: '0900000000', neededOn: '2026-12-01T00:00:00Z', deliveryAddress: 'Test address', currencyCode: 'VND', evidenceReceipt,
       source: { sourceSystem: 'PAPER', referenceNo: 'GI-TEST-SO' }, lines: [{ sourceLineKey: '1', productId: String(product._id), lotId: String(batch._id), enteredUnit: 'PIECE', quantity: '16', unitSellingPrice: '1000' }] });
     const so = await m.SalesOrder.findById(createdOrder.id);
+    assert.equal(so.header.customerName, 'GI customer');
+    assert.equal(so.header.customerId, undefined);
 
  const input={idempotencyKey:key(),expectedVersion:so.version,salesOrderId:String(so._id),warehouseId:String(warehouse._id),lines:[{salesOrderLineId:String(so.items[0]._id),sourceBalanceId:String(balance._id),qtyBase:'8'}]};
  await assert.rejects(issues.createIssue(seller,input));
@@ -68,10 +70,10 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
  issue=await m.SalesGoodsIssue.findById(issue._id);
  await assert.rejects(confirmCustomerReceipt(seller,issue._id,{...confirm,idempotencyKey:key(),expectedVersion:issue.version}));
  await assert.rejects(receiveUndelivered(worker,issue._id,{...back,idempotencyKey:key(),expectedVersion:issue.version}));
- const sources=await lookup(seller,{kind:'sources',purpose:'customer-returns',customerId:String(customer._id),warehouseId:String(warehouse._id),page:1,limit:10});
+ const sources=await lookup(seller,{kind:'sources',purpose:'customer-returns',warehouseId:String(warehouse._id),page:1,limit:10});
  assert.equal(sources.items.find(r=>r._id===String(issue.items[0]._id)).availableQty,'4');
- const cr=await returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),customerId:String(customer._id),lines:[{salesIssueLineId:String(issue.items[0]._id),qtyBase:'4',reason:'Not needed'}]});
- let doc=await m.CustomerReturn.findById(cr.id);assert.equal(doc.header.intakeMode,'DIRECT');const claim=await m.ReturnQuantityClaim.findOne({requestLineId:doc.items[0]._id});assert.equal(claim.sourceKind,'GOODS_ISSUE');const ev=await attach(doc);
+ const cr=await returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),lines:[{salesIssueLineId:String(issue.items[0]._id),qtyBase:'4',reason:'Not needed'}]});
+ let doc=await m.CustomerReturn.findById(cr.id);assert.equal(doc.header.intakeMode,'DIRECT');assert.equal(doc.header.customerName,'GI customer');assert.equal(doc.header.customerPhone,'0900000000');assert.equal(doc.header.customerId,undefined);const claim=await m.ReturnQuantityClaim.findOne({requestLineId:doc.items[0]._id});assert.equal(claim.sourceKind,'GOODS_ISSUE');const ev=await attach(doc);
  await assert.rejects(returns.inspectCustomerReturn(worker,doc._id,{idempotencyKey:key(),expectedVersion:doc.version,evidenceIds:[String(ev._id)],lines:[{returnLineId:String(doc.items[0]._id),qtyReceived:'1.5',packagingCondition:'LOOSE',installationStatus:'UNUSED',damageCause:'NONE',deadlineStatus:'WITHIN',deadlineReference:'Store policy',assessmentReason:'Invalid fractional pieces'}]}));
  await returns.inspectCustomerReturn(worker,doc._id,{idempotencyKey:key(),expectedVersion:doc.version,evidenceIds:[String(ev._id)],lines:[{returnLineId:String(doc.items[0]._id),qtyReceived:'4',packagingCondition:'SEALED',installationStatus:'UNUSED',damageCause:'NONE',deadlineStatus:'WITHIN',deadlineReference:'Store policy',assessmentReason:'Good'}]});
  assert.equal(await m.CustodyReceipt.countDocuments(),0);
@@ -99,10 +101,11 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
  thirdIssue=await m.SalesGoodsIssue.findById(thirdIssue._id);const thirdProof=await attach(thirdIssue);
  await confirmCustomerReceipt(seller,thirdIssue._id,{...confirm,idempotencyKey:key(),expectedVersion:thirdIssue.version,receivedAt:new Date().toISOString(),evidenceIds:[String(thirdProof._id)],lines:[{lineId:String(thirdIssue.items[0]._id),qtyBase:'4'}]});
  const custodyLocation=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'LEGACY-CUSTODY',locationType:'CUSTODY',usableLengthMm:'5000',usableWidthMm:'5000'});
+ await assert.rejects(returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),qtyBase:'1',reason:'First source'},{salesIssueLineId:String(issue.items[0]._id),qtyBase:'1',reason:'Other source'}]}), /Mỗi phiếu trả chỉ dùng một chứng từ nguồn/);
  for(const legacy of [false,true]) {
-   const rejected=await returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),customerId:String(customer._id),lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),qtyBase:'2',reason:'Review rejected handback'}]});
+   const rejected=await returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),qtyBase:'2',reason:'Review rejected handback'}]});
    let rd=await m.CustomerReturn.findById(rejected.id);
-   if(legacy){rd.header.intakeMode=undefined;await rd.save();}
+   if(legacy){const oldCustomer=await m.Customer.create({code:'LEGACY',name:'Legacy custody customer',phone:'0900000001'});rd.header.customerId=oldCustomer._id;rd.header.intakeMode=undefined;await rd.save();}
    const rp=await attach(rd),inspection={idempotencyKey:key(),expectedVersion:rd.version,evidenceIds:[String(rp._id)],...(legacy&&{custodyLocationId:String(custodyLocation._id)}),lines:[{returnLineId:String(rd.items[0]._id),qtyReceived:'2',packagingCondition:'LOOSE',installationStatus:'UNUSED',damageCause:'NONE',deadlineStatus:'WITHIN',deadlineReference:'Verified policy',assessmentReason:'Returned goods'}]};
    await returns.inspectCustomerReturn(worker,rd._id,inspection);
    rd=await m.CustomerReturn.findById(rd._id);

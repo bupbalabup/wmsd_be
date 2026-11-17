@@ -67,7 +67,7 @@ export function createSalesGoodsIssueSchema() {
   });
 
   rules(schema, function () {
-    if (this.header?.fulfillmentMode === 'DIRECT' && (!this.header.salesOrderId || !this.header.customerId || this.header.deliveryOrderId || this.header.referenceNo || this.items.some(item => !item.salesOrderItemId || !item.sourceBalanceId || !item.lotId))) this.invalidate('header', 'Direct issue requires its sales order, customer and actual stock sources');
+    if (this.header?.fulfillmentMode === 'DIRECT' && (!this.header.salesOrderId || this.header.deliveryOrderId || this.header.referenceNo || this.items.some(item => !item.salesOrderItemId || !item.sourceBalanceId || !item.lotId))) this.invalidate('header', 'Direct issue requires its sales order and actual stock sources');
   });
   return schema;
 }

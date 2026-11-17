@@ -7,7 +7,7 @@ export const detailParams = z.object({ id: documentIdentifier }).strict();
 export const evidenceParams = z.object({ id: documentIdentifier, evidenceId: objectId }).strict();
 const label = (max) => z.string().trim().min(1).max(max);
 export const createOrderBody = z.object({
-  idempotencyKey: label(70), customerId: objectId, neededOn: z.iso.datetime({ offset: true }), deliveryAddress: label(500),
+  idempotencyKey: label(70), customerName: label(160), customerPhone: z.string().trim().max(30).optional(), neededOn: z.iso.datetime({ offset: true }), deliveryAddress: label(500),
   evidenceReceipt: label(4000), currencyCode: z.string().regex(/^[A-Z]{3}$/),
   source: z.object({ sourceSystem: z.enum(['MISA', 'PAPER']), referenceNo: label(100),
     referenceDate: z.iso.datetime({ offset: true }).optional(), sourceVersion: label(100).optional() }).strict(),
