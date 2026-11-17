@@ -11,15 +11,21 @@ export async function setupOpeningStock(uri, { apply = false } = {}) {
   try {
     const db = connection.db;
     const duplicates = await db.collection('opening_stocks').aggregate([
-      { $match: { workflowStatus: 'POSTED' } }, { $group: { _id: '$header.warehouseId', count: { $sum: 1 } } },
+      { $match: { workflowStatus: 'POSTED', 'header.openingImportSource': 'FILE' } }, { $group: { _id: '$header.warehouseId', count: { $sum: 1 } } },
       { $match: { $or: [{ count: { $gt: 1 } }, { _id: null }] } },
     ]).toArray();
-    if (duplicates.length) throw new Error('Resolve duplicate or unscoped posted opening documents before setup. No data changed.');
+    if (duplicates.length) throw new Error('Resolve duplicate or unscoped posted file-import opening documents before setup. No data changed.');
     const permissions = PERMISSION_CATALOGUE.filter(p => p.code.startsWith('opening_stock:'));
-    if (!apply) return { applied: false, database, permissionCodes: permissions.map(p => p.code), uniquePostedWarehouseIndex: true, ownerOnly: true };
+    if (!apply) return { applied: false, database, permissionCodes: permissions.map(p => p.code), uniquePostedFileImportWarehouseIndex: true, ownerOnly: true };
     const indexes = await db.collection('permissions').indexes();
     if (!indexes.some(index => index.unique && index.key.code === 1 && Object.keys(index.key).length === 1 && !index.sparse && !index.partialFilterExpression)) throw new Error('Existing permissions.code must have its unique index before setup.');
-    await db.collection('opening_stocks').createIndex({ 'header.warehouseId': 1 }, { unique: true, partialFilterExpression: { workflowStatus: 'POSTED' } });
+    const openingIndexes = await db.collection('opening_stocks').indexes();
+    const fileImportIndex = openingIndexes.find(index => index.name === 'opening_stock_file_import_once');
+    if (fileImportIndex && (!fileImportIndex.unique || Object.keys(fileImportIndex.key).length !== 1 || fileImportIndex.key['header.warehouseId'] !== 1 || Object.keys(fileImportIndex.partialFilterExpression || {}).length !== 2 || fileImportIndex.partialFilterExpression?.workflowStatus !== 'POSTED' || fileImportIndex.partialFilterExpression?.['header.openingImportSource'] !== 'FILE')) throw new Error('The opening-stock file-import index has unexpected options. No data changed.');
+    if (!fileImportIndex) await db.collection('opening_stocks').createIndex({ 'header.warehouseId': 1 }, { name: 'opening_stock_file_import_once', unique: true, partialFilterExpression: { workflowStatus: 'POSTED', 'header.openingImportSource': 'FILE' } });
+    const previousIndex = openingIndexes.find(index => index.unique && index.key['header.warehouseId'] === 1 && Object.keys(index.key).length === 1 && index.name === 'header.warehouseId_1');
+    if (previousIndex && (previousIndex.partialFilterExpression?.workflowStatus !== 'POSTED' || Object.keys(previousIndex.partialFilterExpression).length !== 1)) throw new Error('The previous opening-stock warehouse index has unexpected options. No data changed.');
+    if (previousIndex) await db.collection('opening_stocks').dropIndex(previousIndex.name);
     const session = await connection.startSession();
     try {
       await session.withTransaction(async () => {

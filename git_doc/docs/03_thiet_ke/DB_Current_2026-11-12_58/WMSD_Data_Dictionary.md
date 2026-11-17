@@ -6267,6 +6267,7 @@ Model: [opening-stock.model.js](../../../../src/models/opening-stock.model.js).
 | `sources[].documentId` | DocumentIdentity | true |  |
 | `header` | Embedded | true |  |
 | `header.warehouseId` | ObjectId | false | Warehouse |
+| `header.openingImportSource` | String | false | `FILE` marks file-imported opening stock for once-per-warehouse uniqueness. |
 | `header.cutoverKey` | String | false |  |
 | `header.openingAt` | Date | false |  |
 | `header.coveredLocationIds` | Array | false |  |
@@ -6351,7 +6352,7 @@ Model: [opening-stock.model.js](../../../../src/models/opening-stock.model.js).
 | `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
 
-One-time initialization: unique partial index on `header.warehouseId` where `workflowStatus=POSTED`. Install using [opening setup](../../09_phat_trien/EXCEL_OPENING_SETUP.md); never silently rebuild indexes on existing data.
+One-time file import: unique partial index on `header.warehouseId` where `workflowStatus=POSTED` and `header.openingImportSource=FILE`. Install or replace the prior broad index using [opening setup](../../09_phat_trien/EXCEL_OPENING_SETUP.md); never silently rebuild indexes on existing data.
 
 Indexes:
 
@@ -6390,6 +6391,19 @@ Indexes:
       "createdAt": -1
     },
     {}
+  ],
+  [
+    {
+      "header.warehouseId": 1
+    },
+    {
+      "name": "opening_stock_file_import_once",
+      "unique": true,
+      "partialFilterExpression": {
+        "workflowStatus": "POSTED",
+        "header.openingImportSource": "FILE"
+      }
+    }
   ]
 ]
 ```
