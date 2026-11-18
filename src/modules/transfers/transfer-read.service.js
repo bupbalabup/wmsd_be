@@ -10,6 +10,7 @@ import { requirePermission, requireWarehouseAccess, isOwner, hasPermission } fro
 import { currentRole } from '../../shared/utils/userRole.js';
 import { dto } from '../../shared/utils/persistence.js';
 import { notFoundError } from '../../shared/utils/ApiError.js';
+import { blindCountScope } from '../../shared/utils/blind-count.js';
 async function transferWarehouseDisplay(documents) {
   if(!documents.length)return [];
   const warehouses=await Warehouse.find({_id:{$in:documents.flatMap(d=>[d.header.sourceWarehouseId,d.header.destinationWarehouseId])}}).select('_id code name').lean();
@@ -166,7 +167,9 @@ export async function transferOptions(user, warehouseId, mode='stock') {
   const locations=await WarehouseLocation.find({warehouseId,isActive:true}).select(optionFields.location).lean();
   if(mode==='locations')return {warehouses:warehouses.map(dto),sourceWarehouseIds,locations:locations.map(dto),holdingPoints:[],balances:[],batches:[],products:[],units:[],conversions:[]};
   const holdingPoints=await StockHoldingPoint.find({locationId:{$in:locations.map(row=>row._id)}}).select(optionFields.point).lean();
-  const balances=await InventoryBalance.find({holdingPointId:{$in:holdingPoints.map(row=>row._id)},quantityBase:{$gt:0}}).select(optionFields.balance).lean();
+  // Locations being blind counted are frozen and their balances equal the hidden book quantity, so they are not offered.
+  const blind=await blindCountScope(user);
+  const balances=(await InventoryBalance.find({holdingPointId:{$in:holdingPoints.map(row=>row._id)},quantityBase:{$gt:0}}).select(optionFields.balance).lean()).filter(row=>!blind.has(row._id));
   const [batches,products,units,available]=await Promise.all([
     ProductBatch.find({_id:{$in:balances.map(row=>row.batchId)},identificationStatus:'VERIFIED'}).select(optionFields.batch).lean(),
     Product.find({isActive:true}).select(optionFields.product).lean(),Uom.find({isActive:true}).select('code name isCarton').lean(),freeQuantities(balances),
@@ -175,5 +178,5 @@ export async function transferOptions(user, warehouseId, mode='stock') {
   const seenConversions=new Set();
   const currentConversions=conversions.filter(row=>{const key=JSON.stringify([String(row.productId),String(row.productBatchId||''),String(row.uomId)]);if(seenConversions.has(key))return false;seenConversions.add(key);return true;});
   const unitById=new Map(units.map(unit=>[String(unit._id),dto(unit)]));
-  return {warehouses:warehouses.map(dto),sourceWarehouseIds,locations:locations.map(dto),holdingPoints:holdingPoints.map(dto),balances:balances.map(b=>({...dto(b),availableQtyBase:available.get(String(b._id)).toFixed()})),batches:batches.map(dto),products:products.map(dto),units:units.map(dto),conversions:currentConversions.map(row=>({...dto(row),uom:unitById.get(String(row.uomId))||null}))};
+  return {warehouses:warehouses.map(dto),sourceWarehouseIds,blindCountedLocations:locations.filter(row=>blind.has(row._id)).length,locations:locations.map(dto),holdingPoints:holdingPoints.map(dto),balances:balances.map(b=>({...dto(b),availableQtyBase:available.get(String(b._id)).toFixed()})),batches:batches.map(dto),products:products.map(dto),units:units.map(dto),conversions:currentConversions.map(row=>({...dto(row),uom:unitById.get(String(row.uomId))||null}))};
 }

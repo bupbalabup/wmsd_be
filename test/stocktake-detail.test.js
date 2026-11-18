@@ -48,6 +48,8 @@ function setup({ record = document, snapshots = [snapshot], missing = false } = 
     assert.deepEqual(filter, { _id: { $in: missing || !snapshots.length ? [] : [productId] } });
     return query(missing || !snapshots.length ? [] : [{ _id: productId, sku: 'SKU-T', name: 'Test tile' }]);
   });
+  mock.method(models.Conversion, 'find', () => ({ select: () => ({ sort: () => ({ lean: async () => [] }) }) }));
+  mock.method(models.Uom, 'find', () => query([]));
   mock.method(models.InventoryBalance, 'find', () => assert.fail('Stocktake detail must not query current balances'));
   return lookups;
 }
@@ -62,6 +64,7 @@ test('detail has projected labels with stocktake-only permission and preserves f
     locations: [{ id: locationId, warehouseId, code: 'A-01', name: 'Test location' }],
     batches: [{ id: batchId, productId, manufacturerLot: 'LOT-T' }],
     products: [{ id: productId, sku: 'SKU-T', name: 'Test tile' }],
+    conversions: [],
   });
   assert.equal(lookups.length, 4);
   assert.equal(result.snapshots[0].bookQtyBase, snapshot.bookQtyBase);
@@ -85,7 +88,7 @@ test('missing permission is rejected before reading the document', async () => {
 test('owner may inspect a warehouse without assignment; missing references remain empty', async () => {
   setup({ missing: true });
   const result = await getStocktake(user('OWNER', []), stocktakeId);
-  assert.deepEqual(result.lookups, { warehouses: [], locations: [], batches: [], products: [] });
+  assert.deepEqual(result.lookups, { warehouses: [], locations: [], batches: [], products: [], conversions: [] });
   assert.equal(result.snapshots[0].id, snapshot._id);
 });
 

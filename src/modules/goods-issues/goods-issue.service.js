@@ -13,6 +13,7 @@ import { guardLocations, sourceContext, locationAt, beginStock, remainingReserva
 import { takeStock } from '../return-workflows/native.shared.js';
 import { orderSource, redactPrices, effectiveQuantities } from '../sales-orders/sales-read.service.js';
 import { toBaseQuantity } from '../../shared/utils/conversions.js';
+import { blindCountScope } from '../../shared/utils/blind-count.js';
 
 const active = doc => !['CANCELLED', 'CLOSED', 'COMPLETED', 'DELIVERED'].includes(doc.workflowStatus);
 const ref = (doc, item) => ({ documentType: doc.constructor.collection.name, documentId: doc._id, itemId: item._id });
@@ -420,7 +421,10 @@ export async function getIssue(user, id) {
       const sourcePoints = await m.StockHoldingPoint.find({ type: 'LOCATION', locationId: { $in: storage.map(l => l._id) } }).session(session);
       const batches = await m.ProductBatch.find({ productId: { $in: issue.items.map(i => i.productId) }, identificationStatus: 'VERIFIED' }).session(session);
       const stock = await m.InventoryBalance.find({ holdingPointId: { $in: sourcePoints.map(p => p._id) }, batchId: { $in: batches.map(b => b._id) }, ownerType: 'STORE', qualityStatus: 'GOOD' }).session(session);
+      // Locations being blind counted are frozen and their balances equal the hidden book quantity, so they are not offered.
+      const blind = await blindCountScope(user, session);
       for (const balance of stock) {
+        if (blind.has(balance._id)) continue;
         const available = await freeQuantity(balance, session);
         if (!available.gt(0)) continue;
         const batch = batches.find(b => same(b._id, balance.batchId)), point = sourcePoints.find(p => same(p._id, balance.holdingPointId));

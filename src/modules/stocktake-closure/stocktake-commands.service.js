@@ -15,9 +15,15 @@ import { remainingReservation, pendingTaskQuantity, heldQuantity } from '../../s
 export async function stocktakeOptions(user) {
     requirePermission(user, 'stocktake:create');
     const warehouses = await m.Warehouse.find({ isActive: true }).select('_id code name').lean();
-    const locations = await m.WarehouseLocation.find({ warehouseId: { $in: warehouses.map(w => w._id) }, isActive: true }).select('_id warehouseId code name').lean();
+    const locations = await m.WarehouseLocation.find({ warehouseId: { $in: warehouses.map(w => w._id) }, isActive: true }).select('_id warehouseId code name areaCode locationType').lean();
+    // Locations already frozen by another session cannot be activated again; the planner sees them up front.
+    const [locked, products] = await Promise.all([
+        m.StocktakeLocationLock.find({ locationId: { $in: locations.map(l => l._id) }, status: 'LOCKED' }).select('locationId').lean(),
+        // Optional product filter of the scope (cycle count of selected tiles).
+        m.Product.find({ isActive: true }).select('_id sku name').sort({ sku: 1 }).lean(),
+    ]);
     const users = await m.User.find({ isActive: true, warehouseIds: { $in: warehouses.map(w => w._id) } }).populate({ path: 'roleId', populate: { path: 'permissionIds' } });
-    return { warehouses: warehouses.map(dto), locations: locations.map(dto), counters: users.filter(u => hasPermission(u, 'stocktake:update')).map(u => ({ id: String(u._id), fullName: u.fullName, warehouseIds: u.warehouseIds.map(String) })) };
+    return { warehouses: warehouses.map(dto), locations: locations.map(dto), lockedLocationIds: locked.map(l => String(l.locationId)), products: products.map(p => ({ id: String(p._id), sku: p.sku, name: p.name })), counters: users.filter(u => hasPermission(u, 'stocktake:update')).map(u => ({ id: String(u._id), fullName: u.fullName, warehouseIds: u.warehouseIds.map(String) })) };
 }
 async function scoped(user, id, session) { const document = await m.Stocktake.findById(id).session(session); if (!document)
     throw notFoundError(); requireWarehouseAccess(user, document.header.warehouseId); return document; }
@@ -523,6 +529,43 @@ export function submitResolutionPlan(user, id, input) {
         document.resolutionPlans.push(plan);
         document.workflowStatus = 'PENDING_APPROVAL';
         return { document: await saveVersion(document, input.expectedVersion, session), versionBefore: input.expectedVersion, resultRefs: [{ documentType: 'stocktake_resolution_plans', documentId: plan._id, revision: planVersion }], reason: input.reason ?? 'Trình phương án xử lý chênh lệch' };
+    });
+}
+
+// Owner cancellation (decision 17/11/2026): allowed only before any resolution plan is approved.
+// Locks are released, snapshots/counts stay as history and no stock is posted; open plans are cancelled.
+const CANCELLABLE = ['PLANNED', 'COUNTING', 'RECONCILING'];
+const FINAL_PLAN = ['REJECTED', 'CANCELLED', 'CLOSED'];
+export function cancelStocktake(user, id, input) {
+    return command(user, 'CANCEL_STOCKTAKE', 'stocktake:create', id, input, (sid, actor, session) => scoped(actor, sid, session), async (session, actor, operationId) => {
+        const document = await scoped(actor, id, session);
+        checkVersion(document, input.expectedVersion);
+        if (!CANCELLABLE.includes(document.workflowStatus))
+            throw validationError('Chỉ hủy được đợt chưa có phương án được duyệt');
+        // Defensive for legacy data: a pending or approved plan must be decided, not cancelled with the session.
+        if (document.resolutionPlans.some(plan => ['PENDING_APPROVAL', 'APPROVED', 'EXECUTED'].includes(plan.workflowStatus)))
+            throw validationError('Đợt có phương án đang chờ duyệt hoặc đã duyệt; không thể hủy');
+        const now = new Date();
+        const locks = await m.StocktakeLocationLock.find({ stocktakeId: document._id, status: 'LOCKED' }).session(session);
+        for (const lock of locks) {
+            lock.status = 'RELEASED';
+            lock.releasedBy = actor._id;
+            lock.releasedAt = now;
+            lock.closureReferenceId = operationId;
+            await saveVersion(lock, lock.version, session);
+        }
+        for (const plan of document.resolutionPlans)
+            if (!FINAL_PLAN.includes(plan.workflowStatus)) {
+                plan.workflowStatus = 'CANCELLED';
+                plan.cancelledBy = actor._id;
+                plan.cancelledAt = now;
+                plan.cancelReason = input.reason;
+            }
+        document.workflowStatus = 'CANCELLED';
+        document.cancelledBy = actor._id;
+        document.cancelledAt = now;
+        document.cancelReason = input.reason;
+        return { document: await saveVersion(document, input.expectedVersion, session), versionBefore: input.expectedVersion, reason: input.reason };
     });
 }
 

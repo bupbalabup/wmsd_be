@@ -27,14 +27,38 @@ export async function getStocktake(user, id) {
         m.WarehouseLocation.find({ _id: { $in: document.header.scopeLocationIds }, warehouseId: document.header.warehouseId }).select('_id warehouseId code name').lean(),
         m.ProductBatch.find({ _id: { $in: batchIds } }).select('_id productId manufacturerLot').lean(),
     ]);
-    const products = await m.Product.find({ _id: { $in: [...new Set(batches.map(row => String(row.productId)))] } }).select('_id sku name').lean();
+    const productIds = [...new Set(batches.map(row => String(row.productId)))];
+    const [products, conversionRows] = await Promise.all([
+        m.Product.find({ _id: { $in: productIds } }).select('_id sku name').lean(),
+        m.Conversion.find({ productId: { $in: productIds }, validFrom: { $lte: new Date() } }).select('productId productBatchId uomId basePerUnit validFrom').sort({ validFrom: -1 }).lean(),
+    ]);
+    // Current factors only (latest validFrom per product/batch/unit): counters convert what they count now.
+    const seen = new Set();
+    const conversions = conversionRows.filter(row => {
+        const key = `${row.productId}|${row.productBatchId ?? ''}|${row.uomId}`;
+        if (seen.has(key))
+            return false;
+        seen.add(key);
+        return true;
+    });
+    const units = await m.Uom.find({ _id: { $in: [...new Set(conversions.map(row => String(row.uomId)))] } }).select('_id code name').lean();
+    const unitById = new Map(units.map(unit => [String(unit._id), unit]));
+    // Blind count is enforced here: while COUNTING nobody receives frozen book quantities, and a session
+    // cancelled before any reconciliation never reveals them afterwards (decision 18 Nov 2026).
+    const blind = document.workflowStatus === 'COUNTING' || (document.workflowStatus === 'CANCELLED' && !document.header.lastReconciledAt && !document.header.lastReconciledBy);
     return {
-        ...dto(document), snapshots: snapshots.map(dto), counts: counts.map(dto), locks: locks.map(dto),
+        ...dto(document), snapshots: snapshots.map(row => { const value = dto(row); if (blind) delete value.bookQtyBase; return value; }), counts: counts.map(dto), locks: locks.map(dto),
         lookups: {
             warehouses: warehouses.map(row => ({ id: String(row._id), code: row.code, name: row.name })),
             locations: locations.map(row => ({ id: String(row._id), warehouseId: String(row.warehouseId), code: row.code, name: row.name })),
             batches: batches.map(row => ({ id: String(row._id), productId: String(row.productId), manufacturerLot: row.manufacturerLot })),
             products: products.map(row => ({ id: String(row._id), sku: row.sku, name: row.name })),
+            conversions: conversions.filter(row => unitById.has(String(row.uomId))).map(row => ({
+                productId: String(row.productId),
+                productBatchId: row.productBatchId ? String(row.productBatchId) : null,
+                unit: { code: unitById.get(String(row.uomId)).code, name: unitById.get(String(row.uomId)).name },
+                basePerUnit: String(row.basePerUnit),
+            })),
         },
     };
 }
@@ -170,7 +194,9 @@ export function closeStocktake(user, id, input) {
                     await receiveStock(balance, item, input.packaging?.find(p => same(p.lineId, item._id))?.portions, posting, actor, session);
                 }
                 else {
-                    const { kept } = splitPortions(balance.packagingPortions, delta.abs(), actor._id);
+                    // A counted shortfall that is not whole cartons proves a carton was opened (decision 18/11/2026):
+                    // open one carton like goods issues do; loose/open portions are consumed first.
+                    const { kept } = splitPortions(balance.packagingPortions, delta.abs(), actor._id, { allowOpening: true });
                     balance.packagingPortions = kept;
                     balance.quantityBase = before.plus(delta).toFixed();
                     await saveVersion(balance, balance.version, session);

@@ -7,6 +7,7 @@ import { remainingReservation, heldOnBalance } from '../../shared/utils/stock.js
 import { validationError, forbiddenError } from '../../shared/utils/ApiError.js';
 import { currentRole } from '../../shared/utils/userRole.js';
 import { effectiveQuantities } from '../sales-orders/sales-read.service.js';
+import { blindCountScope } from '../../shared/utils/blind-count.js';
 // Owner-confirmed mapping (15 Nov 2026); any other role holding report:read gets no group.
 const ALL_GROUPS = ['inventory', 'purchases', 'receipts', 'issues', 'sales', 'transfers', 'defects', 'returns', 'supplierReturns', 'stocktakes', 'adjustments'];
 const ROLE_GROUPS = { OWNER: ALL_GROUPS, ACCOUNTANT: ['purchases', 'receipts'], WAREHOUSE: ['inventory', 'transfers', 'stocktakes', 'adjustments'] };
@@ -79,7 +80,7 @@ export async function operationalReport(user, query) {
             const pointById = index(points), batchById = index(batches), productById = index(products), locationById = index(locations), warehouseById = index(warehouses);
             const frozenLocations = new Set(locks.map(l => String(l.locationId)));
             const dispatchByLine = new Map(dispatches.flatMap(d => d.items.map(i => [String(i._id), d])));
-            const rows = [];
+            const rows = [], blind = await blindCountScope(user, session);
             for (const b of balances) {
                 const id = String(b._id), point = pointById.get(String(b.holdingPointId)), batch = batchById.get(String(b.batchId)), product = productById.get(String(batch?.productId)), location = locationById.get(String(point?.locationId));
                 const qty = exact(b.quantityBase), held = heldOnBalance(holdsByBalance.get(id) || [], b._id), booked = reserved.get(id) || exact('0'), unreserved = ExactDecimal.max('0', (pending.get(id) || exact('0')).minus(covered.get(id) || '0')), transit = point?.type === 'IN_TRANSIT';
@@ -87,6 +88,8 @@ export async function operationalReport(user, query) {
                 // Reservation-backed tasks are counted only once.
                 const available = !transit && !frozen && b.ownerType === 'STORE' && b.qualityStatus === 'GOOD' && batch?.identificationStatus === 'VERIFIED' && product?.isActive && location?.isActive && location?.isPickable ? ExactDecimal.max('0', qty.minus(booked).minus(held).minus(unreserved)) : exact('0');
                 rows.push({ id: String(b._id), warehouseId: String(location?.warehouseId || dispatchByLine.get(String(point?.dispatchLineId))?.header.sourceWarehouseId || ''), warehouse: warehouseById.get(String(location?.warehouseId))?.name || '', location: location?.code || 'Đang chuyển', product: product?.name || '', sku: product?.sku || '', batch: batch?.manufacturerLot || '', unit: product?.baseUnit || '', quality: b.qualityStatus, owner: b.ownerType, physicalQtyBase: transit ? '0' : qty.toFixed(), transitQtyBase: transit ? qty.toFixed() : '0', ownedQtyBase: b.ownerType === 'STORE' ? qty.toFixed() : '0', custodyQtyBase: b.ownerType === 'STORE' ? '0' : qty.toFixed(), reservedQtyBase: booked.toFixed(), heldQtyBase: held.toFixed(), availableQtyBase: available.toFixed(), frozen });
+                if (location && blind.has(location._id))
+                    Object.assign(rows.at(-1), { physicalQtyBase: null, ownedQtyBase: null, custodyQtyBase: null, reservedQtyBase: null, heldQtyBase: null, availableQtyBase: null, blindCount: true });
             }
             return { group: query.group, capturedAt: new Date().toISOString(), basis: 'CURRENT_TRANSACTION_SNAPSHOT', rows };
         }
