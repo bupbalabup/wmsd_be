@@ -32,6 +32,26 @@ frontend role name.  Warehouse access is still checked on every command.
 
 Select warehouse, then source location. Search the table by product name, SKU or manufacturer lot. Select individual balances, enter a positive whole number of cartons/pieces, and choose one destination location. The whole-location action selects every eligible row at the source, including rows hidden by search; it resets the search so all selected lines are visible. Source and destination must differ. One command is limited to 100 rows; oversized selections are rejected without silently truncating. The table retains separate lot, quality and owner rows. Active UOMs and current lot-specific carton conversions come from the server; no assumed BOX conversion is invented by FE. Network/5xx retries retain the original full payload and idempotency key.
 
+### Source packaging breakdown — 17 November 2026
+
+User selected the display-only scope: show actual sealed-carton counts, base units inside existing open cartons and loose base units from current packaging portions. BF03 options additionally project `packagingPortions.sealedPackCount` and `packagingPortions.quantityBase` alongside the existing `packagingState`, with no additional database query. Other option endpoints keep their previous projection.
+
+The source table's existing “Tồn tại vị trí” cell retains the total and carton factor, then displays “Thùng nguyên”, “Trong thùng mở” and “Hàng rời”. The frontend sums stored sealed pack counts and OPEN/LOOSE base quantities exactly, independently of current conversion factors. It uses each product's base-unit label. It does not infer how many physical open cartons exist or treat total quantity divided by carton size as sealed cartons. Missing, unknown or inconsistent packaging (including portion totals not matching the balance) displays “Chưa đủ dữ liệu đóng gói”; known absent categories show zero. This is a source-stock breakdown, not an allocation of the quantity entered for transfer.
+
+This dated display-only change did not alter schema or commands. The subsequent mixed-entry decision below adds an explicit LOOSE split; automatic carton opening remains prohibited.
+
+### Mixed sealed cartons and loose pieces — 18 November 2026
+
+User requested optional entry such as 10 cartons plus 1 loose piece, with the loose input on line 2. In “Đơn vị chuyển”, choose “Thùng nguyên + viên rời”. The quantity cell stacks sealed cartons above loose base units and shows their exact total. Both components are whole nonnegative numbers; at least one must be positive. Limits use the stored sealed-carton count and existing LOOSE quantity separately. OPEN quantities are displayed but are not included in this option; insufficient loose stock never causes a carton to be opened.
+
+Create/edit lines accept optional `packagingState: SEALED|LOOSE`, persisted as `items[].details.packagingState` on the existing WAREHOUSE_TASK line. A mixed UI row expands into up to two positive base-unit lines with the same source/destination. For 4 pieces/carton, 10 cartons + 1 loose piece sends SEALED `enteredQty="40"` and LOOSE `enteredQty="1"`, both with `enteredUnit="PIECE"`. Zero components are omitted. One source/destination may contain one line per category; duplicate categories or mixing an untyped line with typed lines are rejected. The limit remains 100 expanded API lines.
+
+Create/edit simulates consumption only within the requested packaging category; confirmation enforces it again on live stock. SEALED must remain whole cartons. Explicit LOOSE lines may split an existing loose portion only with a known positive measured volume or conservative volume bound. Both resulting fragments retain a conservative bound from the original portion (including extra occupied volume), without inventing a measured volume or distributing it proportionally. Capacity can therefore conservatively reject a tight destination. Unknown-volume fragments remain blocked. OPEN portions and generic lines retain their previous whole-portion behavior.
+
+Each category has its own stable item ID and independent planned/actual/remaining quantities. Details, confirmation and history label “Thùng nguyên” / “Hàng rời”. Editing before the first trip reconstructs one mixed form row and preserves IDs for unchanged category/source/destination. Partial confirmations may transfer either or both parts; retries retain their exact payload/key. Existing permission, creator, warehouse, version, locks, reservation, quantity and capacity guards remain authoritative. For source 15 cartons × 4 + 2 loose pieces, completing 10 cartons + 1 loose leaves 5 sealed cartons + 1 loose piece.
+
+Deploy FE and BE together. The field is optional with no default, collection, index, relationship change or backfill. Historical tasks without the field retain their previous behavior; no stock is moved by saving the plan. Tests cover mixed create/edit, per-category caps, loose splitting, partial posting, retry and total-stock conservation on an isolated localhost database.
+
 ## Purchase receipt shortcut
 
 The purchase receipt detail links to `/location-moves/create` for users with `stock_relocation:create` when the receipt allows relocation. The link passes `warehouseId`, `fromLocationId`, comma-separated `balanceIds`, and `reason`. It uses the first receiving location with a linked GOOD balance. For other locations, select the source separately.
@@ -62,7 +82,7 @@ The API derives product, lot, quality, owner and exact base quantity from the
 live balance.  It requires an active product and verified lot, a current source
 balance version, different active locations in the same warehouse, available
 quantity after other open tasks, and capacity at confirmation.  Quantities are
-positive integer strings for cartons/pieces, never JavaScript numbers or fractional quantities. The service also verifies integer base quantities and simulates packaging splits while creating/editing: sealed cartons remain whole, and existing measured loose/open portions may only move whole. Confirmation still checks the live stock and packaging again.
+positive integer strings for cartons/pieces, never JavaScript numbers or fractional quantities. The service also verifies integer base quantities and simulates packaging splits while creating/editing: sealed cartons remain whole, and measured loose/open portions move whole unless an explicit LOOSE line requests the bounded split described above. Confirmation still checks the live stock and packaging again.
 
 ## Partial confirmation — user decision 17/11/2026
 
@@ -71,7 +91,7 @@ States are OPEN → PARTIAL → CONFIRMED. A request confirms only the supplied 
 and their positive integer base quantities, bounded by planned minus previously
 committed RELOCATE movements. Omit lines not moved this trip. Duplicate/unknown
 lines, zero, negative and fractional values are rejected. Existing carton rules
-remain: no automatic carton opening or partial split of a measured loose portion.
+remain: no automatic carton opening; only explicit LOOSE lines allow the bounded loose split described above.
 
 `POST /:id/confirm` body:
 
