@@ -89,6 +89,8 @@ Không tạo general policy editor. Danh mục quyền được định nghĩa b
 
 Opening stock exception — explicit user decision, 16 November 2026: only Owner may import and confirm opening stock, including their own draft, once per warehouse. This supersedes the older H36 preparer/verifier split for opening stock only. Other workflows retain their separation-of-duties rules. See [current contract](docs/08_api/EXCEL_AND_OPENING_STOCK.md).
 
+Tồn đầu từ file ghi hàng tốt của cửa hàng vào `TONDAU-NHAN`, khu tiếp nhận được tạo khi lưu nháp có hàng. Sau khi ghi tồn, kho cất hàng vào khu lưu trữ bằng BF03. Xem [hợp đồng nhập tồn đầu](docs/08_api/EXCEL_AND_OPENING_STOCK.md#opening-stock-receiving).
+
 ## 5. Quy tắc dữ liệu dùng chung
 
 - V5 đã [rà trường trên 58 bảng](docs/03_thiet_ke/DB_Rebuild_Review/38_Ra_soat_truong_58_bang.md). Đầu phiếu dùng một `version`, bỏ `revision` trùng. Các `approvedRevision`, `subjectRevision`, `scopeVersion`, phiên bản giá và nguồn giữ nguyên vai trò lịch sử. `status` không thay phép kiểm sửa đồng thời. Danh mục products/warehouses/customers/suppliers bỏ version, khi port API phải kiểm updatedAt của dữ liệu vừa đọc. Các FK đã được bảng cha xác định không lưu lặp trong phần nhúng.

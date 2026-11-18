@@ -114,9 +114,11 @@ test('products have exact dimensions and mandatory color; SKU identity permits s
   await assert.rejects(new Product({...white,heightMm:'0'}).validate());
   await assert.rejects(new Product({...white,color:''}).validate());
 });
-test('batch has fixed pieces and measured outer carton dimensions, without calibre or tone',async()=>{
+test('batch has fixed pieces and measured outer carton dimensions, with optional tone and calibre',async()=>{
   const Batch=models.get('product_batches'),row=copy(data.product_batches[0]);
-  await new Batch(row).validate();assert.ok(!Batch.schema.path('calibre'));assert.ok(!Batch.schema.path('tone'));
+  await new Batch(row).validate();assert.ok(Batch.schema.path('calibre'));assert.ok(Batch.schema.path('tone'));
+  await new Batch({...row,tone:'B08',calibre:'C2'}).validate();
+  await assert.rejects(new Batch({...row,tone:'x'.repeat(21)}).validate());
   assert.ok(Batch.schema.indexes().some(([key,settings])=>Object.keys(key).length===2&&key.productId&&key.manufacturerLot&&settings.unique));
   await assert.rejects(new Batch({...row,piecesPerCarton:4.5}).validate());
   await assert.rejects(new Batch({...row,cartonLengthMm:0}).validate());
