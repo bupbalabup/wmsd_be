@@ -1,10 +1,11 @@
 import { z } from 'zod';
-import { Warehouse } from '../../models/runtime.js';
-import { requirePermission, requireWarehouseAccess } from '../../shared/utils/access.js';
+import { Warehouse, WarehouseLocation } from '../../models/runtime.js';
+import { isOwner, requirePermission, requireWarehouseAccess } from '../../shared/utils/access.js';
 import { validationError } from '../../shared/utils/ApiError.js';
 import { transaction } from '../../shared/utils/persistence.js';
 import { appendAudit } from '../../shared/utils/audit.js';
 import { rectanglesOverlap, applicationIssues, palletIssues, heightWarnings } from './layout-geometry.js';
+import { oid } from './validation.js';
 
 const point = z.object({ x: z.number().finite().min(0).max(1000), y: z.number().finite().min(0).max(1000) }).strict();
 const id=z.string().trim().min(1).max(80),name=z.string().trim().min(1).max(120),size=z.number().finite().min(0.01).max(1000);
@@ -12,7 +13,7 @@ const palletPlan=z.object({rows:z.number().int().min(1).max(100),columns:z.numbe
 const layerItem=z.object({id,productCode:name,lotCode:name,cartons:z.number().int().positive().max(Number.MAX_SAFE_INTEGER)}).strict();
 const palletLayer=z.object({id,height:z.number().finite().min(0.01).max(100),items:z.array(layerItem).min(1).max(100)}).strict();
 const palletSchema=z.object({id:id,code:name,x:z.number().finite().min(0).max(1000),y:z.number().finite().min(0).max(1000),width:size,length:size,baseHeight:size,stackHeight:z.number().min(0).max(100),actualHeight:z.number().min(0).max(100).optional(),measuredCargoHeight:z.number().finite().min(0).max(100).optional(),layers:z.array(palletLayer).max(100).optional(),planned:z.boolean().optional()}).strict();
-const slotSchema=z.object({id,name,x:z.number().finite().min(0).max(1000),y:z.number().finite().min(0).max(1000),width:size,length:size,palletPlan:palletPlan.optional(),pallets:z.array(palletSchema).max(100).optional()}).strict();
+const slotSchema=z.object({id,name,x:z.number().finite().min(0).max(1000),y:z.number().finite().min(0).max(1000),width:size,length:size,locationId:oid.optional(),palletPlan:palletPlan.optional(),pallets:z.array(palletSchema).max(100).optional()}).strict();
 const zoneSchema=z.object({id,name,x:z.number().finite().min(-1000).max(1000),y:z.number().finite().min(-1000).max(1000),width:size,length:size,rotation:z.number().finite().min(-360).max(360),color:z.string().regex(/^#[0-9a-fA-F]{6}$/),functionId:z.union([id,z.literal('')]),maxHeight:z.number().positive().max(100).optional(),slots:z.array(slotSchema).max(500)}).strict();
 export const layoutSchema = z.object({
   points: z.array(point).min(3).max(100),
@@ -65,9 +66,20 @@ export async function saveLayout(user,id,input) {
   return transaction(async session => {
     const previous=await Warehouse.findOne({_id:id,updatedAt:new Date(input.expectedUpdatedAt)}).session(session);
     if(!previous)throw validationError('Kho đã thay đổi hoặc không tồn tại. Hãy tải lại trước khi lưu.');
-    if(JSON.stringify(previous.layout3d?.functions||[])!==JSON.stringify(input.layout.functions||[]))requirePermission(user,'warehouse_layout_function:update');
+    if(!isOwner(user)&&JSON.stringify(previous.layout3d?.functions||[])!==JSON.stringify(input.layout.functions||[]))requirePermission(user,'warehouse_layout_function:update');
     const issues=applicationIssues(input.layout);
     if(input.apply&&issues.length)throw validationError(issues.join(' '));
+    const linkedSlots=(input.layout.zones||[]).flatMap(zone=>zone.slots).filter(slot=>slot.locationId);
+    if(linkedSlots.length){
+      const previousLinks=new Map((previous.layout3d?.zones||[]).flatMap(zone=>zone.slots).map(slot=>[slot.id,slot.locationId]));
+      const ids=[...new Set(linkedSlots.map(slot=>slot.locationId))];
+      const locations=await WarehouseLocation.find({_id:{$in:ids},warehouseId:id}).select('_id isActive').session(session).lean();
+      const activeById=new Map(locations.map(location=>[String(location._id),location.isActive!==false]));
+      for(const slot of linkedSlots){
+        if(!activeById.has(slot.locationId))throw validationError(`Ô ${slot.name}: hãy chọn vị trí thuộc kho này hoặc bỏ gán.`);
+        if(!activeById.get(slot.locationId)&&previousLinks.get(slot.id)!==slot.locationId)throw validationError(`Ô ${slot.name}: vị trí đã ngừng hoạt động. Hãy chọn vị trí khác.`);
+      }
+    }
     const timestamp=new Date(Math.max(Date.now(),Date.parse(input.expectedUpdatedAt)+1));
     const changes={layout3d:input.layout,updatedAt:timestamp,...(input.apply&&{layout3dApplied:input.layout,layout3dAppliedAt:timestamp})};
     const result=await Warehouse.findOneAndUpdate({_id:id,updatedAt:new Date(input.expectedUpdatedAt)},{$set:changes},{new:true,runValidators:true,session,timestamps:false});
