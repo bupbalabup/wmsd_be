@@ -12,9 +12,13 @@ The transaction helpers in `stock.js` and every posting/create/confirm command r
 
 ## Options and detail payloads
 
+18/11/2026: BF03 projected item details additionally include optional `packagingState` so mixed sealed/loose plans retain their category in details, edit, confirmation and history. It adds no database query; options reuse the existing packaging breakdown. Transactional stock helpers now support the narrowly scoped explicit LOOSE split in the [BF03 contract](location-movements/README.md#mixed-sealed-cartons-and-loose-pieces--18-november-2026); other read optimizations do not bypass posting checks.
+
 `GET /api/warehouse-transfers/options` accepts optional `mode=stock|locations`, default `stock`. `locations` still requires `stock_transfer:read` and warehouse access, and returns the normal envelope with warehouses/sourceWarehouseIds/locations; holdingPoints, balances, batches, products, units and conversions are empty arrays. It never queries stock. FE uses this for destination put-away locations. Unknown modes are rejected. Existing calls without mode keep stock selection behavior.
 
 Both BF03/BF04 warehouse option catalogues select only `_id/code/name/isActive`, excluding layout3d snapshots and other unused master fields. BF04 deduplicates sorted current conversions using a Set instead of repeated scans. BF03 unit reads use compact projections. No field used by the paired FE selection forms is removed.
+
+BF03's display-only [source packaging overview](location-movements/README.md#source-packaging-breakdown--17-november-2026) additionally selects `packagingPortions.sealedPackCount` and `packagingPortions.quantityBase` in its existing balance query. The FE sums real sealed counts and OPEN/LOOSE quantities without new queries, conversion-derived carton counts or a schema change. BF04's balance projection remains unchanged.
 
 BF04 detail reads independent requirements, approvals, differences, transit points and effective receipt quantities in parallel after request authorization; task and transit balance reads then run in parallel. BF03 detail resolves display references alongside ledger reads and searches product/lot references in parallel. Empty lists avoid unnecessary display-reference queries. These reads do not run parallel operations on a MongoDB write transaction/session.
 
