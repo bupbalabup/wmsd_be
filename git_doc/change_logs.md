@@ -1,3 +1,19 @@
+## 18/11/2026 · Tone và calibre của lô hàng
+
+Người dùng quyết định thêm lại tone màu và calibre cho `product_batches` (đảo quyết định bỏ hai trường ngày 06/11/2026). Cả hai tùy chọn ở BE (null/thiếu được, tối đa 20 ký tự) để opening-stock import, seed và lô cũ vẫn hợp lệ; FE bắt buộc nhập khi lô `VERIFIED`. Khóa duy nhất giữ `productId + manufacturerLot`, không đổi index, không migration/backfill.
+
+API `/lots`: `POST`/`PUT` nhận `tone`, `calibre`; `GET /lots` lọc `tone`, `calibre` (khớp một phần, không phân biệt hoa thường). `PUT` chặn đổi tone/calibre khi lô đã có chứng từ hoặc tồn (cùng quy tắc với số lô và quy cách thùng); `null` và thiếu được coi là như nhau. `GET /lots` trả thêm `product {id, sku, name}` và `hasScopedStock` (có tồn trong phạm vi kho của người dùng). `GET /lots/:id` trả thêm `identityLocked`, `product`, `stock[]` (kho, vị trí, chất lượng, số lượng gốc) và `verifiedBy {id, fullName}`. `POST`/`PUT` nhận `verificationReference` và `notes` (≤ 500 ký tự, null để xóa); `verifiedAt/verifiedBy` do server đặt khi lô thành VERIFIED. FE: `LotCreatePage`, `CreateLotDialog`, `LotDetailPage`, `LotsListPage`, `lotsApi.ts`; sửa cập nhật lô truyền `expectedUpdatedAt` thật.
+
+Sửa: `lot.service.js` (join sản phẩm, `hasScopedStock`, `stock`, người kiểm tra), `test/lots.integration.test.js` (mới, chạy với `RUN_LOT_TESTS=1` trên DB `rs0` cục bộ, đạt), `product-batch.model.js`, `field-cleanup.js`, `lot.validation.js`, `lot.service.js`, `test/consolidation.test.js`, `InspectionFormPage.test.tsx`. Chạy: `lots.integration.test.js` (1 đạt, DB tạm tự xóa), `consolidation`, `db-rebuild`, `reviewed-demo` (46 đạt), `InspectionFormPage` + `LotTracePage` (18 đạt), `tsc` không lỗi ở `features/lots`. Kiểm thủ công trên trình duyệt với BE tạm và DB cục bộ: tạo lô, sửa tone/ghi chú, lô đã có tồn hiện "Đã khóa" và khóa ô số lô/tone/calibre, danh sách có sản phẩm và trạng thái tồn. Lưu ý: seed fixture cũ giờ giữ `tone`/`calibre` có sẵn trong dữ liệu (trước đây bị xóa khi dựng DB).
+
+## 18/11/2026 · Tồn đầu vào khu tiếp nhận
+
+Theo `PLAN_ton_dau_khu_tiep_nhan.md`, API nhập tồn đầu nhận số lượng theo đơn vị gốc. Preview trả một kết quả mỗi dòng và chỉ đọc DB. Khi lưu nháp có hàng, service tạo hoặc dùng lại `TONDAU-NHAN`, ghi nhật ký nếu tạo mới, tách nguyên thùng và hàng lẻ thành các dòng GOOD của cửa hàng. Hủy nháp giữ khu tiếp nhận để dùng lại. Sau khi ghi tồn, kho chuyển hàng bằng BF03. Xác nhận kho trống không tạo khu tiếp nhận.
+
+Cập nhật `opening-stock/validation.js`, `routes.js`, `service.js`, `test/opening-stock.test.js`, [hợp đồng API](docs/08_api/EXCEL_AND_OPENING_STOCK.md), [hướng dẫn local](docs/09_phat_trien/EXCEL_OPENING_SETUP.md) và PROJECT_GUIDE. Không cần migration. Mẫu Excel và payload của FE cần đồng bộ với hợp đồng mới trước khi sử dụng giao diện nhập tồn.
+
+`npm test` có 261 test đạt, 127 test được bỏ qua theo cấu hình mặc định. Chạy riêng `RUN_OPENING_TESTS=1` trên DB thử nghiệm của replica set cục bộ `rs0` qua đủ 2 test, gồm rollback khi dữ liệu lỗi, ghi 10 viên thành 8 nguyên thùng và 2 lẻ, rồi chuyển đủ 10 viên sang STORAGE. Chỉ ghi dữ liệu thử nghiệm.
+
 ## 18/11/2026 · PO cùng đơn vị với RR không vượt lượng duyệt
 
 Theo yêu cầu của người dùng, khi dòng PO dùng đúng đơn vị nhập của dòng RR thì `enteredQty` không được lớn hơn `approvedEnteredQty`; quy tắc làm tròn gói của `withinApproved` chỉ còn áp dụng khi đổi sang đơn vị khác (hoặc RR cũ chưa có `approvedEnteredQty`). Ví dụ RR duyệt 4 M2 thì PO không đặt được 5 M2. Cập nhật `conversions.js` (tham số thứ 5 của `withinApproved`), `purchase-order.commands.js` (tạo/sửa nháp và phát hành), `purchase-reconciliation.js`, test `area-conversion.test.js`; FE `capToApprovedEntered` trong form tạo và sửa PO nháp. Không đổi dữ liệu. Chưa chạy test tích hợp API; `vitest src/features/purchase-orders` còn 3 ca lỗi từ trước (`maxEnteredQty` 278 viên, `orderedBaseQuantity`, form M2 100,08) chưa xử lý.

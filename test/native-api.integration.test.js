@@ -258,11 +258,16 @@ run('product image URLs create, list, detail, update, audit and legacy defaults'
  const suffix=key().slice(0,8);const imageUrls=[`https://images.example.com/${suffix}-front.webp`,`https://images.example.com/${suffix}-texture.webp`];
  const created=await productService.createProduct(owner,{sku:`IMG-${suffix}`,name:'Image URL test tile',manufacturerCode:'TEST',categoryId:String(product.categoryId),baseUnit:'PIECE',wholeBaseUnits:true,lengthMm:'600',widthMm:'600',heightMm:'10',color:`Image ${suffix}`,imageUrls});
  assert.deepEqual(created.imageUrls,imageUrls);
+ assert.equal(created.category,'Tile');
  const legacyCreated=await productService.createProduct(owner,{sku:`IMG-OLD-${suffix}`,name:'Legacy image client tile',manufacturerCode:'TEST',categoryId:String(product.categoryId),baseUnit:'PIECE',wholeBaseUnits:true,lengthMm:'600',widthMm:'600',heightMm:'10',color:`Legacy ${suffix}`});
  assert.deepEqual(legacyCreated.imageUrls,[]);
- assert.deepEqual((await productService.getProduct(owner,created.id)).imageUrls,imageUrls);
+ const fetchedCreated=await productService.getProduct(owner,created.id);
+ assert.deepEqual(fetchedCreated.imageUrls,imageUrls);
+ assert.equal(fetchedCreated.category,'Tile');
  const listed=await productService.listProducts(owner,{page:1,limit:100,sortBy:'createdAt',sortOrder:'desc'});
- assert.deepEqual(listed.items.find(item=>item.id===created.id).imageUrls,imageUrls);
+ const listedCreated=listed.items.find(item=>item.id===created.id);
+ assert.deepEqual(listedCreated.imageUrls,imageUrls);
+ assert.equal(listedCreated.category,'Tile');
 
  const id=new mongoose.Types.ObjectId(created.id);let current=await m.Product.findById(id).lean();
  const editable={name:current.name,manufacturerCode:current.manufacturerCode,categoryId:String(current.categoryId),material:current.material??null,surface:current.surface??null,origin:current.origin??null,description:current.description??null,baseUnit:current.baseUnit,wholeBaseUnits:current.wholeBaseUnits,lengthMm:String(current.lengthMm),widthMm:String(current.widthMm),heightMm:String(current.heightMm),color:current.color};

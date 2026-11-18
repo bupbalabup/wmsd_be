@@ -19,7 +19,9 @@ route('post', '/preview', async req => {
   const parsed = previewBody.safeParse(req.body);
   if (!parsed.success && parsed.error.issues.every(issue => issue.path[0] === 'rows' && typeof issue.path[1] === 'number')) {
     await service.options(req.user);
-    const labels = { sku: 'SKU', manufacturerCode: 'Hãng', color: 'Màu', manufacturerLot: 'Mã lô', locationCode: 'Mã vị trí', enteredUnit: 'Đơn vị nhập', enteredQty: 'Số lượng', qualityStatus: 'Chất lượng', packagingState: 'Bao bì' };
+    const labels = { sku: 'SKU', manufacturerCode: 'Hãng', color: 'Màu', name: 'Tên sản phẩm', categoryCode: 'Mã nhóm', baseUnit: 'Đơn vị gốc',
+      lengthMm: 'Dài sản phẩm', widthMm: 'Rộng sản phẩm', heightMm: 'Cao sản phẩm', manufacturerLot: 'Mã lô',
+      piecesPerCarton: 'Số viên/thùng', cartonLengthMm: 'Dài thùng', cartonWidthMm: 'Rộng thùng', cartonHeightMm: 'Cao thùng', enteredQty: 'Số lượng tồn' };
     return { valid: false, rows: [], errors: parsed.error.issues.map(issue => ({ rowNumber: Number(issue.path[1]) + 2,
       message: `Thiếu hoặc sai cột ${labels[issue.path[2]] || issue.path[2] || 'dữ liệu'}: ${issue.message}` })) };
   }

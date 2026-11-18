@@ -7,6 +7,8 @@ import {
   WarehouseLocation,
   StockTransaction,
   OperationRecord,
+  User,
+  Warehouse,
 } from "../../models/runtime.js";
 import {
   requirePermission,
@@ -62,13 +64,43 @@ export async function listLots(user, query) {
       escapeRegex(query.manufacturerLot),
       "i",
     );
+  for (const field of ["tone", "calibre"])
+    if (query[field])
+      filter[field] = new RegExp(escapeRegex(query[field]), "i");
   if (query.warehouseId)
     filter._id = {
       $in: await InventoryBalance.find({
         holdingPointId: { $in: await scopedPoints(user, query.warehouseId) },
       }).distinct("batchId"),
     };
-  return page(ProductBatch, filter, query);
+  const result = await page(ProductBatch, filter, query);
+  const ids = result.items.map((row) => row.id);
+  const [products, stocked] = await Promise.all([
+    Product.find({ _id: { $in: result.items.map((row) => row.productId) } })
+      .select("sku name")
+      .lean(),
+    InventoryBalance.find({
+      batchId: { $in: ids },
+      holdingPointId: { $in: await scopedPoints(user) },
+      quantityBase: { $gt: 0 },
+    }).distinct("batchId"),
+  ]);
+  const stockedIds = new Set(stocked.map(String));
+  return {
+    ...result,
+    items: result.items.map((row) => {
+      const product = products.find((p) => String(p._id) === row.productId);
+      return {
+        ...row,
+        product: product && {
+          id: String(product._id),
+          sku: product.sku,
+          name: product.name,
+        },
+        hasScopedStock: stockedIds.has(row.id),
+      };
+    }),
+  };
 }
 export async function getLot(user, id) {
   requirePermission(user, "product_lot:read");
@@ -77,8 +109,54 @@ export async function getLot(user, id) {
     batchId: id,
     holdingPointId: { $in: await scopedPoints(user) },
   }).lean();
-  return { ...dto(row), balances: balances.map(dto) };
+  const points = await StockHoldingPoint.find({
+    _id: { $in: balances.map((b) => b.holdingPointId) },
+  }).lean();
+  const locations = await WarehouseLocation.find({
+    _id: { $in: points.map((p) => p.locationId).filter(Boolean) },
+  })
+    .select("code name warehouseId")
+    .lean();
+  const [warehouses, verifier, product] = await Promise.all([
+    Warehouse.find({ _id: { $in: locations.map((l) => l.warehouseId) } })
+      .select("code name")
+      .lean(),
+    row.verifiedBy && User.findById(row.verifiedBy).select("fullName").lean(),
+    Product.findById(row.productId).select("sku name").lean(),
+  ]);
+  const byId = (rows, key) => rows.find((r) => String(r._id) === String(key));
+  const ref = (r) => r && { id: String(r._id), code: r.code, name: r.name };
+  const stock = balances
+    .filter((b) => !/^0(\.0+)?$/.test(String(b.quantityBase)))
+    .map((b) => {
+      const location = byId(locations, byId(points, b.holdingPointId)?.locationId);
+      return {
+        warehouse: ref(byId(warehouses, location?.warehouseId)),
+        location: ref(location),
+        quality: b.qualityStatus,
+        quantityBase: String(b.quantityBase),
+      };
+    })
+    .filter((s) => s.warehouse);
+  return {
+    ...dto(row),
+    product: product && {
+      id: String(product._id),
+      sku: product.sku,
+      name: product.name,
+    },
+    verifiedBy: verifier && { id: String(verifier._id), fullName: verifier.fullName },
+    identityLocked: await lotHasReferences(id),
+    stock,
+    balances: balances.map(dto),
+  };
 }
+// Who verified the lot and when, set once it becomes VERIFIED.
+const verification = (user, input, before) =>
+  input.identificationStatus === "VERIFIED" &&
+  before?.identificationStatus !== "VERIFIED"
+    ? { verifiedAt: new Date(), verifiedBy: user._id }
+    : {};
 export async function createLot(user, input) {
   requirePermission(user, "product_lot:create");
   try {
@@ -88,7 +166,10 @@ export async function createLot(user, input) {
         isActive: true,
       }).session(session);
       if (!product) throw validationError("Sản phẩm không hợp lệ");
-      const row = await new ProductBatch(input).save({ session });
+      const row = await new ProductBatch({
+        ...input,
+        ...verification(user, input),
+      }).save({ session });
       await syncLotConversions(row, product, user, session);
       await appendAudit({
         actorId: user._id,
@@ -110,17 +191,21 @@ export async function updateLot(user, id, input) {
   requirePermission(user, "product_lot:update");
   return transaction(async (session) => {
     const before = await batch(id, session);
-    const { expectedUpdatedAt, ...changes } = input;
+    const { expectedUpdatedAt, ...edits } = input;
+    const changes = { ...edits, ...verification(user, input, before) };
     const immutable = [
       "manufacturerLot",
+      "tone",
+      "calibre",
       "piecesPerCarton",
       "cartonLengthMm",
       "cartonWidthMm",
       "cartonHeightMm",
     ];
+    // null and missing are the same "unset" value for the optional tone/calibre.
+    const same = (a, b) => String(a ?? "") === String(b ?? "");
     const identityChanged = immutable.some(
-      (field) =>
-        field in changes && String(changes[field]) !== String(before[field]),
+      (field) => field in changes && !same(changes[field], before[field]),
     );
     if (identityChanged && (await lotHasReferences(id, session)))
       throw validationError(

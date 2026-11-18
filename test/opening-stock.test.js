@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
 import { previewBody, createBody } from '../src/modules/opening-stock/validation.js';
 import * as service from '../src/modules/opening-stock/service.js';
+import { createLocationMovement, confirmLocationMovement } from '../src/modules/location-movements/location-movement.service.js';
 import * as m from '../src/models/runtime.js';
 import { PERMISSION_CATALOGUE, ROLE_PERMISSIONS } from '../src/seeds/data/permissions.data.js';
 import { newId } from '../src/shared/utils/document-command.js';
@@ -12,14 +13,18 @@ import { guardLocations, balanceAt, receiveStock, beginStock } from '../src/shar
 
 const key = () => String(newId());
 const mongoUri = database => `mongodb://127.0.0.1:${process.env.MONGODB_TEST_PORT || 27119}/${database}?replicaSet=${process.env.MONGODB_TEST_REPLICA_SET || 'opening-test'}`;
-const row = { sku: 'TEST', manufacturerCode: 'TEST', color: 'White', manufacturerLot: 'B1', locationCode: 'ST', enteredUnit: 'PIECE', enteredQty: '8', qualityStatus: 'GOOD', packagingState: 'SEALED' };
+const row = { sku: 'TEST', manufacturerCode: 'TEST', color: 'White', manufacturerLot: 'B1', enteredQty: '8' };
 const body = () => ({ warehouseId: key(), openingAt: '2026-11-16T00:00:00Z', cutoverKey: 'FIRST', sourceDescription: 'Verified handover', rows: [row] });
 test('opening imports reject invalid decimals, hidden fields, unconfirmed empty files and oversized rows', () => {
   assert.equal(previewBody.safeParse(body()).success, true);
-  for (const enteredQty of ['0', '-1', '1e4', 'NaN', '1,000']) assert.equal(previewBody.safeParse({ ...body(), rows: [{ ...row, enteredQty }] }).success, false);
+  for (const enteredQty of ['0', '-1', '1e4', 'NaN', '1,000', '0.0000001', '100000000000000']) {
+    assert.equal(previewBody.safeParse({ ...body(), rows: [{ ...row, enteredQty }] }).success, false);
+  }
   assert.equal(previewBody.safeParse({ ...body(), rows: [] }).success, false);
   assert.equal(previewBody.safeParse({ ...body(), rows: [], confirmEmpty: true }).success, true);
   assert.equal(previewBody.safeParse({ ...body(), rows: [{ ...row, ownerType: 'STORE' }] }).success, false);
+  assert.equal(previewBody.safeParse({ ...body(), rows: [{ ...row, locationCode: 'ST' }] }).success, false);
+  assert.equal(previewBody.safeParse({ ...body(), rows: [{ ...row, qualityStatus: 'GOOD' }] }).success, false);
   assert.equal(previewBody.safeParse({ ...body(), rows: Array(1001).fill(row) }).success, false);
   assert.equal(createBody.safeParse({ ...body(), idempotencyKey: key() }).success, true);
 });
@@ -41,8 +46,9 @@ test('Owner alone initializes each warehouse once, with replay and atomic stock 
     await m.Uom.create([{ code: 'PIECE', name: 'Viên' }, { code: 'BOX', name: 'Thùng', isCarton: true }]);
     const product = await m.Product.create({ sku: 'TEST', manufacturerCode: 'TEST', color: 'White', name: 'Test tile', categoryId: category._id, baseUnit: 'PIECE', wholeBaseUnits: true, lengthMm: '600', widthMm: '600', heightMm: '10' });
     await m.ProductBatch.create({ productId: product._id, manufacturerLot: 'B1', identificationStatus: 'VERIFIED', piecesPerCarton: 4, cartonLengthMm: '620', cartonWidthMm: '620', cartonHeightMm: '50' });
-    const setup = async (code) => {
-      const warehouse = await m.Warehouse.create({ code, name: code, lengthMm: '10000', widthMm: '10000', clearHeightMm: '3000' });
+    const receivingAt = warehouseId => m.WarehouseLocation.findOne({ warehouseId, code: 'TONDAU-NHAN' });
+    const setup = async (code, dimensions = { lengthMm: '10000', widthMm: '10000', clearHeightMm: '3000' }) => {
+      const warehouse = await m.Warehouse.create({ code, name: code, ...dimensions });
       await m.WarehouseLocation.create({ warehouseId: warehouse._id, code: 'ST', locationType: 'STORAGE', isPickable: true, usableLengthMm: '5000', usableWidthMm: '5000' });
       worker.warehouseIds.push(warehouse._id); await worker.save();
       return { ...body(), warehouseId: String(warehouse._id), confirmEmpty: false };
@@ -61,16 +67,47 @@ test('Owner alone initializes each warehouse once, with replay and atomic stock 
     const overGrantedWorker = await m.User.findById(worker._id).populate({ path: 'roleId', populate: { path: 'permissionIds' } });
     await assert.rejects(service.preview(overGrantedWorker, input), /quyền/);
     await assert.rejects(service.create(overGrantedWorker, { ...input, idempotencyKey: key() }), /quyền/);
-    const invalid = await service.preview(owner, { ...input, rows: [{ ...row, enteredQty: '1', packagingState: 'LOOSE' }] });
-    assert.equal(invalid.valid, false); assert.match(invalid.errors[0].message, /thể tích/);
-    assert.equal((await service.preview(owner, input)).valid, true);
+    const invalid = await service.preview(owner, { ...input, rows: [{ ...row, enteredQty: '1.5' }] });
+    assert.equal(invalid.valid, false);
+    assert.match(invalid.errors[0].message, /đơn vị gốc/);
+    await m.WarehouseLocation.create({ warehouseId: input.warehouseId, code: 'OTHER-RECEIVING', locationType: 'RECEIVING' });
+    const mixedInput = { ...input, rows: [{ ...row, enteredQty: '10' }] };
+    const preview = await service.preview(owner, mixedInput);
+    assert.equal(preview.valid, true);
+    assert.deepEqual(preview.rows, [{ rowNumber: 2, sku: 'TEST', product: 'Test tile', batch: 'B1',
+      location: 'TONDAU-NHAN', quantityBase: '10', unit: 'PIECE', newProduct: false, newBatch: false }]);
+    assert.equal(await m.WarehouseLocation.countDocuments({ warehouseId: input.warehouseId }), 2);
+    assert.equal(await receivingAt(input.warehouseId), null);
+    assert.equal(await m.AuditLog.countDocuments({ action: 'IMPORT_LOCATION' }), 0);
     assert.equal(await m.InventoryBalance.countDocuments(), 0);
     assert.equal(await m.OpeningStock.countDocuments(), 0);
-    const draftBody = { ...input, idempotencyKey: key() };
+    const draftBody = { ...mixedInput, idempotencyKey: key() };
     const draft = await service.create(owner, draftBody);
     assert.equal((await service.create(owner, draftBody)).replayed, true);
     assert.match(draft.id, /^TDK-/);
     assert.equal(await m.InventoryBalance.countDocuments(), 0);
+    const receiving = await receivingAt(input.warehouseId);
+    assert.equal(receiving.name, 'Khu tiếp nhận tồn đầu');
+    assert.equal(receiving.areaCode, 'TONDAU');
+    assert.equal(receiving.locationType, 'RECEIVING');
+    assert.equal(receiving.isActive, true);
+    assert.equal(receiving.isPickable, false);
+    assert.equal(receiving.version, 1);
+    assert.deepEqual([receiving.usableLengthMm, receiving.usableWidthMm], [10000, 10000]);
+    assert.equal(await m.AuditLog.countDocuments({ action: 'IMPORT_LOCATION', subjectId: receiving._id }), 1);
+    const draftDocument = await service.get(owner, draft.id);
+    assert.ok(draftDocument.header.coveredLocationIds.includes(String(receiving._id)));
+    assert.deepEqual(draftDocument.items.map(i => [i.lineNo, i.packagingState, i.qtyBase, i.measuredVolumeMm3]),
+      [[1, 'SEALED', '8', undefined], [2, 'LOOSE', '2', '7200000']]);
+    for (const item of draftDocument.items) {
+      assert.equal(item.enteredQty, item.qtyBase);
+      assert.equal(item.enteredUnit, 'PIECE');
+      assert.equal(item.baseUnitSnapshot, 'PIECE');
+      assert.equal(item.baseUnitsPerUnit, '1');
+      assert.equal(item.locationCode, 'TONDAU-NHAN');
+      assert.equal(item.qualityStatus, 'GOOD');
+      assert.equal(item.ownerType, 'STORE');
+    }
     const postBody = { expectedVersion: 1, idempotencyKey: key(), reason: 'Independently verified' };
     await assert.rejects(service.act(worker, draft.id, 'post', postBody), /quyền/);
     await assert.rejects(service.act(overGrantedWorker, draft.id, 'post', postBody), /quyền/);
@@ -80,18 +117,33 @@ test('Owner alone initializes each warehouse once, with replay and atomic stock 
     assert.equal(posted.workflowStatus, 'POSTED');
     assert.equal((await m.OpeningStock.findById(posted.id)).header.openingImportSource, 'FILE');
     assert.equal((await service.act(owner, draft.id, 'post', postBody)).replayed, true);
-    assert.equal(String((await m.InventoryBalance.findOne()).quantityBase), '8');
+    const receivingPoint = await m.StockHoldingPoint.findOne({ locationId: receiving._id });
+    const openingBalance = await m.InventoryBalance.findOne({ holdingPointId: receivingPoint._id, qualityStatus: 'GOOD', ownerType: 'STORE' });
+    assert.equal(String(openingBalance.quantityBase), '10');
     assert.equal(await m.StockTransaction.countDocuments({ operation: 'OPENING' }), 1);
     await assert.rejects(service.act(owner, draft.id, 'post', { ...postBody, reason: 'Changed payload' }), /thao tác|nội dung|yêu cầu/i);
     await assert.rejects(service.create(owner, { ...draftBody, idempotencyKey: key(), cutoverKey: 'BYPASS' }), /khởi tạo/);
+
+    const storage = await m.WarehouseLocation.findOne({ warehouseId: input.warehouseId, code: 'ST' });
+    const movement = await createLocationMovement(worker, { idempotencyKey: key(), warehouseId: input.warehouseId,
+      reason: 'Cất hàng tồn đầu', lines: [{ sourceBalanceId: String(openingBalance._id), sourceBalanceVersion: openingBalance.version,
+        toLocationId: String(storage._id), enteredUnit: 'PIECE', enteredQty: '10' }] });
+    const moveDocument = await m.TransferOrder.findById(movement.id);
+    await confirmLocationMovement(worker, movement.id, { idempotencyKey: key(), expectedVersion: moveDocument.version,
+      lines: [{ lineId: String(moveDocument.items[0]._id), actualQtyBase: '10' }] });
+    const storagePoint = await m.StockHoldingPoint.findOne({ locationId: storage._id });
+    const storedBalance = await m.InventoryBalance.findOne({ holdingPointId: storagePoint._id });
+    assert.equal(String(storedBalance.quantityBase), '10');
+    assert.equal(String((await m.InventoryBalance.findById(openingBalance._id)).quantityBase), '0');
 
     const second = await setup('NEW');
     const newRow = { ...row, sku: 'NEW', name: 'Imported tile', categoryCode: 'TILE', baseUnit: 'PIECE', lengthMm: '600', widthMm: '600', heightMm: '10', piecesPerCarton: '4', cartonLengthMm: '620', cartonWidthMm: '620', cartonHeightMm: '50' };
     const newInput = { ...second, rows: [newRow], idempotencyKey: key() };
     assert.equal((await service.preview(owner, newInput)).valid, true);
     assert.equal(await m.Product.countDocuments({ sku: 'NEW' }), 0);
-    await assert.rejects(service.create(owner, { ...newInput, idempotencyKey: key(), rows: [newRow, { ...newRow, locationCode: 'MISSING' }] }));
+    await assert.rejects(service.create(owner, { ...newInput, idempotencyKey: key(), rows: [newRow, { ...newRow, baseUnit: 'BOX' }] }), /khác danh mục/);
     assert.equal(await m.Product.countDocuments({ sku: 'NEW' }), 0);
+    assert.equal(await receivingAt(second.warehouseId), null);
     const ownDraft = await service.create(owner, newInput);
     assert.equal(await m.Product.countDocuments({ sku: 'NEW' }), 1);
     await service.act(owner, ownDraft.id, 'post', { ...postBody, idempotencyKey: key() });
@@ -99,14 +151,44 @@ test('Owner alone initializes each warehouse once, with replay and atomic stock 
     await assert.rejects(service.act(owner, ownDraft.id, 'cancel', { ...postBody, idempotencyKey: key() }));
     const cancelledInput = await setup('CANCELLED');
     const cancelledDraft = await service.create(owner, { ...cancelledInput, idempotencyKey: key() });
+    const retainedLocation = await receivingAt(cancelledInput.warehouseId);
     await service.act(owner, cancelledDraft.id, 'cancel', { ...postBody, idempotencyKey: key() });
     const replacement = await service.create(owner, { ...cancelledInput, idempotencyKey: key() });
+    assert.equal(String((await receivingAt(cancelledInput.warehouseId))._id), String(retainedLocation._id));
+    assert.equal(await m.AuditLog.countDocuments({ action: 'IMPORT_LOCATION', subjectId: retainedLocation._id }), 1);
     await service.act(owner, replacement.id, 'post', { ...postBody, idempotencyKey: key() });
 
-    const empty = await setup('EMPTY');
+    const conflicting = await setup('CONFLICTING');
+    const conflict = await m.WarehouseLocation.create({ warehouseId: conflicting.warehouseId, code: 'TONDAU-NHAN', locationType: 'STORAGE' });
+    await assert.rejects(service.preview(owner, conflicting), /TONDAU-NHAN đã dùng/);
+    await conflict.updateOne({ locationType: 'RECEIVING', isActive: false });
+    await assert.rejects(service.preview(owner, conflicting), /đã ngừng/);
+
+    const rounding = await setup('ROUNDING');
+    const fractional = await m.Product.create({ sku: 'FRACTIONAL', manufacturerCode: 'TEST', color: 'White', name: 'Fractional',
+      categoryId: category._id, baseUnit: 'PIECE', wholeBaseUnits: false, lengthMm: '2.003', widthMm: '1', heightMm: '1' });
+    const fractionalBatch = await m.ProductBatch.create({ productId: fractional._id, manufacturerLot: 'B1', identificationStatus: 'VERIFIED',
+      piecesPerCarton: 4, cartonLengthMm: '10', cartonWidthMm: '10', cartonHeightMm: '10' });
+    const fractionalRow = { ...row, sku: fractional.sku, enteredQty: '0.1' };
+    const roundedDraft = await service.create(owner, { ...rounding, rows: [{ ...fractionalRow, enteredQty: '4.1' }, fractionalRow], idempotencyKey: key() });
+    const roundedItems = (await service.get(owner, roundedDraft.id)).items;
+    assert.deepEqual(roundedItems.map(item => [item.lineNo, item.measuredVolumeMm3]), [[1, undefined], [2, '0.201'], [3, '0.201']]);
+    await m.Product.collection.updateOne({ _id: fractional._id }, { $unset: { heightMm: '' } });
+    const missingSize = await service.preview(owner, { ...rounding, rows: [{ ...fractionalRow, heightMm: '1' }] });
+    assert.equal(missingSize.valid, false);
+    assert.match(missingSize.errors[0].message, /thiếu kích thước/);
+    await m.ProductBatch.collection.updateOne({ _id: fractionalBatch._id }, { $set: { piecesPerCarton: 0 } });
+    const invalidCarton = await service.preview(owner, { ...rounding, rows: [fractionalRow] });
+    assert.equal(invalidCarton.valid, false);
+    assert.match(invalidCarton.errors[0].message, /mỗi thùng/);
+
+    const empty = await setup('EMPTY', {});
+    await assert.rejects(service.preview(owner, empty), /chưa khai báo dài, rộng và chiều cao/);
     const emptyBody = { ...empty, rows: [], confirmEmpty: true, idempotencyKey: key() };
+    assert.equal((await service.preview(owner, emptyBody)).valid, true);
     const emptyDraft = await service.create(owner, emptyBody);
     await service.act(owner, emptyDraft.id, 'post', { ...postBody, idempotencyKey: key() });
+    assert.equal(await receivingAt(empty.warehouseId), null);
     assert.equal(await m.StockTransaction.countDocuments({ sourceId: emptyDraft.id }), 0);
     await assert.rejects(service.create(owner, { ...emptyBody, idempotencyKey: key() }), /khởi tạo/);
 
@@ -119,7 +201,7 @@ test('Owner alone initializes each warehouse once, with replay and atomic stock 
 
     const frozen = await setup('FROZEN');
     const frozenDraft = await service.create(owner, { ...frozen, idempotencyKey: key() });
-    const location = await m.WarehouseLocation.findOne({ warehouseId: frozen.warehouseId });
+    const location = await receivingAt(frozen.warehouseId);
     await m.StocktakeLocationLock.collection.insertOne({ locationId: location._id, status: 'LOCKED' });
     await assert.rejects(service.act(owner, frozenDraft.id, 'post', { ...postBody, idempotencyKey: key() }), /kiểm kê/);
     assert.equal((await m.OpeningStock.findById(frozenDraft.id)).workflowStatus, 'DRAFT');
@@ -127,7 +209,7 @@ test('Owner alone initializes each warehouse once, with replay and atomic stock 
     const capacity = await setup('CAPACITY');
     assert.equal((await service.preview(owner, { ...capacity, rows: [{ ...row, enteredQty: '1000000000' }] })).valid, false);
     const capacityDraft = await service.create(owner, { ...capacity, idempotencyKey: key() });
-    const capacityLocation = await m.WarehouseLocation.findOne({ warehouseId: capacity.warehouseId });
+    const capacityLocation = await receivingAt(capacity.warehouseId);
     await m.WarehouseLocation.updateOne({ _id: capacityLocation._id }, { $set: { usableLengthMm: 100 } });
     await assert.rejects(service.act(owner, capacityDraft.id, 'post', { ...postBody, idempotencyKey: key() }), /fit|capacity|sức chứa/i);
     assert.equal((await m.OpeningStock.findById(capacityDraft.id)).workflowStatus, 'DRAFT');
@@ -135,7 +217,7 @@ test('Owner alone initializes each warehouse once, with replay and atomic stock 
 
     const ordinaryRace = await setup('ORDINARY');
     const raceDraft = await service.create(owner, { ...ordinaryRace, idempotencyKey: key() });
-    const raceLocation = await m.WarehouseLocation.findOne({ warehouseId: ordinaryRace.warehouseId });
+    const raceLocation = await receivingAt(ordinaryRace.warehouseId);
     const existingBatch = await m.ProductBatch.findOne({ productId: product._id });
     const ordinary = async () => transaction(async session => {
       await guardLocations([raceLocation._id], session);
