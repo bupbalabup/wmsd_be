@@ -1,3 +1,5 @@
+18/11/2026 — BF03 theo yêu cầu người dùng: tùy chọn chuyển thùng nguyên + viên rời, ô viên rời xuống dòng 2. Lưu từng phần SEALED/LOOSE trên hai item để xác nhận từng chuyến đúng loại; không tự mở thùng, không dùng OPEN thay hàng rời. Chỉ explicit LOOSE được tách phần có thể tích biết trước bằng giới hạn bảo thủ. Schema thêm optional details.packagingState, không collection/index/migration. [Hợp đồng](docs/08_api/location-movements/README.md#mixed-sealed-cartons-and-loose-pieces--18-november-2026).
+
 ## Phạm vi chức năng hiện hành
 
 Quyết định người dùng ngày 17/11/2026: bỏ danh mục/quản lý khách hàng và quy trình delivery riêng; giữ đơn bán và khách trả. Luồng bán dùng SO -> phiếu xuất trực tiếp. Thông tin người mua nằm trên chứng từ; bằng chứng khách nhận và nhận lại hàng chưa giao gắn phiếu xuất.
@@ -140,6 +142,6 @@ The user confirmed Accountant verification with uploaded evidence for historical
 
 Kho 3D chặng 1 đã có code vẽ nền/tường/cửa, dùng warehouses.layout3d và quyền kho hiện có; không áp bố trí vào tồn. Hợp đồng: [Kho 3D](docs/10_Kho3D/IMPLEMENTATION.md).
 
-Kho 3D chặng 2: vùng chữ nhật xoay, ô local, danh mục chức năng riêng từng kho do người có warehouse_layout_function:update quản lý; lưu bản nháp và snapshot áp dụng tách biệt, kiểm phạm vi/updatedAt. Không đồng nhất chức năng tự tạo với enum vị trí nghiệp vụ, không tự ghi tồn. [Hợp đồng chặng 2](docs/10_Kho3D/STAGE2_ZONES.md).
+Kho 3D chặng 2: vùng chữ nhật xoay, ô local và danh mục chức năng riêng từng kho; lưu bản nháp và snapshot áp dụng tách biệt, kiểm phạm vi/updatedAt. Ô thiết kế có thể gán vị trí nghiệp vụ đã tạo trong cùng kho. Việc gán chỉ thay đổi thiết kế, không tự ghi tồn. Không đồng nhất chức năng tự tạo với enum vị trí nghiệp vụ. [Hợp đồng chặng 2](docs/10_Kho3D/STAGE2_ZONES.md).
 
-Kho 3D 12/11: cho phép vẽ và lưu nháp khu vực chưa gán chức năng (functionId rỗng); áp dụng cần gán đầy đủ. Danh mục chức năng vẫn cần warehouse_layout_function:update. Xem STAGE2_ZONES.md.
+Kho 3D: cho phép vẽ và lưu nháp khu vực chưa gán chức năng (functionId rỗng); áp dụng cần gán đầy đủ. Từ 18/11/2026, Chủ cửa hàng dùng quyền sửa kho để quản lý danh mục chức năng của mọi kho mà không cần phân công kho. Các vai trò còn lại cần thêm warehouse_layout_function:update và đúng kho đã được phân công. Xem [hợp đồng Kho 3D](docs/10_Kho3D/STAGE2_ZONES.md).
