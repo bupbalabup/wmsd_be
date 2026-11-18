@@ -15,7 +15,7 @@ Ngày 17/11/2026. Thực hiện tiếp yêu cầu người dùng thao tác palle
 
 ## Dữ liệu và quyền
 
-Không thêm field/schema/API/permission hoặc migration. Chỉ sửa `layout3d.zones[].slots[].pallets[].x/y` và giữ mã, lớp hàng, số đo, ô/khu ban đầu. Bản thiết kế áp dụng không đổi cho đến khi áp dụng qua API. Chưa liên kết balance, WarehouseLocation hay BF03; không diễn giải việc kéo pallet thành giao dịch hàng thực.
+Không thêm field/schema/API/permission hoặc migration cho thao tác kéo pallet. Chỉ sửa `layout3d.zones[].slots[].pallets[].x/y` và giữ mã, lớp hàng, số đo, ô/khu ban đầu. Bản thiết kế áp dụng không đổi cho đến khi áp dụng qua API. [Ô thiết kế có thể tham chiếu WarehouseLocation](STAGE2_ZONES.md), nhưng việc kéo pallet không liên kết balance, không gọi BF03 và không ghi giao dịch hàng thực.
 
 Quyền ghi vẫn là `warehouse_location:update` cùng phạm vi kho của BE. FE khóa thao tác kéo/đặt tọa độ khi chỉ xem hoặc đang lưu; vẫn cho chọn đối tượng và điều khiển camera. BE vẫn kiểm đầy đủ payload thiết kế theo chặng 3, không tin quyền từ FE.
 
