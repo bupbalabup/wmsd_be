@@ -23,7 +23,23 @@ export async function stocktakeOptions(user) {
         m.Product.find({ isActive: true }).select('_id sku name').sort({ sku: 1 }).lean(),
     ]);
     const users = await m.User.find({ isActive: true, warehouseIds: { $in: warehouses.map(w => w._id) } }).populate({ path: 'roleId', populate: { path: 'permissionIds' } });
-    return { warehouses: warehouses.map(dto), locations: locations.map(dto), lockedLocationIds: locked.map(l => String(l.locationId)), products: products.map(p => ({ id: String(p._id), sku: p.sku, name: p.name })), counters: users.filter(u => hasPermission(u, 'stocktake:update')).map(u => ({ id: String(u._id), fullName: u.fullName, warehouseIds: u.warehouseIds.map(String) })) };
+    return { warehouses: warehouses.map(dto), locations: locations.map(dto), lockedLocationIds: locked.map(l => String(l.locationId)), products: products.map(p => ({ id: String(p._id), sku: p.sku, name: p.name })), stockedProductIdsByLocation: await stockedProductIdsByLocation(locations.map(l => l._id)), counters: users.filter(u => hasPermission(u, 'stocktake:update')).map(u => ({ id: String(u._id), fullName: u.fullName, warehouseIds: u.warehouseIds.map(String) })) };
+}
+// Products that already have a balance row at each location (the same rows activation would snapshot),
+// so the planner can offer only products that exist in the chosen locations.
+async function stockedProductIdsByLocation(locationIds) {
+    const points = await m.StockHoldingPoint.find({ type: 'LOCATION', locationId: { $in: locationIds } }).select('_id locationId').lean();
+    const pointLocation = new Map(points.map(point => [String(point._id), String(point.locationId)]));
+    const balances = await m.InventoryBalance.find({ holdingPointId: { $in: points.map(point => point._id) } }).select('holdingPointId batchId').lean();
+    const batches = await m.ProductBatch.find({ _id: { $in: [...new Set(balances.map(balance => String(balance.batchId)))] } }).select('_id productId').lean();
+    const batchProduct = new Map(batches.map(batch => [String(batch._id), String(batch.productId)]));
+    const byLocation = {};
+    for (const balance of balances) {
+        const locationId = pointLocation.get(String(balance.holdingPointId)), productId = batchProduct.get(String(balance.batchId));
+        if (locationId && productId)
+            (byLocation[locationId] ??= new Set()).add(productId);
+    }
+    return Object.fromEntries(Object.entries(byLocation).map(([locationId, ids]) => [locationId, [...ids]]));
 }
 async function scoped(user, id, session) { const document = await m.Stocktake.findById(id).session(session); if (!document)
     throw notFoundError(); requireWarehouseAccess(user, document.header.warehouseId); return document; }
@@ -502,6 +518,38 @@ export function submitResolutionPlan(user, id, input) {
             }
             items.push(item);
         }
+        // Refuse an incomplete plan here rather than at close: once approved it cannot be replaced, so a plan
+        // that leaves any group off its selected count would block the session. Same projection as close.
+        const projected = new Map(snapshots.map(snapshot => [String(snapshot.sourceBalanceId), exact(String(snapshot.bookQtyBase))]));
+        const shift = (balanceId, quantity) => {
+            const key = String(balanceId);
+            if (!projected.has(key))
+                throw validationError('Nhóm tồn của phương án phải thuộc mốc trong phạm vi');
+            projected.set(key, projected.get(key).plus(quantity));
+        };
+        // Close refuses opposite adjustments of one lot and owner (they must be RECLASS/RELOCATE); refuse them now too.
+        const deltaSigns = new Map();
+        for (const item of items) {
+            if (item.details.actionKind !== 'DELTA')
+                continue;
+            const snapshot = snapshots.find(row => same(row.sourceBalanceId, item.details.toBalanceId ?? item.details.fromBalanceId));
+            const group = [String(item.lotId), snapshot?.ownerType, String(snapshot?.ownerId ?? '')].join(':');
+            const signs = deltaSigns.get(group) ?? new Set();
+            signs.add(exact(item.details.deltaQty).gt(0) ? 1 : -1);
+            deltaSigns.set(group, signs);
+            if (signs.size > 1)
+                throw validationError('Đổi chất lượng/vị trí phải dùng RECLASS/RELOCATE, không tạo hai điều chỉnh bù nhau');
+        }
+        for (const item of items) {
+            if (item.details.actionKind === 'DELTA')
+                shift(item.details.toBalanceId ?? item.details.fromBalanceId, item.details.deltaQty);
+            else {
+                shift(item.details.fromBalanceId, exact(item.qtyBase).negated());
+                shift(item.details.toBalanceId, item.qtyBase);
+            }
+        }
+        if ([...selected.values()].some(({ snapshot, count }) => !projected.get(String(snapshot.sourceBalanceId))?.eq(String(count.countedQtyBase))))
+            throw validationError('Phương án phải xử lý đủ toàn bộ chênh lệch của mọi nhóm tồn');
         const plans = document.resolutionPlans ?? [];
         const planVersion = plans.reduce((max, plan) => Math.max(max, plan.header?.planVersion ?? 0), 0) + 1;
         const previousPlanId = plans.length ? plans[plans.length - 1]._id : null;
@@ -566,6 +614,33 @@ export function cancelStocktake(user, id, input) {
         document.cancelledAt = now;
         document.cancelReason = input.reason;
         return { document: await saveVersion(document, input.expectedVersion, session), versionBefore: input.expectedVersion, reason: input.reason };
+    });
+}
+
+// Owner reopens counting (decision 18/11/2026) when a count proves wrong after reconciliation, e.g. damaged
+// tiles left out. Allowed until close: nothing has been posted to stock yet (approval and execution records
+// do not post), so open plans are cancelled as history, the reconciliation is cleared and locks stay in place.
+// Staff then record a recount (a new attempt with a reason) and the session is reconciled again.
+const REOPENABLE = ['RECONCILING', 'PENDING_APPROVAL', 'APPROVED', 'IN_PROGRESS'];
+export function reopenCounting(user, id, input) {
+    return command(user, 'REOPEN_STOCKTAKE_COUNTING', 'stocktake:create', id, input, (sid, actor, session) => scoped(actor, sid, session), async (session, actor) => {
+        const document = await scoped(actor, id, session);
+        checkVersion(document, input.expectedVersion);
+        if (!REOPENABLE.includes(document.workflowStatus))
+            throw validationError('Chỉ mở lại bước đếm khi đợt đã đối chiếu và chưa chốt');
+        const now = new Date();
+        for (const plan of document.resolutionPlans)
+            if (!FINAL_PLAN.includes(plan.workflowStatus)) {
+                plan.workflowStatus = 'CANCELLED';
+                plan.cancelledBy = actor._id;
+                plan.cancelledAt = now;
+                plan.cancelReason = `Mở lại bước đếm: ${input.reason}`;
+            }
+        document.header.selectedCounts = [];
+        document.header.lastReconciledAt = null;
+        document.header.lastReconciledBy = null;
+        document.workflowStatus = 'COUNTING';
+        return { document: await saveVersion(document, input.expectedVersion, session), versionBefore: input.expectedVersion, resultRefs: [], reason: input.reason };
     });
 }
 
