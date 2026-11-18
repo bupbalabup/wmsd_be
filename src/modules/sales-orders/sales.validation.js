@@ -15,6 +15,21 @@ export const createOrderBody = z.object({
   deliveries: z.array(z.object({ plannedOn: z.iso.datetime({ offset: true }), warehouseId: objectId,
     lines: z.array(z.object({ lineKey: label(100), quantity }).strict()).min(1).max(200) }).strict()).min(1).max(50),
 }).strict().refine((v) => new Set(v.lines.map((line) => line.clientLineKey)).size === v.lines.length, { message: 'Duplicate order lines' });
+const unitQuantity = quantity;
+const deliveryPlan = z.object({ id: objectId.optional(), plannedOn: z.iso.datetime({ offset: true }), warehouseId: objectId,
+  lines: z.array(z.object({ lineKey: label(100), quantity: unitQuantity }).strict()).min(1).max(200) }).strict();
+// `lines`: change an existing line by lineId (quantity, unit, price), remove it, or add a new one (no lineId).
+// `deliveries`: the final wanted state of every delivery that can still be edited.
+export const updateOrderBody = z.object({
+  idempotencyKey: label(70), expectedVersion: z.number().int().positive(), reason: label(2000),
+  header: z.object({ customerId: objectId.optional(), deliveryAddress: label(500).optional(), recipientName: label(160).optional(),
+    recipientPhone: label(30).optional(), note: label(2000).optional(), orderAmount: decimalStringSchema({ label: 'Tổng tiền' }).optional() }).strict().optional(),
+  lines: z.array(z.object({ lineId: objectId.optional(), remove: z.boolean().optional(), clientLineKey: label(100).optional(),
+    productId: objectId.optional(), lotId: objectId.optional(), enteredUnit: label(60).optional(), quantity: unitQuantity.optional(),
+    unitSellingPrice: decimalStringSchema().nullable().optional() }).strict()).max(200).optional(),
+  deliveries: z.array(deliveryPlan).max(50),
+}).strict();
+export const cancelOrderBody = z.object({ idempotencyKey: label(70), expectedVersion: z.number().int().positive(), reason: label(2000) }).strict();
 export const outboundQuery = z.object({
   q: label(100).optional(),
   warehouseId: objectId.optional(), salesOrderId: documentIdentifier.optional(), issueRequestId: documentIdentifier.optional(),

@@ -485,6 +485,16 @@
     ]
   },
   {
+    "code": "sales_order:cancel",
+    "description": "Hủy SO và lịch giao chưa xuất kho",
+    "uc": [
+      "UC-48"
+    ],
+    "roles": [
+      "SALES"
+    ]
+  },
+  {
     "code": "issue_request:read",
     "description": "Xem yêu cầu xuất kho liên kết (WIR)",
     "uc": [

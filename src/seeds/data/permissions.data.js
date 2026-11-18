@@ -104,6 +104,7 @@ export const PERMISSION_CATALOGUE = [
   { code: 'sales_order:read', description: 'Xem SO sao chép (theo phạm vi)', uc: ['UC-45', 'UC-46'], roles: BUSINESS_ROLES },
   { code: 'sales_order:create', description: 'Tạo SO sao chép từ nguồn ngoài đã xác minh', uc: ['UC-47'], roles: [SALES] },
   { code: 'sales_order:update', description: 'Sửa/hủy phần SO chưa xuất', uc: ['UC-48'], roles: [SALES] },
+  { code: 'sales_order:cancel', description: 'Hủy SO và lịch giao chưa xuất kho', uc: ['UC-48'], roles: [SALES] },
 
   { code: 'issue_request:read', description: 'Xem yêu cầu xuất kho liên kết (WIR)', uc: ['UC-109'], roles: BUSINESS_ROLES },
   { code: 'issue_request:create', description: 'Tạo WIR / nhu cầu ròng tái mở', uc: ['UC-109'], roles: [SALES] },
