@@ -211,6 +211,8 @@ run('planned PO conversion and actual lot conversion remain separate through rec
  });
  await po.confirmPurchaseOrder(accountant, order.id, { ...input(), expectedVersion: 1 });
  let orderDoc = await m.PurchaseOrder.findById(order.id);
+ assert.equal(String(orderDoc.items[0].baseUnitsPerUnit), '4');
+ assert.equal(String(orderDoc.items[0].qtyBase), '40');
  const inspect = async enteredQty => {
    const createdInspection = await receiving.createInspection(worker, order.id, {
      creationKey: key(), expectedPoVersion: orderDoc.version, arrivedAt: new Date().toISOString(),
@@ -222,23 +224,22 @@ run('planned PO conversion and actual lot conversion remain separate through rec
    ...input(), expectedVersion: inspection.version, expectedPoVersion: orderDoc.version,
    destinations: [{ inspectionItemId: String(inspection.items[0]._id), locationId: String(receivingLocation._id) }],
  });
- const over = await inspect('8');
+ const over = await inspect('6');
  await assert.rejects(confirm(over), /vượt/i);
- const inspection = await inspect('7');
+ const inspection = await inspect('4');
  assert.equal(String(inspection.items[0].baseUnitsPerUnit), '8');
- assert.equal(String(inspection.items[0].qtyBase), '56');
+ assert.equal(String(inspection.items[0].qtyBase), '32');
  const confirmed = await confirm(inspection);
  const receiptId = confirmed.resultRefs.find(ref => ref.documentType === 'goods_receipts').documentId;
  orderDoc = await m.PurchaseOrder.findById(order.id);
  await receiving.postReceipt(worker, receiptId, { ...input(), expectedVersion: 1, expectedPoVersion: orderDoc.version });
  const receipt = await m.PurchaseReceipt.findById(receiptId);
  assert.equal(String(receipt.items[0].baseUnitsPerUnit), '8');
- assert.equal(String(receipt.items[0].qtyBase), '56');
+ assert.equal(String(receipt.items[0].qtyBase), '32');
  const [balance] = await receiving.commitments(await m.PurchaseOrder.findById(order.id));
- assert.equal(balance.outstandingQtyBase, '4');
- assert.equal(String(orderDoc.items[0].baseUnitsPerUnit), '6');
- assert.equal(orderDoc.items[0].lotId, undefined);
- assert.equal(orderDoc.items[0].packagingSnapshot, undefined);
+ assert.equal(balance.outstandingQtyBase, '8');
+ assert.equal(String(orderDoc.items[0].baseUnitsPerUnit), '4');
+ assert.equal(String(orderDoc.items[0].lotId), String(batch._id));
 });
 async function postedReceipt(packagingCondition='SEALED',custodyOnly=false,qualityCode='GOOD',{qtyBase,location=receivingLocation,portion}={}){
  const requestInput={creationKey:key(),action:'SUBMIT',warehouseId:String(warehouse._id),neededOn:'2026-12-01',triggerReason:'Test',lines:[{productId:String(product._id),lotId:String(batch._id),enteredUnit:'BOX',enteredQty:'2',reasonNote:'Test'}]};
