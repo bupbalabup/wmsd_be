@@ -222,7 +222,7 @@ Model: [warehouse.model.js](../../../../src/models/warehouse.model.js).
 | `lengthMm` | Number | false |  |
 | `widthMm` | Number | false |  |
 | `clearHeightMm` | Number | false |  |
-| `layout3d` | Mixed/Object | false | Bản nháp: points, height, doors, maxStackHeight?, functions[] và zones[] (slots[] local); m/độ. Pallet có layers[] (id/height/items[] nhãn mã hàng/lô/số thùng) và measuredCargoHeight? tính phần hàng; actualHeight cũ vẫn là tổng cao. Cấu trúc/giới hạn tại [chặng 2](../../10_Kho3D/STAGE2_ZONES.md) và [lớp pallet](../../10_Kho3D/STAGE3_PALLET_LAYERS.md). |
+| `layout3d` | Mixed/Object | false | Bản nháp: points, height, doors, maxStackHeight?, functions[] và zones[] (slots[] local); m/độ. `zones[].slots[].locationId` tùy chọn, chuỗi ObjectId tham chiếu vị trí nghiệp vụ cùng kho, kiểm bởi API; dữ liệu cũ thiếu trường vẫn hợp lệ. Pallet có layers[] (id/height/items[] nhãn mã hàng/lô/số thùng) và measuredCargoHeight? tính phần hàng; actualHeight cũ vẫn là tổng cao. Cấu trúc/giới hạn tại [chặng 2](../../10_Kho3D/STAGE2_ZONES.md) và [lớp pallet](../../10_Kho3D/STAGE3_PALLET_LAYERS.md). |
 | `layout3dApplied` | Mixed/Object | false | Snapshot áp dụng gần nhất cùng cấu trúc layout3d; lưu nháp không thay snapshot. |
 | `layout3dAppliedAt` | Date | false | Thời điểm áp dụng snapshot; chưa có ở dữ liệu cũ. |
 | `isActive` | Boolean | true |  |
@@ -2240,8 +2240,11 @@ Indexes:
 
 Model: [transfer-order.model.js](../../../../src/models/transfer-order.model.js).
 
+18/11/2026 — BF03 optional mixed entry: `items[].{DocumentLine_WAREHOUSE_TASK}.details.packagingState` is String enum `SEALED|LOOSE`, optional with no default/ref/index. Each typed item consumes only that category and keeps independent partial progress; absent values retain legacy behavior. This field lives in the shared embedded warehouse-task details schema and is currently used only by RELOCATE commands. Explicit LOOSE splits known-volume stock conservatively; SEALED cannot open. No collection/relationship/ERD relationship changes or backfill. See [current API](../../08_api/location-movements/README.md#mixed-sealed-cartons-and-loose-pieces--18-november-2026).
+
 | Trường | Kiểu | Bắt buộc | Liên kết |
 |---|---|---|---|
+| `items[].{DocumentLine_WAREHOUSE_TASK}.details.packagingState` | String enum SEALED / LOOSE | false | Không; chỉ định loại đóng gói BF03 |
 | `documentNo` | String | true |  |
 | `documentKind` | String | true |  |
 | `workflowStatus` | String | true |  |
