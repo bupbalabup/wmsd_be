@@ -80,5 +80,41 @@ test('BF03 confirms partial quantities, preserves history, cancels only the rema
     const outsider = await actor('outside-warehouse'); outsider.warehouseIds = []; await outsider.save();
     await assert.rejects(moves.getLocationMovement(outsider, multi.id));
     assert.equal((await m.InventoryBalance.find()).reduce((n, b) => n + Number(b.quantityBase), 0), 48);
+
+    // A combined UI row becomes two independent packaging lines with one stock identity.
+    const mixedSource=await location('MIX-SRC'),mixedDestination=await location('MIX-DST');
+    const mixedPoint=await m.StockHoldingPoint.create({type:'LOCATION',locationId:mixedSource._id});
+    const mixedBalance=await m.InventoryBalance.create({holdingPointId:mixedPoint._id,batchId:batch._id,ownerType:'STORE',qualityStatus:'GOOD',quantityBase:'62',version:0,packagingPortions:[
+      {packagingState:'SEALED',sealedPackCount:15,quantityBase:'60',createdBy:worker._id,packagingSnapshot:{packageUnit:'BOX',baseUnitsPerPackage:'4',outerLengthMm:'620',outerWidthMm:'620',outerHeightMm:'50'}},
+      {packagingState:'LOOSE',quantityBase:'2',measuredVolumeMm3:'7200000',createdBy:worker._id},
+    ]});
+    const common={sourceBalanceId:String(mixedBalance._id),sourceBalanceVersion:0,toLocationId:String(mixedDestination._id),enteredUnit:'PIECE'};
+    const mixedBody={idempotencyKey:key(),warehouseId:String(warehouse._id),reason:'10 cartons plus one loose piece',lines:[{...common,enteredQty:'40',packagingState:'SEALED'},{...common,enteredQty:'1',packagingState:'LOOSE'}]};
+    await assert.rejects(moves.createLocationMovement(worker,{...mixedBody,idempotencyKey:key(),lines:[{...common,enteredQty:'3',packagingState:'LOOSE'}]}),/không đủ/);
+    await assert.rejects(moves.createLocationMovement(worker,{...mixedBody,idempotencyKey:key(),lines:[{...common,enteredQty:'1',packagingState:'SEALED'}]}),/nguyên thùng/);
+    const mixed=await moves.createLocationMovement(worker,mixedBody);let combined=await doc(mixed.id);
+    assert.deepEqual(combined.items.map(item=>item.details.packagingState),['SEALED','LOOSE']);
+    const itemIds=combined.items.map(item=>String(item._id));
+    await moves.editLocationMovement(worker,combined.id,{idempotencyKey:key(),expectedVersion:combined.version,reason:mixedBody.reason,lines:mixedBody.lines});
+    combined=await doc(combined.id);assert.deepEqual(combined.items.map(item=>String(item._id)),itemIds);
+    const looseLine=combined.items.find(item=>item.details.packagingState==='LOOSE'),sealedLine=combined.items.find(item=>item.details.packagingState==='SEALED');
+    const looseTrip={idempotencyKey:key(),expectedVersion:combined.version,lines:[{lineId:String(looseLine._id),actualQtyBase:'1'}]};
+    await moves.confirmLocationMovement(worker,combined.id,looseTrip);
+    assert.equal((await moves.confirmLocationMovement(worker,combined.id,looseTrip)).replayed,true);
+    for(const quantity of ['20','20']){
+      combined=await doc(combined.id);
+      await moves.confirmLocationMovement(worker,combined.id,{idempotencyKey:key(),expectedVersion:combined.version,lines:[{lineId:String(sealedLine._id),actualQtyBase:quantity}]});
+    }
+    combined=await doc(combined.id);assert.equal(combined.workflowStatus,'CONFIRMED');
+    const sourceAfter=await m.InventoryBalance.findById(mixedBalance._id);
+    const destPoint=await m.StockHoldingPoint.findOne({locationId:mixedDestination._id});
+    const destAfter=await m.InventoryBalance.findOne({holdingPointId:destPoint._id,batchId:batch._id});
+    const sumPackaging=(row,state)=>row.packagingPortions.filter(p=>p.packagingState===state).reduce((n,p)=>n+Number(p.quantityBase),0);
+    assert.equal(String(sourceAfter.quantityBase),'21');assert.equal(sumPackaging(sourceAfter,'SEALED'),20);assert.equal(sumPackaging(sourceAfter,'LOOSE'),1);
+    assert.equal(String(destAfter.quantityBase),'41');assert.equal(sumPackaging(destAfter,'SEALED'),40);assert.equal(sumPackaging(destAfter,'LOOSE'),1);
+    assert.equal(sourceAfter.packagingPortions.find(p=>p.packagingState==='SEALED').sealedPackCount,5);
+    const mixedDetail=await moves.getLocationMovement(worker,combined.id);assert.deepEqual(mixedDetail.items.map(item=>item.details.packagingState),['SEALED','LOOSE']);
+    assert.equal(mixedDetail.transactions.length,3);assert.equal((await pendingTaskQuantity(mixedBalance._id)).toFixed(),'0');
+    assert.equal((await m.InventoryBalance.find()).reduce((n,b)=>n+Number(b.quantityBase),0),110);
   } finally { assert.equal(mongoose.connection.name, dbName); assert.match(dbName, /^relocation_partial_test_[a-f0-9]{24}$/); await mongoose.connection.dropDatabase(); await mongoose.disconnect(); }
 });
