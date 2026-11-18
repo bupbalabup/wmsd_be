@@ -8,6 +8,7 @@ import { dto, serialize, page, transaction } from '../../shared/utils/persistenc
 import { command, checkVersion, same, saveVersion } from '../../shared/utils/document-command.js';
 import { freeQuantity, heldQuantity, unreservedPendingTaskQuantity, remainingReservation, verifyCapacity, guardWarehouses } from '../../shared/utils/stock.js';
 import { notFoundError, validationError } from '../../shared/utils/ApiError.js';
+import { blindCountScope } from '../../shared/utils/blind-count.js';
 const escape = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export const warehouseScope = user => isOwner(user) ? {} : { _id: { $in: user.warehouseIds || [] } };
 async function scopeContext(user, query = {}, session) {
@@ -96,8 +97,10 @@ export async function locationDetail(user,id) {
     const batches = await m.ProductBatch.find({_id:{$in:balances.map(b=>b.batchId)}}).session(session).lean();
     const products = await m.Product.find({_id:{$in:batches.map(b=>b.productId)}}).session(session).lean();
     const volume = await verifyLocationVolume(row,warehouse,balances);
-    return {...dto(row),warehouse:warehouse?dto(warehouse):null,locked:locks.length>0,openTaskCount:tasks,capacity:volume,
-      stock:balances.filter(b=>exact(b.quantityBase).gt(0)).map(b=>{const batch=batches.find(l=>same(l._id,b.batchId)),product=products.find(p=>same(p._id,batch?.productId));return {id:String(b._id),batch:batch?.manufacturerLot??null,product:product?.name??null,sku:product?.sku??null,unit:product?.baseUnit??null,quality:b.qualityStatus,ownerType:b.ownerType,quantityBase:String(b.quantityBase)};})};
+    // Occupied volume divided by a carton volume would reveal the frozen book quantity too.
+    const blind=(await blindCountScope(user,session)).has(row._id);
+    return {...dto(row),warehouse:warehouse?dto(warehouse):null,locked:locks.length>0,openTaskCount:tasks,capacity:volume&&blind?{...volume,occupiedMm3:null}:volume,blindCount:blind,
+      stock:balances.filter(b=>exact(b.quantityBase).gt(0)).map(b=>{const batch=batches.find(l=>same(l._id,b.batchId)),product=products.find(p=>same(p._id,batch?.productId));return {id:String(b._id),batch:batch?.manufacturerLot??null,product:product?.name??null,sku:product?.sku??null,unit:product?.baseUnit??null,quality:b.qualityStatus,ownerType:b.ownerType,quantityBase:blind?null:String(b.quantityBase)};})};
   });
 }
 async function verifyLocationVolume(location,warehouse,balances) {
@@ -150,12 +153,13 @@ export async function inventory(user,query) {
     if(query.q){const regex=new RegExp(escape(query.q),'i');const points=ctx.points.filter(p=>ctx.locations.some(l=>same(l._id,p.locationId)&&(regex.test(l.code)||regex.test(l.name??'')))).map(p=>p._id);pipeline.push({$match:{$or:[...['product.name','product.sku','batch.manufacturerLot'].map(k=>({[k]:regex})),{holdingPointId:{$in:points}}]}});}
     const sales=currentRole(user)?.code==='SALES';if(sales)pipeline.push({$match:{ownerType:'STORE',qualityStatus:'GOOD','batch.identificationStatus':'VERIFIED','product.isActive':true}});
     pipeline.push({$sort:{'product.name':1,_id:1}},{$facet:{items:[{$skip:(query.page-1)*query.limit},{$limit:query.limit}],total:[{$count:'value'}]}});
-    const [result]=await m.InventoryBalance.aggregate(pipeline).session(session);const items=[];
+    const [result]=await m.InventoryBalance.aggregate(pipeline).session(session);const items=[];const blind=await blindCountScope(user,session);
     for(const b of result.items){const point=ctx.points.find(p=>same(p._id,b.holdingPointId)),location=ctx.locations.find(l=>same(l._id,point?.locationId)),dispatch=ctx.dispatches.find(d=>d.items.some(i=>same(i._id,point?.dispatchLineId))),warehouse=ctx.warehouses.find(w=>same(w._id,location?.warehouseId??dispatch?.header.sourceWarehouseId));
       const transit=point.type==='IN_TRANSIT', frozen=location&&await m.StocktakeLocationLock.exists({locationId:location._id,status:'LOCKED'}).session(session);
       const available=warehouse?.isActive&&!transit&&!frozen&&b.ownerType==='STORE'&&b.qualityStatus==='GOOD'&&b.batch.identificationStatus==='VERIFIED'&&b.product.isActive&&location?.isActive&&location.isPickable?ExactDecimal.max(0,await freeQuantity(b,session)):exact('0');
       const base={id:String(b._id),warehouseId:warehouse?String(warehouse._id):null,warehouse:warehouse?.name??null,locationId:location?String(location._id):null,location:location?.code??(transit?'Đang chuyển':null),productId:String(b.product._id),product:b.product.name,sku:b.product.sku,batchId:String(b.batch._id),batch:b.batch.manufacturerLot,unit:b.product.baseUnit,availableQtyBase:available.toFixed()};
       if(sales){items.push(base);continue;}
+      if(location&&blind.has(location._id)){items.push({...base,availableQtyBase:null,usableQtyBase:null,quality:b.qualityStatus,ownerType:b.ownerType,physicalQtyBase:null,transitQtyBase:'0',custodyQtyBase:null,reservedQtyBase:null,heldQtyBase:null,pendingQtyBase:null,frozen:true,blindCount:true,version:b.version});continue;}
       const reservations=await m.StockReservation.find({balanceId:b._id}).session(session);
       const usable=warehouse?.isActive&&!transit&&!frozen&&b.ownerType==='STORE'&&b.qualityStatus==='GOOD'&&b.batch.identificationStatus==='VERIFIED'&&b.product.isActive&&location?.isActive?ExactDecimal.max(0,exact(b.quantityBase).minus(await heldQuantity(b._id,session))).toFixed():'0';
       items.push({...base,usableQtyBase:usable,quality:b.qualityStatus,ownerType:b.ownerType,physicalQtyBase:transit?'0':String(b.quantityBase),transitQtyBase:transit?String(b.quantityBase):'0',custodyQtyBase:b.ownerType==='STORE'?'0':String(b.quantityBase),reservedQtyBase:reservations.reduce((n,r)=>n.plus(remainingReservation(r)),exact('0')).toFixed(),heldQtyBase:(await heldQuantity(b._id,session)).toFixed(),pendingQtyBase:(await unreservedPendingTaskQuantity(b._id,session)).toFixed(),frozen:Boolean(frozen),version:b.version});
@@ -177,7 +181,7 @@ export async function movements(user,query,id) {
   if(query.q){const regex=new RegExp(escape(query.q),'i');const products=await m.Product.find({$or:[{name:regex},{sku:regex}]}).select('_id').lean();const batches=await m.ProductBatch.find({$or:[{manufacturerLot:regex},{productId:{$in:products.map(p=>p._id)}}]}).select('_id').lean();const locationIds=ctx.locations.filter(l=>regex.test(l.code)||regex.test(l.name??'')).map(l=>l._id);const points=ctx.points.filter(p=>locationIds.some(l=>same(l,p.locationId))).map(p=>p._id);const matching=await m.InventoryBalance.find({_id:{$in:balanceIds},$or:[{batchId:{$in:batches.map(b=>b._id)}},{holdingPointId:{$in:points}}]}).select('_id').lean();const ids=matching.map(b=>b._id);pipeline.push({$match:{$or:[{operation:regex},{'movements.fromBalanceId':{$in:ids}},{'movements.toBalanceId':{$in:ids}}]}});}
   if(id)pipeline.push({$match:{'movements._id':databaseId(id)}});
   pipeline.push({$sort:{occurredAt:-1,'movements._id':-1}},{$facet:{items:[{$skip:id?0:(query.page-1)*query.limit},{$limit:id?1:query.limit}],total:[{$count:'value'}]}});
-  const [result]=await m.StockTransaction.aggregate(pipeline);const items=[];
+  const [result]=await m.StockTransaction.aggregate(pipeline);const items=[];const blind=await blindCountScope(user);
   const endpoint=async balanceId=>{
     if(!balanceId||!balanceIds.some(b=>same(b,balanceId)))return null;
     const b=await m.InventoryBalance.findById(balanceId).lean(),point=ctx.points.find(p=>same(p._id,b?.holdingPointId)),location=ctx.locations.find(l=>same(l._id,point?.locationId));
@@ -189,7 +193,10 @@ export async function movements(user,query,id) {
     let source=null;const Model=m.models.get(t.sourceType);
     const permissions={transfer_orders:'stock_relocation:read',transfer_dispatches:'stock_transfer:read',transfer_receipts:'stock_transfer:read',warehouse_transfer_requests:'stock_transfer:read',goods_receipts:'goods_receipt:read',sales_goods_issues:'goods_issue:read'};
     if(Model&&permissions[t.sourceType]){const doc=await Model.findById(t.sourceId).select('documentNo header note documentKind').lean();const permission=t.sourceType==='transfer_orders'&&doc?.header?.taskKind!=='RELOCATE'?'stock_transfer:read':t.sourceType==='goods_receipts'&&doc?.documentKind==='TRANSFER'?'stock_transfer:read':permissions[t.sourceType];if(doc&&hasPermission(user,permission))source={documentNo:doc.documentNo,type:t.sourceType,reason:doc.header?.reason??doc.note??null};}
-    items.push({id:String(move._id),transactionId:String(t._id),operation:t.operation,occurredAt:t.occurredAt,recordedAt:t.recordedAt,performedBy:performer?.fullName??performer?.username??null,source,quantityBase:String(move.quantityBase),from:from?{...from,before:String(move.fromBefore),after:String(move.fromAfter)}:null,to:to?{...to,before:String(move.toBefore),after:String(move.toAfter)}:null});
+    // Summing history would rebuild the frozen book quantity, so a hidden endpoint hides the moved quantity and the
+    // before/after of both endpoints (on the visible one their difference is the moved quantity).
+    const hideFrom=from&&blind.has(move.fromBalanceId),hideTo=to&&blind.has(move.toBalanceId),hidden=Boolean(hideFrom||hideTo);
+    items.push({id:String(move._id),transactionId:String(t._id),operation:t.operation,occurredAt:t.occurredAt,recordedAt:t.recordedAt,performedBy:performer?.fullName??performer?.username??null,source,quantityBase:hidden?null:String(move.quantityBase),blindCount:hidden,from:from?{...from,before:hidden?null:String(move.fromBefore),after:hidden?null:String(move.fromAfter)}:null,to:to?{...to,before:hidden?null:String(move.toBefore),after:hidden?null:String(move.toAfter)}:null});
   }
   const rows=items;
   if(id){if(!rows[0])throw notFoundError();return serialize(rows[0]);}

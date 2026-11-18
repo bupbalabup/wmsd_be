@@ -1,10 +1,11 @@
 import { documentIdentifier } from '../../shared/utils/document-id.validation.js';
 import { Router } from 'express';
+import multer from 'multer';
 import { z } from 'zod';
 import { authenticate } from '../../middlewares/auth.js';
 import { catchAsync } from '../../shared/utils/catchAsync.js';
 import { formatApiResponse } from '../../shared/utils/ApiResponse.js';
-import { validationError } from '../../shared/utils/ApiError.js';
+import { ApiError, validationError } from '../../shared/utils/ApiError.js';
 import { objectId } from '../sales-orders/sales.validation.js';
 import { stocktakeListQuery } from './stocktake-list.query.js';
 import { resolutionListQuery } from './stocktake-resolution.query.js';
@@ -13,6 +14,7 @@ import { getCountSheet } from './stocktake-count-sheet.service.js';
 import { operation } from '../sales-orders/sales-execution.validation.js';
 import * as service from './stocktake-closure.service.js';
 import * as commands from './stocktake-commands.service.js';
+import * as evidence from './stocktake-evidence.service.js';
 import { decimalStringSchema } from '../../shared/utils/domain.js';
 import { QUALITY_CODES } from '../../models/constants.js';
 const qty = decimalStringSchema({ positive: true });
@@ -44,6 +46,7 @@ router.post('/', catchAsync(async (req, res) => formatApiResponse(res, { data: a
 router.post('/:id/update', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.updateStocktake(req.user, parse(documentIdentifier, req.params.id), parse(updateBody, req.body)) })));
 router.post('/:id/activate', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.activateStocktake(req.user, parse(documentIdentifier, req.params.id), parse(activateBody, req.body)) })));
 router.post('/:id/counts', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.recordCount(req.user, parse(documentIdentifier, req.params.id), parse(countBody, req.body)) })));
+router.post('/:id/cancel', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.cancelStocktake(req.user, parse(documentIdentifier, req.params.id), parse(operation.extend({ reason: text }).strict(), req.body)) })));
 router.post('/:id/reconcile', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.reconcileStocktake(req.user, parse(documentIdentifier, req.params.id), parse(operation.strict(), req.body)) })));
 router.post('/:id/resolution-plans', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.submitResolutionPlan(req.user, parse(documentIdentifier, req.params.id), parse(planBody, req.body)) })));
 router.post('/:id/resolution-plans/:planId/review', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.reviewResolutionPlan(req.user, parse(documentIdentifier, req.params.id), parse(oid, req.params.planId), parse(reviewBody, req.body)) })));
@@ -52,6 +55,11 @@ router.get('/', catchAsync(async (req, res) => formatApiResponse(res, { data: aw
 // Literal segments are registered before `/:id` so they are not parsed as a stocktake identifier.
 router.get('/resolution-plans', catchAsync(async (req, res) => formatApiResponse(res, { data: await resolution.listResolutionPlans(req.user, parse(resolutionListQuery, req.query)) })));
 router.get('/resolution-plans/:planId', catchAsync(async (req, res) => formatApiResponse(res, { data: await resolution.getResolutionPlan(req.user, parse(oid, req.params.planId)) })));
+// One JPEG/PNG/PDF (max 5 MB) per request; the service checks the step, assignment and real file content.
+const multipart = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 0 } }).single('file');
+router.post('/:id/evidence', (req, res, next) => multipart(req, res, e => next(e ? new ApiError(e.code === 'LIMIT_FILE_SIZE' ? 413 : 400, 'Một tệp JPEG/PNG/PDF tối đa 5 MB') : undefined)),
+    catchAsync(async (req, res) => formatApiResponse(res, { data: await evidence.uploadStocktakeEvidence(req.user, parse(documentIdentifier, req.params.id), req.file) })));
+router.get('/:id/evidence/:evidenceId', catchAsync(async (req, res) => formatApiResponse(res, { data: await evidence.downloadStocktakeEvidence(req.user, parse(documentIdentifier, req.params.id), parse(oid, req.params.evidenceId)) })));
 router.get('/:id/count-sheet', catchAsync(async (req, res) => formatApiResponse(res, { data: await getCountSheet(req.user, parse(documentIdentifier, req.params.id)) })));
 router.get('/:id', catchAsync(async (req, res) => formatApiResponse(res, { data: await service.getStocktake(req.user, parse(documentIdentifier, req.params.id)) })));
 router.post('/:id/close', catchAsync(async (req, res) => formatApiResponse(res, { data: await service.closeStocktake(req.user, parse(documentIdentifier, req.params.id), parse(closureBody, req.body)) })));

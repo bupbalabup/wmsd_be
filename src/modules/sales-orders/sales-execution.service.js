@@ -13,6 +13,7 @@ import { guardLocations, sourceContext, freeQuantity, locationAt, balanceAt, beg
 import { orderSource, redactPrices } from './sales-read.service.js';
 import { escapeRegex } from '../../shared/utils/domain.js';
 import { issueSource } from '../goods-issues/goods-issue.service.js';
+import { blindCountScope } from '../../shared/utils/blind-count.js';
 const sum = (rows, field) => rows.reduce((n, row) => n.plus(String(row[field])), exact('0'));
 function unique(rows, key) { if (new Set(rows.map(r => r[key])).size !== rows.length)
     throw validationError('Không được lặp dòng nguồn'); }
@@ -341,7 +342,9 @@ export async function salesOptions(user) {
     const ids = warehouses.map(w => w._id);
     const locations = await m.WarehouseLocation.find({ warehouseId: { $in: ids }, isActive: true }).lean();
     const points = await m.StockHoldingPoint.find({ type: 'LOCATION', locationId: { $in: locations.map(l => l._id) } }).lean();
-    const balances = await m.InventoryBalance.find({ holdingPointId: { $in: points.map(p => p._id) }, ownerType: 'STORE', qualityStatus: 'GOOD', quantityBase: { $gt: 0 } }).lean();
+    // Locations being blind counted are frozen and their balances equal the hidden book quantity, so they are not offered.
+    const blind = await blindCountScope(user);
+    const balances = (await m.InventoryBalance.find({ holdingPointId: { $in: points.map(p => p._id) }, ownerType: 'STORE', qualityStatus: 'GOOD', quantityBase: { $gt: 0 } }).lean()).filter(b => !blind.has(b._id));
     const chronology = await m.StockTransaction.aggregate([{ $unwind: '$movements' }, { $match: { 'movements.toBalanceId': { $in: balances.map(b=>b._id) } } }, { $group: { _id: '$movements.toBalanceId', firstReceivedAt: { $min: '$occurredAt' } } }]);
     balances.sort((a,b)=>(+(chronology.find(r=>same(r._id,a._id))?.firstReceivedAt || 8640000000000000))-(+(chronology.find(r=>same(r._id,b._id))?.firstReceivedAt || 8640000000000000)));
     const uoms=await m.Uom.find({isActive:true}).select('_id code name isCarton').lean();

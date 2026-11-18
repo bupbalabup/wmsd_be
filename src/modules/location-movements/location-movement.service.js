@@ -6,6 +6,7 @@ import { optionFields, movementDetailFields, relocationLedgerFields } from '../.
 import { nextDocumentFields } from '../../shared/utils/document-number.js';
 import { TransferOrder, Warehouse, WarehouseLocation, InventoryBalance, StockHoldingPoint, StockTransaction, ProductBatch, Product, Uom, Conversion, User } from '../../models/runtime.js';
 import { exact } from '../../models/model-utils.js';
+import { blindCountScope } from '../../shared/utils/blind-count.js';
 import { requirePermission, requireWarehouseAccess, isOwner } from '../../shared/utils/access.js';
 import { notFoundError, validationError, forbiddenError, versionConflict } from '../../shared/utils/ApiError.js';
 import { dto } from '../../shared/utils/persistence.js';
@@ -104,7 +105,9 @@ export async function locationMovementOptions(user, warehouseId) {
   requireWarehouseAccess(user, warehouseId);
   const locations = await WarehouseLocation.find({ warehouseId, isActive: true }).select(optionFields.location).lean();
   const points = await StockHoldingPoint.find({ locationId: { $in: locations.map(row=>row._id) } }).select(optionFields.point).lean();
-  const balances = await InventoryBalance.find({ holdingPointId: { $in: points.map(row=>row._id) }, quantityBase: { $gt: 0 } }).select(optionFields.balance).lean();
+  // Locations being counted are frozen and their balances equal the blind book quantity, so they are not offered.
+  const blind = await blindCountScope(user);
+  const balances = (await InventoryBalance.find({ holdingPointId: { $in: points.map(row=>row._id) }, quantityBase: { $gt: 0 } }).select(optionFields.balance).lean()).filter(row => !blind.has(row._id));
   const batches = await ProductBatch.find({ _id: { $in: balances.map(row=>row.batchId) } }).select(optionFields.batch).lean();
   const products = await Product.find({ _id: { $in: batches.map(row=>row.productId) } }).select(optionFields.product).lean();
   const [units,conversions] = await Promise.all([Uom.find({isActive:true}).select('_id code name isCarton').lean(),

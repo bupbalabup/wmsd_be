@@ -32,6 +32,7 @@ import {
   lockLotIdentity,
 } from "../../shared/utils/lotIdentity.js";
 import { syncLotConversions } from "../../shared/utils/conversions.js";
+import { blindCountScope, redactMovement } from "../../shared/utils/blind-count.js";
 
 async function batch(id, session) {
   const row = await ProductBatch.findById(id).session(session);
@@ -77,7 +78,16 @@ export async function getLot(user, id) {
     batchId: id,
     holdingPointId: { $in: await scopedPoints(user) },
   }).lean();
-  return { ...dto(row), balances: balances.map(dto) };
+  const blind = await blindCountScope(user);
+  return {
+    ...dto(row),
+    balances: balances.map((balance) => {
+      const value = dto(balance);
+      if (!blind.has(balance._id)) return value;
+      delete value.packagingPortions;
+      return { ...value, quantityBase: null, blindCount: true };
+    }),
+  };
 }
 export async function createLot(user, input) {
   requirePermission(user, "product_lot:create");
@@ -173,6 +183,7 @@ export async function getLotMovements(user, id, query) {
     holdingPointId: { $in: await scopedPoints(user) },
   }).distinct("_id");
   const allowed = new Set(balances.map(String));
+  const blind = await blindCountScope(user);
   const transactions = await StockTransaction.find({
     $or: [
       { "movements.fromBalanceId": { $in: balances } },
@@ -213,6 +224,8 @@ export async function getLotMovements(user, id, query) {
         toAfter: allowed.has(String(m.toBalanceId)) ? String(m.toAfter) : null,
       })),
   );
+  // Blind count: summing history would rebuild the frozen book quantity of a location being counted.
+  movements.splice(0, movements.length, ...movements.map((item) => redactMovement(blind, item)));
   return {
     items: movements.slice(
       (query.page - 1) * query.limit,

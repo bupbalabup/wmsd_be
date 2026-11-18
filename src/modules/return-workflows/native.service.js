@@ -2,6 +2,7 @@ import { receiveDirect } from './direct-customer-return.js';
 import { nextDocumentFields } from '../../shared/utils/document-number.js';
 import { attachStored } from './native.read.js';
 import * as s from './native.shared.js';
+import { currentRole } from '../../shared/utils/userRole.js';
 const {m,exact,sum,same,ref,source,copy,fromBalance,envelope,scoped,replay,command,newId,checkVersion,saveVersion,evidence,requirePermission,requireWarehouseAccess,validationError,notFoundError,sourceContext,guardLocations,beginStock,takeStock,postIn,savePosted,verifyCapacity,serialize,hasPermission}=s;
 const changed = (doc,input,session) => saveVersion(doc,input.expectedVersion,session);
 const operation = (Model,user,id,input,code,permission,work) => command(user,code,permission,id,input,replay(Model),async(session,actor,operationId)=>{
@@ -22,6 +23,10 @@ export async function createDefect(user,input,stored){
   if(!location||!same(location.warehouseId,input.warehouseId))throw validationError('Tồn nguồn sai kho');
   if(input.sourceKind==='STOCKTAKE'){
    const lock=await m.StocktakeLocationLock.findOne({locationId:location._id,stocktakeId:input.stocktakeId,status:'LOCKED'}).session(session);if(!lock)throw validationError('Không có kiểm kê khóa đúng vị trí');
+   // Blind count (18 Nov 2026): while COUNTING a non-Owner must not test quantities against the hidden book, so the
+   // condition goes into the count note and the defect is recorded after reconciliation.
+   const stocktake=await m.Stocktake.findById(input.stocktakeId).select('workflowStatus').session(session);
+   if(stocktake?.workflowStatus==='COUNTING'&&currentRole(actor)?.code!=='OWNER')throw validationError('Đợt kiểm kê đang đếm: ghi tình trạng hàng vào ghi chú lần đếm, lập phiếu hàng lỗi sau khi đối chiếu');
    await m.WarehouseLocation.updateOne({_id:location._id},{$inc:{operationVersion:1}},{session});
   }else await guardLocations([location._id],session);
   const free=await s.heldQuantity(balance._id,session);if(exact(input.quantity).plus(free).gt(String(balance.quantityBase)))throw validationError('Vượt lượng chưa chặn');
