@@ -41,6 +41,15 @@ export function toBaseQuantity(enteredQty, factor, product, uom) {
     ? quantity.toDecimalPlaces(6).ceil() : quantity;
 }
 
+// PO may round up to whole packages; over approved only when one unit fewer would fall short.
+// approvedEntered: pass the RR's approved qty only when the PO line uses the RR's own unit — no overage there.
+export function withinApproved(qtyBase, enteredQty, factor, approvedBase, approvedEntered = null) {
+  if (approvedEntered != null && exact(enteredQty).gt(approvedEntered.toString())) return false;
+  if (exact(qtyBase).lte(approvedBase.toString())) return true;
+  const quantity = exact(enteredQty);
+  return quantity.isInteger() && quantity.minus(1).mul(factor.toString()).lt(approvedBase.toString());
+}
+
 // Appends a new auto-generated area conversion when none exists, or when the latest one is auto-generated and stale.
 export async function syncAreaConversions(product, user, session, { declared = new Set() } = {}) {
   const uoms = await Uom.find({ areaMm2: { $ne: null }, isActive: true }).session(session);

@@ -10,6 +10,7 @@ import {
   ProductBatch,
 } from "../../models/runtime.js";
 import { exact } from "../../models/model-utils.js";
+import { toBaseQuantity } from "../../shared/utils/conversions.js";
 import { saigonDateOnly } from "../../shared/utils/domain.js";
 import {
   requirePermission,
@@ -487,14 +488,36 @@ export function reviewReplenishment(user, id, input) {
       const products = await Product.find({
         _id: { $in: document.items.map((item) => item.productId) },
       }).session(session);
+      const uoms = await Uom.find({
+        code: { $in: document.items.map((item) => item.enteredUnit) },
+      }).session(session);
       let positive = false;
       const itemDecisions = document.items.map((item) => {
         const decision = input.lines.find((row) => same(row.lineId, item._id));
-        const quantity =
-          input.decision === "APPROVE"
-            ? exact(decision.approvedQtyBase)
-            : exact("0");
         const product = products.find((row) => same(row._id, item.productId));
+        const approve = input.decision === "APPROVE";
+        if (approve && decision.approvedEnteredQty == null && decision.approvedQtyBase == null)
+          throw validationError("Thiếu lượng duyệt");
+        // Entered-unit approval wins; reuse the line's own snapshot factor so it matches the request.
+        const enteredQty = !approve
+          ? exact("0")
+          : decision.approvedEnteredQty != null
+            ? exact(decision.approvedEnteredQty)
+            : null;
+        if (enteredQty && enteredQty.gt(String(item.enteredQty)))
+          throw validationError("Lượng duyệt vượt lượng đề nghị");
+        const quantity = !approve
+          ? exact("0")
+          : enteredQty
+            ? enteredQty.eq(String(item.enteredQty))
+              ? exact(String(item.qtyBase))
+              : toBaseQuantity(
+                  enteredQty,
+                  String(item.baseUnitsPerUnit),
+                  product ?? {},
+                  uoms.find((row) => row.code === item.enteredUnit),
+                )
+            : exact(decision.approvedQtyBase);
         if (!product || (product.wholeBaseUnits && !quantity.isInteger()))
           throw validationError(
             "Lượng duyệt phải đúng đơn vị gốc của sản phẩm",
@@ -506,9 +529,12 @@ export function reviewReplenishment(user, id, input) {
           throw validationError("Cần lý do cho dòng duyệt giảm số lượng");
         if (quantity.gt(0)) positive = true;
         item.approvedQtyBase = quantity.toFixed();
+        // Lines approved only in base units (older clients) keep no entered-unit amount.
+        item.approvedEnteredQty = enteredQty?.toFixed();
         return {
           itemId: item._id,
           approvedQtyBase: quantity.toFixed(),
+          ...(enteredQty && { approvedEnteredQty: enteredQty.toFixed() }),
           outcome: input.decision,
           reason: decision?.reason || input.reason,
         };

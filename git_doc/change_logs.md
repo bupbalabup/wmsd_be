@@ -83,6 +83,30 @@ Docs: STOCKTAKE_LIFECYCLE (endpoint table, new Evidence upload and view section,
 
 Verification: see the stocktake flow improvements entry above, which re-ran all checks on the final combined code.
 
+## 18/11/2026 · PO cùng đơn vị với RR không vượt lượng duyệt
+
+Theo yêu cầu của người dùng, khi dòng PO dùng đúng đơn vị nhập của dòng RR thì `enteredQty` không được lớn hơn `approvedEnteredQty`; quy tắc làm tròn gói của `withinApproved` chỉ còn áp dụng khi đổi sang đơn vị khác (hoặc RR cũ chưa có `approvedEnteredQty`). Ví dụ RR duyệt 4 M2 thì PO không đặt được 5 M2. Cập nhật `conversions.js` (tham số thứ 5 của `withinApproved`), `purchase-order.commands.js` (tạo/sửa nháp và phát hành), `purchase-reconciliation.js`, test `area-conversion.test.js`; FE `capToApprovedEntered` trong form tạo và sửa PO nháp. Không đổi dữ liệu. Chưa chạy test tích hợp API; `vitest src/features/purchase-orders` còn 3 ca lỗi từ trước (`maxEnteredQty` 278 viên, `orderedBaseQuantity`, form M2 100,08) chưa xử lý.
+
+## 18/11/2026 · Thông báo số lượng PO không nguyên
+
+Tạo và sửa PO nháp trả thông báo rõ khi lượng sau quy đổi sang đơn vị gốc không nguyên với sản phẩm yêu cầu số nguyên; quy tắc kiểm tra và dữ liệu không đổi. Cập nhật `purchase-order.commands.js`, test tích hợp PO và hợp đồng `NATIVE_MODEL_RUNTIME.md`.
+
+## 18/11/2026 · Duyệt RR theo đơn vị nhập
+
+Theo yêu cầu của người dùng, yêu cầu và duyệt dùng cùng một đơn vị. `replenishment_requests.items[]` và `approval_history.itemDecisions[]` có thêm `approvedEnteredQty` (tùy chọn); `reviewReplenishment` nhận `approvedEnteredQty`, tự tính `approvedQtyBase` bằng hệ số đã lưu trên dòng và `toBaseQuantity`, từ chối khi vượt `enteredQty`. Client chỉ gửi `approvedQtyBase` vẫn dùng được. Dữ liệu cũ không có trường mới nên FE hiển thị theo đơn vị gốc.
+
+FE gửi `approvedEnteredQty` ở màn duyệt và hiển thị lượng duyệt dạng "10 m² (28 viên)" ở tab dòng hàng và lịch sử quyết định. Cập nhật CONTRACT trong NATIVE_MODEL_RUNTIME và sheet 13.
+
+Kiểm tra: `RUN_NATIVE_API_TESTS=1` chạy replenishment-warnings (11/11, gồm ca mới duyệt theo đơn vị nhập) và native-api + area-conversion (33/33) trên MongoDB cục bộ; vitest `src/features/replenishments/api` và `detail` 25/25; tsc không lỗi. PO (FE, không đổi API): form tạo PO lấy lượng duyệt theo đơn vị nhập từ `approvedEnteredQty` khi có (thay vì chia ngược từ số viên đã làm tròn lên); form tạo và sửa PO nháp hiện thêm dòng "= N viên" và "vượt lượng duyệt M viên do làm tròn" khi đơn vị đặt khác đơn vị gốc, tính cùng quy tắc với `toBaseQuantity` (`orderedBaseQuantity` trong purchaseOrderLineUtils.ts). `vitest src/features/purchase-orders` 74/74, tsc không lỗi. Sửa 18/11/2026: ô số lượng đặt mua điền sẵn đúng lượng duyệt theo đơn vị nhập (4 m²) thay vì số viên làm tròn lên đổi ngược (4,32 m²); RR duyệt đủ nhưng chưa có `approvedEnteredQty` dùng `enteredQty` của dòng. Chưa làm: trường đơn vị mua mặc định của sản phẩm (cần quyết định thêm trường), chưa xem trên trình duyệt.
+
+## 17/11/2026 · Chọn đơn vị đặt mua trên PO
+
+Theo yêu cầu của người dùng, Kế toán chọn đơn vị và nhập đơn giá cho từng dòng khi tạo hoặc sửa PO nháp. Nếu đơn vị đặt trùng đơn vị nhập trên RR, BE dùng hệ số đã lưu trên RR. Đơn vị khác dùng quy đổi cấp sản phẩm đang hiệu lực. Khi lượng đặt vượt lượng RR đã duyệt, BE chỉ chấp nhận số nguyên đơn vị nhỏ nhất đủ phủ lượng duyệt mà không cần Owner duyệt. Ví dụ RR duyệt 10 viên, hộp có 3 viên thì đặt 4 hộp hợp lệ. Quy tắc áp dụng khi lưu nháp, mở PO và đối soát `RR_ALLOWANCE`. Nháp cũ có nhiều dòng cùng nguồn RR cần gộp về một dòng trước khi mở.
+
+FE dùng danh mục RR qua `mode=FILTER`, gợi ý số đơn vị nguyên cho đơn vị đóng gói và hiển thị giới hạn cạnh số lượng. Lệnh tạo và sửa gửi `uomCode`. Sửa nháp điền sẵn đơn vị đã lưu. Khi review đã bổ sung: lệnh sửa không gửi `uomCode` cho dòng đã lưu thì BE giữ đơn vị của dòng PO, tránh đọc nhầm số lượng theo đơn vị RR. Có test tích hợp cho trường hợp này và test FE cho việc đổi đơn vị trên màn sửa nháp. Cập nhật [hợp đồng API](docs/08_api/NATIVE_MODEL_RUNTIME.md#mua-và-nhập), [phiếu H01/H02](docs/03_thiet_ke/DB_Rebuild_Review/13_Duyet_yeu_cau_bo_sung_va_don_mua.md), PROJECT_GUIDE và context hai repo. Dữ liệu hiện có dùng các trường trên dòng PO. Không cần migration.
+
+`RUN_NATIVE_API_TESTS=1 node --test test/native-api.integration.test.js test/area-conversion.test.js` qua 33 test trên MongoDB loopback. `npx vitest run src/features/purchase-orders` qua 70 test. Chrome trên dev server với DB thử nghiệm riêng đã tạo, sửa nháp và mở PO theo hộp. Đã kiểm tra mở danh sách đơn vị bằng phím Enter, xác thực số lượng, kích thước 1440 và 390 px và ẩn nút tạo cho tài khoản Kho. Lint FE toàn repo còn lỗi hook ngoài phạm vi và cảnh báo 3D. Hai lệnh UI dùng Bash không chạy được trên máy kiểm thử.
+
 ## 17 November 2026 — Automatic transfer putaway, completion and compact workflow UI
 
 Source: latest user decision restricts receiving-difference actions to assigned destination staff, automatically creates putaway work after Goods Receipt, moves destination choices to a separate TO page, automatically completes fulfilled requests, and groups documents/tasks/reports behind buttons.

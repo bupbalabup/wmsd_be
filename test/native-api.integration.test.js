@@ -770,6 +770,58 @@ run('PO keeps one line per RR line; area-unit lines round up to whole pieces', a
 });
 
 
+run('PO rounds up in the chosen unit and preserves it through edit, confirmation and reconciliation', async () => {
+ const box = await m.Uom.create({ code: 'PO_BOX', name: 'Hộp', isCarton: true });
+ await productService.createConversion(owner, String(product._id), {
+   uomId: String(box._id), basePerUnit: '3', verificationReference: 'Supplier box fixture',
+ });
+ const requestBody = {
+   creationKey: key(), action: 'SUBMIT', warehouseId: String(warehouse._id), neededOn: '2026-12-01',
+   triggerReason: 'Supplier box ordering',
+   lines: [{ productId: String(product._id), enteredUnit: 'PIECE', enteredQty: '10', reasonNote: 'Fixture' }],
+ };
+ await acknowledgeIndependentNeed(requestBody);
+ const createdRequest = await rr.createReplenishment(worker, requestBody);
+ const request = await m.ReplenishmentRequest.findById(createdRequest.id);
+ const rrLineId = String(request.items[0]._id);
+ const approval = await rr.reviewReplenishment(owner, createdRequest.id, {
+   ...input(), expectedVersion: request.version, decision: 'APPROVE', reason: 'Approved',
+   lines: [{ lineId: rrLineId, approvedQtyBase: '10' }],
+ });
+ const form = { warehouseId: String(warehouse._id), supplierId: String(supplier._id), currency: 'VND' };
+ const line = { rrLineId, approvalId: approval.decisionId, uomCode: box.code, unitPurchasePrice: '1000' };
+ const create = (enteredQty, uomCode = box.code) => po.createPurchaseOrder(accountant, {
+   ...form, creationKey: key(), lines: [{ ...line, enteredQty, uomCode }],
+ });
+ await assert.rejects(create('5'), /vượt nguồn được duyệt/);
+ await assert.rejects(create('3.666667'), /vượt nguồn được duyệt/);
+ await assert.rejects(create('1.5', 'PIECE'), /Số lượng sau quy đổi sang đơn vị gốc phải là số nguyên/);
+ await assert.rejects(create('1.5'), /Số lượng sau quy đổi sang đơn vị gốc phải là số nguyên/);
+ await assert.rejects(create('4', 'UNAVAILABLE'), /không tồn tại/);
+ await assert.rejects(create('4', 'ROLL'), /Thiếu quy đổi/);
+ const created = await create('4');
+ const draft = await getPurchaseOrder(accountant, created.id);
+ assert.equal(draft.draftEdit.lines[0].enteredUomCode, box.code);
+ assert.deepEqual(draft.items.map(item => [item.enteredQty, item.baseUnitsPerUnit, item.qtyBase, item.lineAmount]),
+   [['4', '3', '12', '4000']]);
+ await assert.rejects(po.updatePurchaseOrder(accountant, created.id, {
+   ...form, ...input(), expectedVersion: created.version,
+   lines: [{ ...line, id: draft.items[0]._id, enteredQty: '1.5' }],
+ }), /Số lượng sau quy đổi sang đơn vị gốc phải là số nguyên/);
+ const updated = await po.updatePurchaseOrder(accountant, created.id, {
+   ...form, ...input(), expectedVersion: created.version,
+   // Omitting uomCode on edit must keep the saved box unit, not reread 4 as 4 pieces.
+   lines: [{ ...line, uomCode: undefined, id: draft.items[0]._id, enteredQty: '4', unitPurchasePrice: '1200' }],
+ });
+ const saved = await getPurchaseOrder(accountant, created.id);
+ assert.equal(saved.draftEdit.lines[0].enteredUomCode, box.code);
+ assert.equal(saved.items[0].qtyBase, '12');
+ assert.equal(saved.items[0].lineAmount, '4800');
+ const opened = await po.confirmPurchaseOrder(accountant, created.id, { ...input(), expectedVersion: updated.version });
+ assert.equal(opened.workflowStatus, 'OPEN');
+ assert.equal((await reconcilePurchasing()).issues.some(issue => issue.poId === created.id), false);
+});
+
 run('HTTP PO lifecycle supports draft edits, expected-date changes, receiving history and closure', async () => {
  const requestBody = {
    creationKey: key(), action: 'SUBMIT', warehouseId: String(warehouse._id), neededOn: '2026-12-01',

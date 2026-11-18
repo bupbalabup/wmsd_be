@@ -35,6 +35,28 @@ Validation performed / not performed:
 
 ## Log entries
 
+### 2026-11-18 - PO line in the RR unit may not exceed the approved amount (UC-09)
+
+- **Work item:** Stop a PO from ordering more than the approved amount when it uses the same unit as the replenishment request (RR).
+- **Tool and model:** Claude Code (Sonnet 5.5).
+- **Prompt summary:** The PO rule only compares pieces and allows one unit of overage, so an RR approved at 4 m² accepts 5 m² on the PO; add a stop for the same unit.
+- **Result used:** `withinApproved` takes an optional `approvedEntered` and rejects a larger `enteredQty` first. Draft create/edit, PO issuing and the `RR_ALLOWANCE` reconciliation pass the RR line's `approvedEnteredQty` only when the PO unit equals the RR unit. Other units and older approvals without `approvedEnteredQty` keep the previous rule.
+- **Intervention:** Edited.
+- **Human changes / reason for rejection:** The user decided the rule (same unit as the RR: no more than `approvedEnteredQty`).
+- **Files affected:** `src/shared/utils/conversions.js`, `src/modules/purchase-orders/purchase-order.commands.js`, `src/modules/po-receiving/purchase-reconciliation.js`, `test/area-conversion.test.js`, `git_doc/change_logs.md`, `git_doc/docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md`, `docs/rtm.md`.
+- **Validation performed / not performed:** `node --test test/area-conversion.test.js` passed 6/6 including the new same-unit case; `npm run docs:check` passed. Not performed: HTTP integration test for the 5 m² rejection, the other PO integration suites, the full suite. Existing POs already above the approved amount in the same unit will now appear in `RR_ALLOWANCE`; no data was migrated.
+
+### 2026-11-18 - Approve replenishment requests in the line's entered unit (UC-06, UC-09)
+
+- **Work item:** Keep one unit from creating to approving a replenishment request (RR) so an approval of 4 m² is no longer shown on the PO as 4.32 m².
+- **Tool and model:** Claude Code (Sonnet 5.5, then Opus 5.5 for the analysis).
+- **Prompt summary:** Explain how an approved amount converts to pieces and back on the PO; compare unit handling in Odoo, SAP, Business Central and tile ERPs; implement the chosen option and the PO display.
+- **Result used:** `reviewReplenishment` accepts `approvedEnteredQty` in the line's own unit and derives `approvedQtyBase` from the line's saved `baseUnitsPerUnit` with `toBaseQuantity`; a full approval keeps `qtyBase`, more than `enteredQty` is rejected. The optional `approvedEnteredQty` is stored on the RR item and on `approval_history.itemDecisions` and returned by the read API. Clients that send only `approvedQtyBase` still work. PO creation still checks pieces against `approvedQtyBase`.
+- **Intervention:** Edited.
+- **Human changes / reason for rejection:** The user chose to separate requested and approved amounts, chose option B and asked for the PO part. A default purchase unit on the product was left undecided because it needs a model change.
+- **Files affected:** `src/models/replenishment-request.model.js`, `src/models/approval-history-item-decisions.schema.js`, `src/modules/replenishments/{replenishment.validation.js,replenishment.commands.js,replenishment.service.js}`, `test/replenishment-warnings.integration.test.js`, `git_doc/MODEL_MAP.md`, `git_doc/docs/03_thiet_ke/DB_Rebuild_Review/13_Duyet_yeu_cau_bo_sung_va_don_mua.md`, `git_doc/docs/08_api/NATIVE_MODEL_RUNTIME.md`, `git_doc/change_logs.md`, `src/models/CHANGELOG.md`.
+- **Validation performed / not performed:** With `RUN_NATIVE_API_TESTS=1` on the local MongoDB, the RR warnings suite passed 11/11 including the new entered-unit case, and the native API plus area-conversion suites passed 33/33; `npm run docs:check` passed. A temporary test (removed) captured real payloads: 4 m² at 2.777777777778 stored `qtyBase` 12 and both approved fields. Not performed: the new case uses the piece unit, so the m² rounding rests on the existing area-conversion test; older approvals were not migrated and keep no entered amount; the archived foundation test fails on an existing import path; the full suite was not run.
+
 ### 2026-11-16 - Estimate occupied volume when receiving open cartons and loose pieces
 
 - **Work item:** Implement the approved receiving-volume plan for UC-37 and the shared stock intake used by OTHER receipts, returns and positive stocktake adjustments.

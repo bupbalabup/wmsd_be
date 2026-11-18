@@ -8,7 +8,7 @@ import {
   ApprovalHistory,
 } from "../../models/runtime.js";
 import { exact } from "../../models/model-utils.js";
-import { toBaseQuantity } from "../../shared/utils/conversions.js";
+import { resolveConversion, toBaseQuantity, withinApproved } from "../../shared/utils/conversions.js";
 import { notBeforeSaigonToday, saigonDateOnly } from "../../shared/utils/domain.js";
 import { requireWarehouseAccess } from "../../shared/utils/access.js";
 import { validationError } from "../../shared/utils/ApiError.js";
@@ -86,21 +86,29 @@ async function draftItems(actor, input, session, previous = []) {
     }).session(session);
     if (!product || !decision)
       throw validationError("Sản phẩm hoặc lượng PO vượt nguồn được duyệt");
-    const enteredUom = await Uom.findOne({ code: source.enteredUnit }).session(session);
+    const old = line.id ? previous.find((row) => same(row._id, line.id)) : null;
+    if (line.id && (!old || !same(old.requestItemId, source._id)))
+      throw validationError("Không đổi nguồn của dòng đã lưu");
+    // An edit that omits the unit keeps the saved one; reading it in the RR unit would silently rescale the quantity.
+    const uomCode = line.uomCode ?? old?.enteredUnit ?? source.enteredUnit;
+    const changedUnit = uomCode !== source.enteredUnit;
+    const factor = changedUnit
+      ? (await resolveConversion(product, null, uomCode, session)).toFixed()
+      : String(source.baseUnitsPerUnit);
+    const enteredUom = await Uom.findOne({ code: uomCode }).session(session);
     // Area units round up to whole pieces, same rule as makeItem.
-    const factor = String(source.baseUnitsPerUnit);
     const amount = toBaseQuantity(line.enteredQty, factor, product, enteredUom);
     const rounded = !amount.eq(exact(line.enteredQty).mul(factor));
+    const cap = changedUnit ? null : decision.approvedEnteredQty;
+    if (product.wholeBaseUnits && !amount.isInteger() && withinApproved(amount, line.enteredQty, factor, decision.approvedQtyBase, cap))
+      throw validationError("Số lượng sau quy đổi sang đơn vị gốc phải là số nguyên");
     if (
-      amount.gt(String(decision.approvedQtyBase)) ||
+      !withinApproved(amount, line.enteredQty, factor, decision.approvedQtyBase, cap) ||
       amount.lte(0) ||
       (product.wholeBaseUnits && !amount.isInteger()) ||
       amount.decimalPlaces() > 6
     )
       throw validationError("Sản phẩm hoặc lượng PO vượt nguồn được duyệt");
-    const old = line.id ? previous.find((row) => same(row._id, line.id)) : null;
-    if (line.id && (!old || !same(old.requestItemId, source._id)))
-      throw validationError("Không đổi nguồn của dòng đã lưu");
     // Model amounts keep 6 decimals; round half up instead of failing on long products.
     const value = exact(line.unitPurchasePrice).mul(line.enteredQty).toDecimalPlaces(6);
     items.push(
@@ -110,7 +118,8 @@ async function draftItems(actor, input, session, previous = []) {
         requestItemId: source._id,
         unitPurchasePrice: line.unitPurchasePrice,
         lineAmount: value.toFixed(),
-        ...(rounded && { enteredQty: exact(line.enteredQty).toFixed() }),
+        ...(changedUnit && { enteredUnit: uomCode, baseUnitsPerUnit: factor }),
+        ...((changedUnit || rounded) && { enteredQty: exact(line.enteredQty).toFixed() }),
         ...(line.note && { note: line.note }),
         sources: [
           sourceLink(rr, source, amount.toFixed(), "REPLENISHMENT_PURCHASE"),
@@ -243,23 +252,25 @@ export function confirmPurchaseOrder(user, id, input) {
         subjectRevision: rr.header.approvedRevision,
         decision: "APPROVE",
       }).session(session);
-      const totals = new Map();
+      const seen = new Set();
       for (const item of po.items) {
+        const sourceId = String(item.requestItemId);
         const source = rr.items.id(item.requestItemId),
           decision = approval?.itemDecisions.find((d) =>
             same(d.itemId, item.requestItemId),
           );
-        const total = (
-          totals.get(String(item.requestItemId)) ?? exact("0")
-        ).plus(String(item.qtyBase));
-        totals.set(String(item.requestItemId), total);
         if (
           !source ||
           !decision ||
+          seen.has(sourceId) ||
           !same(source.productId, item.productId) ||
-          total.gt(String(decision.approvedQtyBase))
+          !withinApproved(
+            item.qtyBase, item.enteredQty, item.baseUnitsPerUnit, decision.approvedQtyBase,
+            item.enteredUnit === source.enteredUnit ? decision.approvedEnteredQty : null,
+          )
         )
           throw validationError("Nguồn duyệt PO không còn hợp lệ");
+        seen.add(sourceId);
         if (
           !(await Product.exists({
             _id: item.productId,
