@@ -7,6 +7,7 @@ import { notFoundError, validationError } from '../../shared/utils/ApiError.js';
 import { dto, transaction, page } from '../../shared/utils/persistence.js';
 import { same } from '../../shared/utils/document-command.js';
 import { escapeRegex } from '../../shared/utils/domain.js';
+import { syncAllocationChain } from './reservation-tree.js';
 
 export function redactPrices(value) {
   if(Array.isArray(value))return value.map(redactPrices);
@@ -122,9 +123,23 @@ export async function getSalesOrder(user,id){
     // Schedule-driven flow: warehouse staff see only the deliveries of their own warehouses.
     const schedule=await DeliverySchedule.findOne({salesOrderId:id}).session(session).lean();
     const visible=(schedule?.deliveries??[]).filter(d=>!scoped||(user.warehouseIds||[]).some(w=>same(w,d.warehouseId)));
-    const places=visible.length?await WarehouseLocation.find({_id:{$in:visible.flatMap(d=>d.lines.flatMap(l=>l.allocations.map(a=>a.locationId)))}}).select('code name').session(session).lean():[];
-    const deliverySchedule=schedule&&{...dto(schedule),deliveries:visible.map(d=>({...dto(d),lines:d.lines.map(l=>({...dto(l),allocations:l.allocations.map(a=>({...dto(a),locationCode:places.find(p=>same(p._id,a.locationId))?.code}))}))}))};
+    // Phương án A: reflect any moved reservation chains in PLANNED/ON_HOLD deliveries when viewing SO.
+    const syncedVisible=[];
+    for(const d of visible){
+      if(['PLANNED','ON_HOLD'].includes(d.status)){
+        const lines=[];
+        for(const l of d.lines){
+          const resolved=[];
+          for(const a of l.allocations)resolved.push(...(await syncAllocationChain(a,session)).allocations);
+          lines.push({...l,allocations:resolved});
+        }
+        syncedVisible.push({...d,lines});
+      }else syncedVisible.push(d);
+    }
+    const places=syncedVisible.length?await WarehouseLocation.find({_id:{$in:syncedVisible.flatMap(d=>d.lines.flatMap(l=>l.allocations.map(a=>a.locationId)))}}).select('code name').session(session).lean():[];
+    const deliverySchedule=schedule&&{...dto(schedule),deliveries:syncedVisible.map(d=>({...dto(d),lines:d.lines.map(l=>({...dto(l),allocations:l.allocations.map(a=>({...dto(a),locationCode:places.find(p=>same(p._id,a.locationId))?.code}))}))}))};
     result.deliveryOrders=(await DeliveryOrder.find({'header.salesOrderId':id,...(scoped&&{'header.warehouseId':{$in:user.warehouseIds||[]}})}).session(session).lean()).map(dto);
+    result.hasOnHoldDo=result.deliveryOrders.some(d=>d.workflowStatus==='ON_HOLD');
     if(scoped){
       const allowed=new Set([...requests.flatMap(row=>row.items.map(item=>String(item.details.salesOrderLineId))),...visible.flatMap(d=>d.lines.map(l=>String(l.soLineId)))]);
       result.items=result.items.filter(item=>allowed.has(String(item._id)));

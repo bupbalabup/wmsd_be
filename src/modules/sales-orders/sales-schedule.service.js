@@ -1,11 +1,14 @@
 import * as m from '../../models/runtime.js';
 import { exact } from '../../models/model-utils.js';
 import { command, checkVersion, saveVersion, same, newId, hash } from '../../shared/utils/document-command.js';
-import { validationError, notFoundError, forbiddenError } from '../../shared/utils/ApiError.js';
+import { sourceLink } from '../../shared/utils/document-copy.js';
+import { validationError, versionConflict, notFoundError, forbiddenError } from '../../shared/utils/ApiError.js';
 import { vnDay, vnMidnight } from '../../shared/utils/vn-date.js';
 import { makeItem } from '../../shared/utils/document-items.js';
 import { orderSource } from './sales-read.service.js';
 import { guardLocations, fifoCandidates, remainingReservation, sourceContext } from '../../shared/utils/stock.js';
+import { resolveActiveReservations, releaseReservationTree } from './reservation-tree.js';
+import { createInAppNotification } from '../delivery-orders/delivery-notifications.js';
 
 export const lotLabel = async (lotId, session) => (await m.ProductBatch.findById(lotId).select('manufacturerLot').session(session).lean())?.manufacturerLot ?? String(lotId);
 
@@ -37,40 +40,59 @@ export async function allocateAndReserve({ order, scheduleId, delivery, line, so
   }
 }
 
-// ---- Editing and cancelling (stage 2) ----
+// ---- Editing and cancelling (stage 2 + stage 4 ON_HOLD resolution) ----
 const EDITABLE = ['PLANNED', 'ON_HOLD'];
 const active = delivery => delivery.status !== 'CANCELLED';
 const zero = () => exact('0');
 const total = rows => rows.reduce((n, row) => n.plus(String(row.qtyBase)), zero());
 
-// Give back `quantity` (default: everything still held) of a reservation.
-async function release(reservationId, quantity, actor, session) {
-  const reservation = reservationId && await m.StockReservation.findById(reservationId).session(session);
-  if (!reservation) return;
-  const open = remainingReservation(reservation), amount = quantity == null ? open : exact(quantity);
-  if (amount.gt(open)) throw validationError('Bản ghi giữ hàng không đủ để nhả');
+async function releaseOne(reservation, amount, actor, session) {
   if (!amount.gt(0)) return;
-  reservation.releasedQty = exact(reservation.releasedQty).plus(amount).toFixed();
-  reservation.updatedBy = actor._id;
-  await reservation.save({ session });
+  const res = await m.StockReservation.updateOne(
+    { _id: reservation._id, version: reservation.version },
+    { $set: { releasedQty: exact(reservation.releasedQty).plus(amount).toFixed(), updatedBy: actor._id }, $inc: { version: 1 } },
+    { session },
+  );
+  if (res.matchedCount !== 1) throw versionConflict('Giữ hàng đã thay đổi');
 }
-const releaseAll = async (allocations, actor, session) => { for (const a of allocations) await release(a.reservationId, null, actor, session); };
+const releaseAll = async (allocations, actor, session) => {
+  for (const a of allocations) await releaseReservationTree(a.reservationId, null, actor, session);
+};
 
-// Keep the allocations of a line that are still usable (same warehouse and lot, stock GOOD,
-// location not frozen) up to `wanted`; give back the rest of them.
+// Keep the allocations of a line that are still usable (following any moved reservation chain
+// in the same warehouse and lot, stock GOOD, location not frozen) up to `wanted`; give back the rest.
 async function keepAllocations(previous, wanted, warehouseId, lotId, actor, session) {
   let left = exact(wanted);
   const kept = [];
   for (const allocation of previous.allocations) {
-    const context = await sourceContext(allocation.balanceId, session).catch(() => null);
-    const usable = context && left.gt(0) && context.balance.qualityStatus === 'GOOD' && context.balance.ownerType === 'STORE' && same(context.balance.batchId, lotId)
-      && context.location?.isActive && context.location.locationType === 'STORAGE' && context.location.isPickable && same(context.location.warehouseId, warehouseId)
-      && !await m.StocktakeLocationLock.exists({ locationId: context.location._id, status: 'LOCKED' }).session(session);
-    if (!usable) { await release(allocation.reservationId, null, actor, session); continue; }
-    const quantity = exact(allocation.qtyBase), take = quantity.gt(left) ? left : quantity;
-    if (take.lt(quantity)) await release(allocation.reservationId, quantity.minus(take), actor, session);
-    kept.push({ ...allocation, qtyBase: take.toFixed() });
-    left = left.minus(take);
+    const { active: activeRows } = await resolveActiveReservations(allocation.reservationId, session);
+    for (const row of activeRows) {
+      const open = remainingReservation(row);
+      if (!open.gt(0)) continue;
+      const context = await sourceContext(row.balanceId, session).catch(() => null);
+      const physical = context ? exact(context.balance.quantityBase) : zero();
+      const usable = context && left.gt(0) && physical.gt(0) && context.balance.qualityStatus === 'GOOD' && context.balance.ownerType === 'STORE'
+        && same(context.balance.batchId, lotId) && context.location?.isActive && context.location.locationType === 'STORAGE' && context.location.isPickable
+        && same(context.location.warehouseId, warehouseId) && !await m.StocktakeLocationLock.exists({ locationId: context.location._id, status: 'LOCKED' }).session(session);
+      if (!usable) {
+        await releaseOne(row, open, actor, session);
+        continue;
+      }
+      const cap = open.lt(physical) ? open : physical;
+      const take = cap.lt(left) ? cap : left;
+      const giveBack = open.minus(take);
+      if (giveBack.gt(0)) await releaseOne(row, giveBack, actor, session);
+      if (take.gt(0)) {
+        kept.push({
+          _id: same(row._id, allocation.reservationId) ? allocation._id : newId(),
+          balanceId: row.balanceId,
+          locationId: context.location._id,
+          qtyBase: take.toFixed(),
+          reservationId: row._id,
+        });
+        left = left.minus(take);
+      }
+    }
   }
   return kept;
 }
@@ -90,6 +112,16 @@ export const settle = (order, deliveries) => {
   const live = deliveries.filter(active);
   order.workflowStatus = live.length && live.every(d => d.status === 'HANDED_OVER') ? 'COMPLETED' : 'OPEN';
 };
+
+function closeOpenIssueReports(doDoc, actorId, now) {
+  for (const report of doDoc.issueReports ?? []) {
+    if (report.status === 'OPEN') {
+      report.status = 'CLOSED';
+      report.closedBy = actorId;
+      report.closedAt = now;
+    }
+  }
+}
 
 export function updateSalesOrderSchedule(user, id, input) {
   return command(user, 'UPDATE_SALES_ORDER', 'sales_order:update', id, input, (id, actor, session) => orderSource(actor, id, session, { replay: true }), async (session, actor) => {
@@ -143,7 +175,6 @@ export function updateSalesOrderSchedule(user, id, input) {
     const old = schedule.toObject().deliveries;
     const locked = old.filter(d => active(d) && !EDITABLE.includes(d.status));
     const editable = old.filter(d => EDITABLE.includes(d.status));
-    if (editable.some(d => d.doId)) throw validationError('Lần giao có DO đang tạm dừng sẽ được hỗ trợ ở giai đoạn báo cáo vấn đề');
     const lockedQty = new Map();
     for (const d of locked) for (const l of d.lines) lockedQty.set(String(l.soLineId), (lockedQty.get(String(l.soLineId)) ?? zero()).plus(String(l.qtyBase)));
     for (const item of order.items) {
@@ -157,7 +188,7 @@ export function updateSalesOrderSchedule(user, id, input) {
     const whole = async productId => { const k = String(productId); if (!wholeCache.has(k)) wholeCache.set(k, (await m.Product.findById(productId).select('wholeBaseUnits').session(session).lean())?.wholeBaseUnits); return wholeCache.get(k); };
     const ids = input.deliveries.map(d => d.id).filter(Boolean);
     if (new Set(ids).size !== ids.length) throw validationError('Lần giao bị lặp');
-    for (const did of ids) if (!editable.some(d => same(d._id, did))) throw validationError('Lần giao đã có DO, đã xong hoặc đã hủy, không sửa được');
+    for (const did of ids) if (!editable.some(d => same(d._id, did))) throw validationError('Lần giao đã có DO đang chạy, đã xong hoặc đã hủy, không sửa được');
     const today = vnDay();
     const sums = new Map(lockedQty);
     const wanted = [];
@@ -180,14 +211,45 @@ export function updateSalesOrderSchedule(user, id, input) {
       wanted.push({ previous, index, day, warehouseId: d.warehouseId, warehouse, lines });
     }
     for (const item of remaining) if (!(sums.get(String(item._id)) ?? zero()).eq(String(item.qtyBase))) throw validationError(`Dòng ${item.lineNo}: tổng các lần giao ${(sums.get(String(item._id)) ?? zero()).toFixed()} khác số lượng SO ${item.qtyBase} (đơn vị gốc)`);
-    // 5. Give stock back first, then take what is missing
-    for (const d of editable) if (!wanted.some(w => w.previous && same(w.previous._id, d._id))) for (const l of d.lines) await releaseAll(l.allocations, actor, session);
+
+    const now = new Date();
+    const touchedDoRefs = [];
+
+    // 5. Give stock back first (including cancelled ON_HOLD DOs), then take what is missing
+    for (const d of editable) {
+      if (!wanted.some(w => w.previous && same(w.previous._id, d._id))) {
+        for (const l of d.lines) await releaseAll(l.allocations, actor, session);
+        if (d.doId) {
+          const doDoc = await m.DeliveryOrder.findById(d.doId).session(session);
+          if (doDoc && ['CREATED', 'ON_HOLD'].includes(doDoc.workflowStatus)) {
+            closeOpenIssueReports(doDoc, actor._id, now);
+            doDoc.workflowStatus = 'CANCELLED';
+            doDoc.cancelledBy = actor._id;
+            doDoc.cancelledAt = now;
+            doDoc.cancelReason = input.reason;
+            doDoc.updatedBy = actor._id;
+            const savedDo = await saveVersion(doDoc, doDoc.version, session);
+            touchedDoRefs.push({ documentType: 'delivery_orders', documentId: savedDo._id });
+          }
+        }
+      }
+    }
+
     let seq = Math.max(0, ...old.map(d => d.seq));
     wanted.sort((a, b) => a.day.localeCompare(b.day) || a.index - b.index);
     const next = [];
     for (const w of wanted) {
-      const delivery = { _id: w.previous?._id ?? newId(), seq: w.previous?.seq ?? ++seq, plannedOn: w.previous && vnDay(w.previous.plannedOn) === w.day ? w.previous.plannedOn : vnMidnight(w.day),
-        warehouseId: w.warehouseId, status: w.previous?.status ?? 'PLANNED', warehouse: w.warehouse, lines: [] };
+      const hasOnHoldDo = w.previous?.status === 'ON_HOLD' && Boolean(w.previous.doId);
+      const delivery = {
+        _id: w.previous?._id ?? newId(),
+        seq: w.previous?.seq ?? ++seq,
+        plannedOn: w.previous && vnDay(w.previous.plannedOn) === w.day ? w.previous.plannedOn : vnMidnight(w.day),
+        warehouseId: w.warehouseId,
+        status: hasOnHoldDo ? 'DO_CREATED' : (w.previous?.status ?? 'PLANNED'),
+        ...(w.previous?.doId && { doId: w.previous.doId }),
+        warehouse: w.warehouse,
+        lines: [],
+      };
       const sameWarehouse = w.previous && same(w.previous.warehouseId, w.warehouseId);
       for (const l of w.lines) {
         const before = w.previous?.lines.find(x => same(x.soLineId, l.soLine._id));
@@ -197,11 +259,77 @@ export function updateSalesOrderSchedule(user, id, input) {
       for (const before of w.previous?.lines ?? []) if (!w.lines.some(l => same(l.soLine._id, before.soLineId))) await releaseAll(before.allocations, actor, session);
       next.push(delivery);
     }
-    for (const delivery of next)
+    for (const delivery of next) {
       for (const line of delivery.lines) {
         const missing = exact(line.qtyBase).minus(total(line.allocations));
         if (missing.gt(0)) await allocateAndReserve({ order, scheduleId: schedule._id, delivery, line, soLine: line.soLine, warehouse: delivery.warehouse, actor, session, quantity: missing.toFixed() });
       }
+      // Resume ON_HOLD DO in-place (keep same _id & documentNo, rebuild pick lines, close OPEN reports, notify warehouse)
+      if (delivery.doId) {
+        const doDoc = await m.DeliveryOrder.findById(delivery.doId).session(session);
+        if (!doDoc || !['ON_HOLD', 'CREATED'].includes(doDoc.workflowStatus)) {
+          throw validationError('DO của lần giao không ở trạng thái có thể cập nhật');
+        }
+        const rebuiltItems = [];
+        for (const line of delivery.lines) {
+          for (const allocation of line.allocations) {
+            rebuiltItems.push({
+              _id: newId(),
+              lineNo: rebuiltItems.length + 1,
+              lineKind: 'OUTBOUND_DELIVERY',
+              productId: line.soLine.productId,
+              lotId: line.lotId,
+              enteredUnit: line.soLine.baseUnitSnapshot,
+              baseUnitSnapshot: line.soLine.baseUnitSnapshot,
+              baseUnitsPerUnit: '1',
+              enteredQty: String(allocation.qtyBase),
+              qtyBase: String(allocation.qtyBase),
+              productNameSnapshot: line.soLine.productNameSnapshot,
+              packagingSnapshot: line.soLine.packagingSnapshot?.toObject?.() ?? line.soLine.packagingSnapshot,
+              sources: [sourceLink(order, line.soLine, allocation.qtyBase)],
+              details: {
+                soLineId: line.soLine._id,
+                locationId: allocation.locationId,
+                balanceId: allocation.balanceId,
+                allocationId: allocation._id,
+                reservationId: allocation.reservationId,
+              },
+            });
+          }
+        }
+        doDoc.items = rebuiltItems;
+        doDoc.workflowStatus = 'CREATED';
+        doDoc.header.warehouseId = delivery.warehouseId;
+        doDoc.header.plannedOn = delivery.plannedOn;
+        doDoc.header.recipientName = order.header.recipientName;
+        doDoc.header.recipientPhone = order.header.recipientPhone;
+        doDoc.header.deliveryAddress = order.header.deliveryAddressSnapshot;
+        closeOpenIssueReports(doDoc, actor._id, now);
+        doDoc.updatedBy = actor._id;
+        const savedDo = await saveVersion(doDoc, doDoc.version, session);
+        touchedDoRefs.push({ documentType: 'delivery_orders', documentId: savedDo._id });
+
+        const whRole = await m.Role.findOne({ code: 'WAREHOUSE', isActive: true }).select('_id').session(session).lean();
+        const whUsers = whRole
+          ? await m.User.find({ isActive: true, roleId: whRole._id, warehouseIds: delivery.warehouseId }).select('_id').session(session).lean()
+          : [];
+        for (const whUser of whUsers) {
+          await createInAppNotification({
+            recipientId: whUser._id,
+            type: 'DELIVERY_ORDER_RESUMED',
+            eventKey: `DELIVERY_ORDER_RESUMED:${savedDo._id}`,
+            dedupKey: `DELIVERY_ORDER_RESUMED:${savedDo._id}:${savedDo.version}:${whUser._id}`,
+            sourceType: 'delivery_orders',
+            sourceId: savedDo._id,
+            sourceVersion: savedDo.version,
+            warehouseIds: [delivery.warehouseId],
+            title: `Lệnh giao hàng ${savedDo.documentNo} đã sẵn sàng trở lại`,
+            message: `Sales đã xử lý xong DO ${savedDo.documentNo} (đơn ${order.documentNo}, lần giao ${delivery.seq}). Kho có thể tiếp tục lấy và xuất hàng.`,
+            session,
+          });
+        }
+      }
+    }
     for (const key of removed) order.items.pull(key);
     // 6. Save
     const cancelled = editable.filter(d => !wanted.some(w => w.previous && same(w.previous._id, d._id))).map(d => ({ ...d, status: 'CANCELLED', lines: d.lines.map(l => ({ ...l, allocations: [] })) }));
@@ -212,7 +340,12 @@ export function updateSalesOrderSchedule(user, id, input) {
     schedule.updatedBy = actor._id;
     const saved = await saveVersion(order, input.expectedVersion, session);
     await saveVersion(schedule, schedule.version, session);
-    return { document: saved, versionBefore: input.expectedVersion, resultRefs: [{ documentType: 'delivery_schedules', documentId: schedule._id }], reason: input.reason };
+    return {
+      document: saved,
+      versionBefore: input.expectedVersion,
+      resultRefs: [{ documentType: 'delivery_schedules', documentId: schedule._id }, ...touchedDoRefs],
+      reason: input.reason,
+    };
   });
 }
 
@@ -228,7 +361,8 @@ export function cancelSalesOrder(user, id, input) {
       for (const l of d.lines) await releaseAll(l.allocations, actor, session);
       const doc = d.doId && await m.DeliveryOrder.findById(d.doId).session(session);
       if (doc && ['CREATED', 'ON_HOLD'].includes(doc.workflowStatus)) {
-        doc.workflowStatus = 'CANCELLED'; doc.cancelledBy = actor._id; doc.cancelledAt = now; doc.cancelReason = input.reason;
+        closeOpenIssueReports(doc, actor._id, now);
+        doc.workflowStatus = 'CANCELLED'; doc.cancelledBy = actor._id; doc.cancelledAt = now; doc.cancelReason = input.reason; doc.updatedBy = actor._id;
         await saveVersion(doc, doc.version, session);
       }
     }

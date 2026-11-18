@@ -5,7 +5,7 @@ import { catchAsync } from '../../shared/utils/catchAsync.js';
 import { formatApiResponse } from '../../shared/utils/ApiResponse.js';
 import { ApiError } from '../../shared/utils/ApiError.js';
 import { detailParams, outboundQuery } from '../sales-orders/sales.validation.js';
-import { createDeliveryOrderBody, confirmDeliveryBody } from './delivery-order.validation.js';
+import { createDeliveryOrderBody, confirmDeliveryBody, lineParams, alternativesQuery, reportIssueBody } from './delivery-order.validation.js';
 import * as service from './delivery-order.service.js';
 
 const parse = (schema, value) => {
@@ -31,6 +31,14 @@ deliveryOrderRouter.get('/', checkPermission('delivery_order:read'), catchAsync(
 }));
 deliveryOrderRouter.get('/:id', checkPermission('delivery_order:read'), catchAsync(async (req, res) => {
   formatApiResponse(res, { data: await service.getDeliveryOrder(req.user, parse(detailParams, req.params).id) });
+}));
+deliveryOrderRouter.get('/:id/lines/:lineId/alternatives', checkPermission('delivery_order:report_issue'), catchAsync(async (req, res) => {
+  const { id, lineId } = parse(lineParams, req.params);
+  const query = parse(alternativesQuery, req.query);
+  formatApiResponse(res, { data: await service.getIssueAlternatives(req.user, id, lineId, query) });
+}));
+deliveryOrderRouter.post('/:id/issue-reports', checkPermission('delivery_order:report_issue'), catchAsync(async (req, res) => {
+  formatApiResponse(res, { data: await service.reportIssue(req.user, parse(detailParams, req.params).id, parse(reportIssueBody, req.body)) });
 }));
 deliveryOrderRouter.post('/:id/confirm-issue', checkPermission('delivery_order:confirm_issue'), catchAsync(async (req, res) => {
   formatApiResponse(res, { data: await service.confirmIssue(req.user, parse(detailParams, req.params).id, parse(confirmDeliveryBody, req.body)) });

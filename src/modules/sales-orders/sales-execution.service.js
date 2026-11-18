@@ -326,7 +326,23 @@ export async function listSalesOrders(user, query) {
         filter.documentNo = new RegExp(escapeRegex(query.q), 'i');
     if (query.status)
         filter.workflowStatus = query.status;
-    return page(m.SalesOrder, filter, query, 'documentNo documentKind workflowStatus version createdAt header.customerId header.neededOn');
+    const result = await page(m.SalesOrder, filter, query, 'documentNo documentKind workflowStatus version createdAt header.customerId header.neededOn');
+    const orderIds = result.items.map(row => row._id);
+    if (orderIds.length) {
+        const schedules = await m.DeliverySchedule.find({ salesOrderId: { $in: orderIds } }).select('salesOrderId deliveries.status deliveries.plannedOn').lean();
+        const byOrder = new Map(schedules.map(s => [String(s.salesOrderId), s.deliveries ?? []]));
+        result.items = result.items.map(item => {
+            const activeDeliveries = (byOrder.get(String(item._id)) ?? []).filter(d => d.status !== 'CANCELLED');
+            const latestMs = activeDeliveries.reduce((max, d) => Math.max(max, +new Date(d.plannedOn)), 0);
+            return {
+                ...item,
+                deliveryCount: activeDeliveries.length,
+                latestPlannedOn: latestMs ? new Date(latestMs).toISOString() : null,
+                hasOnHoldDo: activeDeliveries.some(d => d.status === 'ON_HOLD'),
+            };
+        });
+    }
+    return result;
 }
 export async function salesOptions(user) {
     if (!hasPermission(user, 'sales_order:create') && !hasPermission(user, 'outbound_delivery:create') && !hasPermission(user, 'picking_task:create'))

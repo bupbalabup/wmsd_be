@@ -13,6 +13,7 @@ import { objectId, opt, version } from "./schema-helpers.js";
 import { createDocumentSourceSchema } from "./document-source.schema.js";
 import { createDocumentItemSchema } from "./document-item.schema.js";
 import { createDeliveryOrderHeaderSchema } from "./delivery-order-header.schema.js";
+import { createDeliveryOrderIssueReportSchema } from "./delivery-order-issue-report.schema.js";
 import {
   attachDocumentItems,
   addDocumentIndexesAndRules,
@@ -34,6 +35,7 @@ export function createDeliveryOrderSchema() {
       externalReferenceIds: [objectId],
       sources: { type: [createDocumentSourceSchema()], default: undefined },
       header: { type: createDeliveryOrderHeaderSchema(), required: true },
+      issueReports: { type: [createDeliveryOrderIssueReportSchema()], default: [] },
       updatedBy: ref("User", false),
       stockTransactionId: ref("StockTransaction", false),
       evidenceIds: refs("Attachment"),
