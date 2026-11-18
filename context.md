@@ -1,16 +1,32 @@
-## Customer details on documents — 17 November 2026
+17/11/2026 — BF04 destination receipt posts GOOD stock and automatically creates a waiting ITR/PUTAWAY TO in the same transaction. Destination staff choose STORAGE targets on a separate task page and confirm once. Full requests auto-complete after exact quantities, transit, linked task and variance guards; short requests keep reasoned partial closure. Report creation/replay requires actual destination assignment plus update permission; independent review remains. Canonical git_doc/docs/08_api/transfers/BF04_API.md. No schema migration, grants or online backfill; historical unplanned receipts use an explicit create/reuse command.
+
+17/11/2026 — BF03/BF04 field projections: list view=summary omits item arrays and execution metadata; default full preserves Excel line quantities. Detail/options/ledger/related records select only consumed fields; command versions, packaging factors, scope and posting reads retained. Canonical git_doc/docs/08_api/TRANSFER_PERFORMANCE.md. No DB migration/remote write.
+
+17/11/2026 — BF03/BF04 read performance: batched selection availability (max 4 queries), compact warehouse catalogues without 3D snapshots, optional BF04 mode=locations for destination options and parallel authorized detail reads. Transaction guards unchanged; no remote rollout. Canonical git_doc/docs/08_api/TRANSFER_PERFORMANCE.md.
+
+## Customer details and returns — 18 November 2026
 
 User decision: customers are not managed as catalogue records. New sales orders require `customerName` (1–160 characters) and allow `customerPhone` (up to 30 characters); the delivery address remains on the order. Creating an order does not query or create a Customer. Sales options return an empty compatibility `customers` array.
 
-Customer-return creation sends warehouse and source lines only, without `customerId` or a customer selector. The server resolves name/phone from the source sales order or verified historical delivery and saves a snapshot on the return. Each new request is limited to one source document, while allowing multiple lines and split parts from that document. Warehouse access, source ownership/permissions, confirmed received quantity, claims, evidence, versions and idempotency remain enforced. Direct goods issues retain the sales-order link and no longer require a customer catalogue ID.
+Customer-return creation uses a posted SALE Goods Issue line or verified historical delivery, without `customerId` or a customer catalogue. It does not require a Sales Order. Use source customer details when present; otherwise require `customerName` from the requester. SO-linked issues retain their confirmed-received cap; standalone issues use effective posted issue quantity less undelivered receipts and outstanding failed-delivery/CR claims. Each return uses one source document; warehouse/source permissions, evidence, versions and idempotency remain enforced.
 
 Historical verification requires customer name text and optional phone from the external document; verification/evidence remains mandatory. New historical sources with customer snapshots use the current inspection/acceptance/receipt flow without custody. Previously stored sources and custody ledgers retain their legacy behavior. Optional legacy customerId fields and the Customer collection remain readable; no records or collections are deleted or backfilled. Deploy FE and BE together; old clients sending customerId to new creation endpoints must update.
 
 Validation: focused sales/return contract tests and the local direct-sales transaction test passed using an isolated database on the local rs0 replica set (port 27017). The transaction fixture creates a new sale and return with no Customer record, and separately verifies legacy custody compatibility. No Atlas write or migration was performed.
 
-## 17 November 2026 — simplified sales and returns
+## Phạm vi hiện hành
 
-Latest explicit user decision supersedes manual-sale and custody requirements for new records. Sales Order → direct Goods Issue; Sales confirms evidenced customer receipt; Warehouse receives undelivered goods inline. New CR inspection records facts only, acceptance authorizes receipt, and only receipt posts STORE stock. Legacy mode markers are absent and retain original ledgers. Optional issue header/order/customer/sourceBalance and embedded customerReceipts, CR intakeMode/handbacks, and FAILED_DELIVERY receipt goodsIssueId add no collection. See [current contract](git_doc/docs/08_api/GOODS_ISSUES.md) for permissions, exact caps, schema, compatibility and setup.
+Theo quyết định người dùng ngày 17/11/2026, bỏ danh mục khách hàng và delivery riêng; giữ đơn bán và khách trả. Xem [phạm vi và nguồn yêu cầu](git_doc/PROJECT_GUIDE.md#phạm-vi-chức-năng-hiện-hành). Mô tả triển khai cũ bên dưới không tự mở lại các chức năng đã loại khỏi phạm vi. Đây là thay đổi tài liệu; code/DB chưa được thay đổi trong lượt này.
+
+17/11/2026. Phiếu nhập mua hoàn tất khi ghi nhập. Chuyển hàng từ bãi tiếp nhận lên kệ dùng BF03. Xem [API phiếu nhập](git_doc/docs/08_api/GOODS_RECEIPTS.md#chi-tiết-phiếu-nhập-mua) và [rollout local](git_doc/docs/09_phat_trien/MONGODB_LOCAL.md#ngừng-lệnh-cất-hàng-mua).
+
+## 18 November 2026 — customer returns from Goods Issue
+
+The 17 November decision keeps the existing Sales Order → direct Goods Issue workflow when used. The 18 November decision makes Customer Return start from a posted SALE Goods Issue, with or without a Sales Order; no Sales Order work is needed to demo returns. SO-linked issue caps still use confirmed customer receipts. Standalone issues use posted issue quantity less known undelivered receipts and open claims. New CR inspection records facts only, acceptance authorizes receipt, and only receipt posts STORE stock. See [current contract](git_doc/docs/08_api/GOODS_ISSUES.md).
+
+17/11/2026 — Kho 3D: lớp hàng nhiều mã/lô và số thùng là nhãn phương án; measuredCargoHeight là cao phần hàng, cộng đế một lần; actualHeight cũ vẫn là tổng cao. Vượt cao chỉ cảnh báo, vẫn lưu/áp dụng. X/Y pallet tương đối trong ô, xoay theo khu. Xem git_doc/docs/10_Kho3D/STAGE3_PALLET_LAYERS.md. Không ghi tồn hoặc rollout DB.
+
+17/11/2026 — Người dùng duyệt BF03 chuyển nhiều lần trên cùng lệnh: OPEN → PARTIAL → CONFIRMED; mỗi lần chỉ ghi lượng thực chuyển của các dòng chọn. Lượng còn lại tính từ ledger, hủy chỉ phần chưa chuyển, giữ lịch sử và tồn đã chuyển. Chưa có chuyến mới được sửa kế hoạch; không tự mở thùng. Hợp đồng: git_doc/docs/08_api/location-movements/README.md.
 
 17/11/2026 — Xuất hàng được mở thùng và nhập lẻ số thùng theo quyết định người dùng. Ví dụ 1,5 thùng × 4 viên = 6 viên; vẫn kiểm lượng nguyên theo ĐVT gốc. Lưu snapshot quy đổi hiện hành và phần OPEN còn lại; volumeUpperBoundMm3 là giới hạn thể tích bảo thủ, không giả số đo. Chỉ bật cho xuất bán/xuất khác, BF04 picking/dispatch, trả NCC và thực hủy; BF03/nhập kho giữ quy tắc cũ. Xem git_doc/docs/08_api/GOODS_ISSUES.md.
 
@@ -21,6 +37,8 @@ Latest explicit user decision supersedes manual-sale and custody requirements fo
 > 10/11/2026: [18 UC HieuDT, ba iteration](git_doc/docs/08_api/HIEUDT_ITERATIONS_NATIVE.md) đã nối API native cho bán/soạn, BF03/BF04, chốt kiểm kê và báo cáo. Mã UC trong tài liệu theo kế hoạch HieuDT gốc. Trạng thái kiểm chứng và điều kiện đầu vào xem hợp đồng; không suy mọi prototype đã hoàn tất.
 
 > Quyết định 09/11/2026 bổ sung [Conversion theo sản phẩm và lô](git_doc/docs/08_api/CONVERSIONS.md). [Iteration 1 native](git_doc/docs/08_api/ITERATION1_NATIVE_2026-11-06.md) tiếp tục áp dụng cho NCC, giữ hộ và đảo nhập.
+
+> 17/11/2026: Kế toán chọn đơn vị theo từng dòng khi tạo hoặc sửa PO nháp. Nếu vượt lượng RR đã duyệt, hệ thống chỉ cho phép số nguyên đơn vị nhỏ nhất đủ phủ lượng duyệt mà không cần Owner duyệt. Xem [hợp đồng PO](git_doc/docs/08_api/NATIVE_MODEL_RUNTIME.md#mua-và-nhập).
 
 # Backend context
 

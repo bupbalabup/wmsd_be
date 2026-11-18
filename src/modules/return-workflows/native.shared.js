@@ -78,6 +78,14 @@ export async function effectivePosted(doc,itemId,session) {
  for(const root of roots){let active=true,current=root,seen=new Set();while(current){if(seen.has(String(current._id)))throw validationError('Lịch sử đảo có vòng lặp');seen.add(String(current._id));const next=await m.StockTransaction.findOne({reversedTransactionId:current._id}).session(session);if(!next)break;active=!active;current=next;}if(active)total=total.plus(sum(root.movements.filter(x=>same(x.sourceLineId,itemId)&&(['GI_SALE','GI_SUPPLIER_RETURN'].includes(doc.documentKind)?x.fromBalanceId:x.toBalanceId)),'quantityBase'));}
  return total;
 }
+export async function undeliveredReturnedQuantity(itemId,session) {
+ const receipts=await m.FailedDeliveryReceipt.find({workflowStatus:'POSTED','items.details.salesIssueLineId':itemId}).session(session);let total=exact('0');
+ for(const receipt of receipts)for(const row of receipt.items.filter(i=>same(i.details.salesIssueLineId,itemId)))total=total.plus(await effectivePosted(receipt,row._id,session));
+ return total;
+}
+export function standaloneSaleReturnAllowance(issued,undelivered,openFailedDelivery) {
+ const available=exact(issued).minus(String(undelivered)).minus(String(openFailedDelivery));return available.gt(0)?available:exact('0');
+}
 export async function issueSource(itemId,user,session) {
  const {doc,item}=await itemById(m.SalesGoodsIssue,itemId,user,session);
  if(doc.header.fulfillmentMode==='DIRECT'){
@@ -86,6 +94,11 @@ export async function issueSource(itemId,user,session) {
   if(user.roleId?.code==='SALES'&&!same(so.createdBy,user._id))throw notFoundError();
   await lockSource(doc,item,session);
   return {doc,item,so,soItem,issued:await effectivePosted(doc,itemId,session),delivered:sum((doc.customerReceipts||[]).filter(r=>same(r.issueLineId,itemId)),'quantityBase')};
+ }
+ if(doc.documentKind==='GI_SALE'&&doc.header.issueKind==='SALE'&&doc.header.referenceNo&&!doc.header.salesOrderId){
+  if(user.roleId?.code==='SALES'&&!same(doc.createdBy,user._id))throw notFoundError();
+  await lockSource(doc,item,session);
+  return {doc,item,issued:await effectivePosted(doc,itemId,session),standaloneSale:true};
  }
  const od=await m.DeliveryOrder.findOne({'items._id':item.details.outboundDeliveryLineId}).session(session);
  const odItem=od?.items.id(item.details.outboundDeliveryLineId);

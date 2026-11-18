@@ -1,3 +1,9 @@
+## 18/11/2026 · Customer return starts from a posted Goods Issue
+
+Per the user's decision, a Customer Return can use a posted SALE Goods Issue without a Sales Order, so the return demo does not require the separate Sales Order flow. If the issue has no customer snapshot, the requester supplies `customerName`. SO-linked issues keep their confirmed-received cap; standalone issues use effective posted issue quantity less posted undelivered receipts, outstanding failed-delivery claims and CR claims. The existing inspection → Sales decision → Warehouse receipt flow is unchanged; no schema or migration was added. Updated `native.shared.js`, `native.service.js`, `native.lookup.js`, `native.validation.js`, focused tests, return/Goods Issue/customer snapshot contracts, PROJECT_GUIDE, contexts and paired frontend form/tests. Confirmed supplier custody as the alternate return path: non-GOOD purchase items must use CUSTODY; unused GOOD items may also be explicitly kept supplier-owned in CUSTODY. Accountant agreement → Warehouse CustodyRelease dispatch → Accountant ACK/close already works; already STORE-owned stock uses the regular Supplier Return flow.
+
+Validation: FE return workflow tests 23/23, TypeScript check, changed-file ESLint, and backend standalone/source lookup unit checks passed. The backend transaction integration test was skipped because its required local replica set on port 27018 was unavailable. `npm run docs:check` passed in both backend checkouts. Browser visual review was unavailable because no preview server/browser window was open and the referenced `ui-visual-test` skill file is missing. No remote DB write, commit or push.
+
 ## Customer details on documents — 17 November 2026
 
 User decision: customers are not managed as catalogue records. New sales orders require `customerName` (1–160 characters) and allow `customerPhone` (up to 30 characters); the delivery address remains on the order. Creating an order does not query or create a Customer. Sales options return an empty compatibility `customers` array.
@@ -7,6 +13,13 @@ Customer-return creation sends warehouse and source lines only, without `custome
 Historical verification requires customer name text and optional phone from the external document; verification/evidence remains mandatory. New historical sources with customer snapshots use the current inspection/acceptance/receipt flow without custody. Previously stored sources and custody ledgers retain their legacy behavior. Optional legacy customerId fields and the Customer collection remain readable; no records or collections are deleted or backfilled. Deploy FE and BE together; old clients sending customerId to new creation endpoints must update.
 
 Validation: focused sales/return contract tests and the local direct-sales transaction test passed using an isolated database on the local rs0 replica set (port 27017). The transaction fixture creates a new sale and return with no Customer record, and separately verifies legacy custody compatibility. No Atlas write or migration was performed.
+
+## 17 November 2026 — Opening-stock Atlas enablement
+
+- User explicitly requested making opening import work with Atlas. On existing `trungph`, fetched and fast-forwarded latest main before changes; preserved unrelated untracked demo scripts.
+- `scripts/setup-opening-stock.mjs` loads the configured `MONGODB_URI`, supports Atlas SRV/standard multi-host URIs with `--allow-remote`, retains explicit application-database validation and existing additive permission/index setup. Updated opening-stock API/setup documentation; added focused target-validation tests.
+- Applied setup to configured Atlas database `sep490`. Read-back verified three permissions, Owner grants, no non-Owner grants and once-per-warehouse file-import index. No business records or stock quantities seeded. Users must sign in again to refresh session grants. No commit/push or hosted-code deployment performed.
+- Target-validation tests pass (2/2); docs check recorded at handoff. No browser import/posting claimed.
 
 ## 17 November 2026 — Upstream integration and conflict-resolution checkpoint
 

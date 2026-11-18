@@ -120,6 +120,15 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
    await assert.rejects(returns.receiveCustomerReturn(worker,rd._id,{...handback,idempotencyKey:key(),expectedVersion:rd.version},true));
    if(!legacy)await assert.rejects(returns.inspectCustomerReturn(worker,rd._id,{...inspection,idempotencyKey:key(),expectedVersion:rd.version},true));
  }
+ thirdIssue=await m.SalesGoodsIssue.findById(thirdIssue._id);
+ thirdIssue.header.fulfillmentMode=undefined;thirdIssue.header.salesOrderId=undefined;thirdIssue.header.customerId=undefined;thirdIssue.header.issueKind='SALE';thirdIssue.header.referenceNo='LEGACY-MANUAL-SALE';thirdIssue.customerReceipts=[];thirdIssue.createdBy=seller._id;
+ await thirdIssue.save();
+ const standaloneSources=await lookup(seller,{kind:'sources',purpose:'customer-returns',warehouseId:String(warehouse._id),documentId:String(thirdIssue._id),page:1,limit:10});
+ assert.equal(standaloneSources.items[0]?.availableQty,'4');
+ const standaloneReturn=await returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),customerName:'Goods issue customer',lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),qtyBase:'3',reason:'No Sales Order'}]});
+ const standaloneDoc=await m.CustomerReturn.findById(standaloneReturn.id);
+ assert.equal(standaloneDoc.header.customerName,'Goods issue customer');assert.equal(standaloneDoc.header.customerId,undefined);
+ await assert.rejects(returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),customerName:'Goods issue customer',lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),qtyBase:'2',reason:'Over remaining issue quantity'}]}),/Vượt lượng khách đã nhận còn được trả/);
  const {default:app}=await import('../src/app.js');
  server=app.listen(0,'127.0.0.1'); await new Promise(resolve=>server.once('listening',resolve));
  const http=async(actor,path)=>{const response=await fetch('http://127.0.0.1:'+server.address().port+'/api'+path,{headers:{authorization:'Bearer '+jwt.sign({userId:String(actor._id)},process.env.JWT_SECRET)}});return {status:response.status,body:await response.json()};};

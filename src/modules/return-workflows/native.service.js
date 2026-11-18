@@ -71,14 +71,17 @@ async function returnSource(input,user,session){
   const competing=await m.SalesOrder.exists({'header.externalReferenceId':doc._id}).session(session);if(competing)throw validationError('Nguồn đã có chuỗi WMS, dùng nguồn giao thực tế');
   await s.lockSource(doc,item,session);return {doc,item:{...item.toObject(),qtyBase:String(item.eligibleQty),enteredQty:exact(item.eligibleQty).div(String(item.baseUnitsPerUnit)).toFixed(),productNameSnapshot:'Historical source'},customerId:doc.customerId,customerName:doc.customerName,customerPhone:doc.customerPhone,warehouseId:doc.warehouseId,allowance:exact(item.eligibleQty).minus(String(item.previouslyReturnedQty)),sourceKind:'EXTERNAL',intakeMode:doc.customerName?'DIRECT':'LEGACY'};
  }
- const c=await s.issueSource(input.salesIssueLineId,user,session),direct=c.doc.header.fulfillmentMode==='DIRECT';return {...c,customerId:c.so.header.customerId,customerName:c.so.header.customerName,customerPhone:c.so.header.customerPhone,warehouseId:c.doc.header.warehouseId,allowance:c.delivered,sourceKind:direct?'GOODS_ISSUE':'DELIVERY_CONFIRMATION',intakeMode:direct?'DIRECT':'LEGACY'};
+ const c=await s.issueSource(input.salesIssueLineId,user,session),direct=c.doc.header.fulfillmentMode==='DIRECT';
+ if(c.standaloneSale)return {...c,customerName:c.doc.header.customerName,warehouseId:c.doc.header.warehouseId,allowance:s.standaloneSaleReturnAllowance(c.issued,await s.undeliveredReturnedQuantity(c.item._id,session),await s.claimTotal(c.item._id,'FD',session)),sourceKind:'GOODS_ISSUE',intakeMode:'DIRECT'};
+ return {...c,customerId:c.so.header.customerId,customerName:c.so.header.customerName,customerPhone:c.so.header.customerPhone,warehouseId:c.doc.header.warehouseId,allowance:c.delivered,sourceKind:direct?'GOODS_ISSUE':'DELIVERY_CONFIRMATION',intakeMode:direct?'DIRECT':'LEGACY'};
 }
 export async function createCustomerReturn(user,input){return command(user,'CREATE_CR','customer_return:create',null,input,replay(m.CustomerReturn),async(session,actor,operationId)=>{
  requireWarehouseAccess(actor,input.warehouseId);
  const doc=await envelope(m.CustomerReturn,actor,{warehouseId:input.warehouseId,openedBy:actor._id,openedAt:new Date()},[]);let intakeMode,sourceDocumentId;
  for(const row of input.lines){const c=await returnSource(row,actor,session);if(intakeMode&&intakeMode!==c.intakeMode)throw validationError('Không thể kết hợp nguồn trả hàng trực tiếp và nguồn giao hàng cũ');intakeMode=c.intakeMode;await s.assertWholeQuantity(c.item.productId,row.qtyBase,session);if(!same(c.warehouseId,input.warehouseId))throw validationError('Nguồn sai kho');
   if(sourceDocumentId && !same(sourceDocumentId,c.doc._id))throw validationError('Mỗi phiếu trả chỉ dùng một chứng từ nguồn');
-  sourceDocumentId=c.doc._id;doc.header.customerId=c.customerId;doc.header.customerName=c.customerName;doc.header.customerPhone=c.customerPhone;
+  const customerName=c.customerName||input.customerName;if(!customerName)throw validationError('Nhập tên khách hàng cho phiếu xuất chưa có thông tin khách');
+  sourceDocumentId=c.doc._id;doc.header.customerId=c.customerId;doc.header.customerName=customerName;doc.header.customerPhone=c.customerPhone;
   if(exact(row.qtyBase).plus(await s.claimTotal(c.item._id,'CR',session)).gt(c.allowance))throw validationError('Vượt lượng khách đã nhận còn được trả');
   const item=copy(c.item,row.qtyBase,doc.items.length+1,{lineKind:'CUSTOMER_RETURN',details:{...(row.historicalExternalLineId?{historicalExternalLineId:row.historicalExternalLineId}:{originalIssueLineId:row.salesIssueLineId}),reason:row.reason},sources:[source(c.doc,c.item,'RETURN_SOURCE',row.qtyBase)]});doc.items.push(item);
   await new m.ReturnQuantityClaim({claimKind:'CR',requestLineId:item._id,sourceKind:c.sourceKind,sourceLineId:c.item._id,claimedQtyBase:row.qtyBase,createdBy:actor._id,operationId,version:1,events:[]}).save({session});

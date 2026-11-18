@@ -1,6 +1,6 @@
-## Current sales and returns — 17 November 2026
+## Current sales and returns — 18 November 2026
 
-Latest explicit user decision supersedes manual-sale and custody requirements for new records. Sales Order → direct Goods Issue; Sales confirms evidenced customer receipt; Warehouse receives undelivered goods inline. New CR inspection records facts only, acceptance authorizes receipt, and only receipt posts STORE stock. Legacy mode markers are absent and retain original ledgers. Optional issue header/order/customer/sourceBalance and embedded customerReceipts, CR intakeMode/handbacks, and FAILED_DELIVERY receipt goodsIssueId add no collection. See [current contract](docs/08_api/GOODS_ISSUES.md) for permissions, exact caps, schema, compatibility and setup.
+The existing Sales Order → direct Goods Issue flow remains available when used. Customer Return now starts from a posted SALE Goods Issue with or without a Sales Order, so no Sales Order work is needed for the return flow. SO-linked issues use confirmed customer-received quantity as the cap; standalone issues use posted issue quantity less undelivered receipts and open claims. New CR inspection records facts only, acceptance authorizes receipt, and only receipt posts STORE stock. See [current contract](docs/08_api/GOODS_ISSUES.md).
 
 17/11/2026 — Xuất hàng được mở thùng và nhập lẻ số thùng theo quyết định người dùng. Ví dụ 1,5 thùng × 4 viên = 6 viên; vẫn kiểm lượng nguyên theo ĐVT gốc. Lưu snapshot quy đổi hiện hành và phần OPEN còn lại; volumeUpperBoundMm3 là giới hạn thể tích bảo thủ, không giả số đo. Chỉ bật cho xuất bán/xuất khác, BF04 picking/dispatch, trả NCC và thực hủy; BF03/nhập kho giữ quy tắc cũ. Xem docs/08_api/GOODS_ISSUES.md.
 
@@ -65,14 +65,14 @@ Không tạo general policy editor. Danh mục quyền được định nghĩa b
 
 | Luồng | Chuỗi và mốc xác nhận |
 |---|---|
-| BF01 mua/nhập | RR → duyệt → kế toán chốt với NCC → lập và phát hành PO → hàng đến → kiểm nhận → nhập sở hữu → xếp hàng. Sửa nội dung khi PO còn nháp. Khi `OPEN`/`PARTIAL`, đổi ngày dự kiến chung cho phần chưa nhận bằng lệnh có lý do. Theo dõi các lần nhận qua phiếu kiểm và phiếu nhập. Ngừng chờ phần chưa nhận qua quy trình duyệt đóng. Hàng giữ hộ ghi chủ riêng. Nhận sở hữu hàng đã giữ hộ chuyển đúng chủ, không nhận vật lý lần hai. |
+| BF01 mua/nhập | RR → duyệt → kế toán chốt với NCC → lập và phát hành PO → hàng đến → kiểm nhận → nhập sở hữu → xếp hàng. Sửa nội dung khi PO còn nháp. Khi `OPEN`/`PARTIAL`, đổi ngày dự kiến chung cho phần chưa nhận bằng lệnh có lý do. Theo dõi các lần nhận qua phiếu kiểm và phiếu nhập. Ngừng chờ phần chưa nhận qua quy trình duyệt đóng. Hàng GOOD không cần dùng có thể chọn CUSTODY; hàng không GOOD bắt buộc CUSTODY. Hàng giữ hộ thuộc NCC, không vào tồn STORE, và có thể lập đề nghị trả NCC từ phiếu giữ hộ. |
 | BF02 hàng lỗi | Phát hiện/chặn đúng lượng → đề xuất → duyệt cách xử lý → thực hiện. Chặn giữ nguyên tổng. Hủy thực tế mới giảm. Trả NCC đi BF08. |
 | BF03 chuyển ô | Create TO → Confirm TO. Người tạo sửa/hủy trước confirm và tự confirm. Mỗi TO xác nhận trọn lệnh một lần. Chuyển hai ô cùng kho giữ tổng, lô, chủ và liên kết giữ hàng. |
 | BF04 liên kho | TR → Owner duyệt/từ chối có lý do → phiếu xuất theo TR → yêu cầu lấy hàng sinh TO → confirm PICK đồng thời xuất đi → nhận tại kho đích → yêu cầu xếp hàng sinh TO → confirm PUTAWAY → đóng TR đủ điều kiện. |
 | BF04 số đợt | Một TR nhiều phiếu xuất, mỗi phiếu xuất nhiều phiếu nhận. Phiếu mở giữ hạn mức. Tổng trong lượng duyệt/đã xuất. Người nhận khác người xuất. Hàng lỗi vào QUARANTINE trong kho nhận. Nhận thực tế giảm transit, PUTAWAY chỉ chuyển vị trí. |
 | BF05 kiểm kê | Owner lập đợt → Warehouse kích hoạt khóa ô + snapshot → đếm/đếm lại giữ lịch sử → phương án → Owner duyệt → Warehouse ghi thực hiện → Owner chốt transaction và mở khóa. Tách thiếu/thừa khỏi đổi chất lượng/vị trí. |
-| BF06 bán/giao | SO → WIR → lệnh giao giữ hàng → phiếu xuất/soạn → bàn giao thực xuất → xác nhận khách nhận → hóa đơn cuối khi đủ điều kiện H37. Hoàn thành SO chờ Sales xác nhận đủ tiền ngoài theo H17. |
-| BF07 khách trả/giao thất bại | Khách đã nhận rồi trả dùng CR + kiểm + quyết định. Sales xử lý ca thường, Owner xử lý ngoại lệ đủ căn cứ. Hàng lỗi NSX chỉ nhận sở hữu khi Owner duyệt vào khu lỗi. Giao thất bại dùng phiếu về kho riêng, chỉ lượng thực về mới tái mở nhu cầu giao bù. |
+| BF06 bán/giao | Luồng bán hiện có SO → phiếu xuất trực tiếp; Warehouse ghi xuất thực tế, Sales ghi bằng chứng khách nhận trên phiếu. Không có WIR/OD/picking bán hàng hoặc màn delivery riêng. Khách trả vẫn hỗ trợ phiếu xuất bán độc lập không có SO. |
+| BF07 khách trả/giao thất bại | Phiếu xuất bán đã ghi sổ (có hoặc không có SO) hoặc lịch sử ngoài đã xác minh → kiểm thực tế → quyết định → nhập lượng được nhận. Hạn mức theo lượng khách nhận nếu SO có; nếu không có SO thì theo lượng xuất thực tế trừ nhận lại chưa giao và các đề nghị còn mở. Hàng chưa giao nhận lại trên phiếu xuất, không mở luồng delivery riêng. |
 | BF08 trả NCC | Warehouse đề nghị → Accountant xác minh thỏa thuận → Warehouse xuất thực tế → Accountant ghi NCC nhận/đối chiếu/đóng. Không thêm Owner duyệt bắt buộc cho luồng này. |
 
 Đọc phiếu H06–H11, H18–H36 và C01–C08 trong [bộ duyệt](docs/03_thiet_ke/DB_Rebuild_Review/01_Danh_muc_duyet.md) trước sửa nhóm tương ứng.
