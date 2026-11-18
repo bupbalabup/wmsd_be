@@ -88,9 +88,9 @@ export function beginStock(document, user, operation, input) {
     requestHash, performedBy: user._id, occurredAt: new Date(), recordedAt: new Date(), movements: [] });
 }
 
-// Outbound may open cartons using conservative volume bounds; other movements
-// keep the existing whole-carton / whole-measured-portion restriction.
-export function splitPortions(portions, quantity, actorId, { allowOpening = false } = {}) {
+// Outbound may open cartons; explicit LOOSE relocation may split existing loose
+// stock with conservative volume bounds. Other movements keep whole portions.
+export function splitPortions(portions, quantity, actorId, { allowOpening = false, allowLooseSplit = false } = {}) {
   let remaining = exact(quantity);
   const kept = [], taken = [];
   const ordered = allowOpening ? [...portions].sort((a, b) => Number(a.packagingState === 'SEALED') - Number(b.packagingState === 'SEALED')) : portions;
@@ -99,7 +99,7 @@ export function splitPortions(portions, quantity, actorId, { allowOpening = fals
     const available = exact(portion.quantityBase);
     if (remaining.isZero()) { kept.push(portion); continue; }
     if (remaining.gte(available)) { taken.push(portion); remaining = remaining.minus(available); continue; }
-    if (allowOpening && (portion.packagingState !== 'SEALED' || portion.measuredVolumeMm3 != null || exact(portion.extraOccupiedVolumeMm3 || '0').gt(0) || !remaining.div(String(portion.packagingSnapshot?.baseUnitsPerPackage || '1')).isInteger())) {
+    if ((allowOpening || (allowLooseSplit && portion.packagingState === 'LOOSE')) && (portion.packagingState !== 'SEALED' || portion.measuredVolumeMm3 != null || exact(portion.extraOccupiedVolumeMm3 || '0').gt(0) || !remaining.div(String(portion.packagingSnapshot?.baseUnitsPerPackage || '1')).isInteger())) {
       const snapshot = portion.packagingSnapshot;
       const cartonVolume = snapshot?.outerLengthMm && snapshot.outerWidthMm && snapshot.outerHeightMm
         ? exact(String(snapshot.outerLengthMm)).mul(String(snapshot.outerWidthMm)).mul(String(snapshot.outerHeightMm)) : null;
@@ -150,7 +150,7 @@ async function saveBalance(balance, beforeVersion, session) {
     { $set: { quantityBase: balance.quantityBase, packagingPortions: balance.packagingPortions }, $inc: { version: 1 } }, { session });
   if (result.matchedCount !== 1) throw versionConflict('Tồn đã thay đổi');
 }
-export async function moveStock(sourceId, destinationId, quantity, itemId, stockTransaction, user, session, { preserveReservations = false, excludeTaskId, portionIds, allowOpening = false } = {}) {
+export async function moveStock(sourceId, destinationId, quantity, itemId, stockTransaction, user, session, { preserveReservations = false, excludeTaskId, portionIds, allowOpening = false, packagingState } = {}) {
   if (same(sourceId, destinationId)) throw validationError('Nguồn và đích phải khác nhau');
   const source = await InventoryBalance.findById(sourceId).session(session);
   const destination = await InventoryBalance.findById(destinationId).session(session);
@@ -166,8 +166,8 @@ export async function moveStock(sourceId, destinationId, quantity, itemId, stock
   if (amount.plus(pending).plus(preserveReservations ? '0' : reserved).plus(await heldQuantity(sourceId, session)).gt(from)) throw validationError('Lượng chuyển thuộc phần hàng đang bị chặn');
   if (amount.plus(pending).plus(preserveReservations ? '0' : reserved).gt(from)) throw validationError('Tồn đã được giữ hoặc lập lệnh khác');
   // portionIds limits the split to the portions of one source line (e.g. one receipt line in a shared receiving balance).
-  const inPool = row => portionIds === undefined || portionIds.some(id => same(id, row._id));
-  const split = splitPortions(source.packagingPortions.filter(inPool), amount, user._id, { allowOpening });
+  const inPool = row => (portionIds === undefined || portionIds.some(id => same(id, row._id))) && (!packagingState || row.packagingState === packagingState);
+  const split = splitPortions(source.packagingPortions.filter(inPool), amount, user._id, { allowOpening, allowLooseSplit: packagingState === 'LOOSE' });
   const kept = [...source.packagingPortions.filter(row => !inPool(row)).map(row => row.toObject ? row.toObject() : { ...row }), ...split.kept], taken = split.taken;
   // Retain existing subdocuments rather than recasting their immutable creation
   // timestamps when an earlier portion is removed from the array.
