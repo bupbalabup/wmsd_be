@@ -8,8 +8,6 @@ export function simplifySchemaEntries(entries) {
     if (collection === 'stock_thresholds') { schema.remove('version'); schema.remove('productId'); }
     if (collection === 'external_reference_lines') schema.remove('referenceId');
     if (collection === 'product_batches') {
-      schema.remove('calibre');
-      schema.remove('tone');
       schema.clearIndexes();
       schema.add({ piecesPerCarton: integer(1), cartonLengthMm: decimal({ positive:true, scale:3 }),
         cartonWidthMm: decimal({ positive:true, scale:3 }), cartonHeightMm: decimal({ positive:true, scale:3 }) });
@@ -33,6 +31,5 @@ export function simplifyData(data) {
   for (const product of data.products) for (const row of product.stockThresholds || []) { delete row.version; delete row.productId; }
   for (const source of data.external_references) for (const row of source.items || []) delete row.referenceId;
   for (const balance of data.inventory_balances) for (const row of balance.packagingPortions || []) { delete row.version; delete row.balanceId; }
-  for (const batch of data.product_batches) { delete batch.calibre; delete batch.tone; }
   return data;
 }

@@ -1,5 +1,5 @@
 import { Product, ProductBatch, Uom } from '../../models/runtime.js';
-import { resolveConversion, toBaseQuantity } from './conversions.js';
+import { normalizedEnteredQty, resolveConversion, toBaseQuantity } from './conversions.js';
 import { exact } from '../../models/model-utils.js';
 import { validationError } from './ApiError.js';
 import { newId } from './document-command.js';
@@ -32,7 +32,9 @@ export async function makeItem(input, lineNo, session, { lineKind = 'STANDARD', 
   if (!quantity.gt(0) || quantity.decimalPlaces() > 6 || quantity.gte('100000000000000') || (product.wholeBaseUnits && !quantity.isInteger())) throw validationError('Số lượng phải quy đổi chính xác sang đơn vị gốc');
   return { _id: previous?._id ?? newId(), lineNo, lineKind, productId: product._id, lotId: batch?._id,
     enteredUnit, baseUnitSnapshot: reuseSnapshot ? previous.baseUnitSnapshot : product.baseUnit,
-    baseUnitsPerUnit: factor.toFixed(), enteredQty: input.enteredQty, qtyBase: quantity.toFixed(),
+    baseUnitsPerUnit: factor.toFixed(),
+    enteredQty: normalizedEnteredQty(quantity, factor, product, enteredUom, input.enteredQty),
+    qtyBase: quantity.toFixed(),
     productNameSnapshot: reuseSnapshot ? previous.productNameSnapshot : product.name,
     ...(includeLotLabel && { lotLabelSnapshot: batch?.manufacturerLot }), packagingSnapshot };
 }

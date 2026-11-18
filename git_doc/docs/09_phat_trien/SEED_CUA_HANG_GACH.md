@@ -1,6 +1,8 @@
 # Dữ liệu mô phỏng cửa hàng gạch ốp lát
 
-Bản seed BE `wmsd-tile-shop-20261114-v11` dựng 58 collection dữ liệu mẫu. Các tên, giá và số đo là dữ liệu tổng hợp. Bằng chứng là PNG test và SMTP không gửi thật. [Sản phẩm, lô và thùng](../03_thiet_ke/DB_Rebuild_Review/39_San_pham_va_lo_dang_chot.md).
+Bản seed BE `wmsd-tile-shop-20261119-v12` dựng 58 collection dữ liệu mẫu. Các tên, giá và số đo là dữ liệu tổng hợp. Bằng chứng là PNG test và SMTP không gửi thật. [Sản phẩm, lô và thùng](../03_thiet_ke/DB_Rebuild_Review/39_San_pham_va_lo_dang_chot.md).
+
+`RR-202610-001` lưu lượng duyệt 120 viên. `PO-202610-001` đặt 120 viên với đơn giá 35.000 VNĐ/viên và thành tiền 4.200.000 VNĐ. Quy đổi thùng của seed nằm ở cấp lô để sử dụng khi nhận hàng.
 
 ## Mở trong Compass
 
@@ -73,6 +75,16 @@ npm run test:db-rebuild
 npm run db:local:seed
 npm run db:local:verify
 npm run docs:check
+```
+
+Các lệnh dưới đây đã nạp và xác minh seed trên MongoDB cục bộ bằng một database riêng. Đối soát ghi nhận 1 PO, 1 phiếu nhập và 0 lỗi.
+
+```powershell
+$env:MONGODB_URI = 'mongodb://127.0.0.1:27017/admin?replicaSet=rs0'
+npm run db:demo -- --apply --target wmsd_demo_rr_po_quantity_20261119
+npm run db:demo -- --verify --target wmsd_demo_rr_po_quantity_20261119
+$env:MONGODB_URI = 'mongodb://127.0.0.1:27017/wmsd_demo_rr_po_quantity_20261119?replicaSet=rs0'
+npm run purchase:reconcile
 ```
 
 Lệnh xem trước không cần MongoDB. Lệnh seed tạo target mới hoặc xác minh đúng target đã seed cùng version. Khi bộ đã seed bị sửa, công cụ từ chối ghi đè. Khi thay nội dung seed, tăng version và chọn một target local mới hoặc chuẩn bị kế hoạch chuyển rõ ràng. Không drop DB để làm test pass.

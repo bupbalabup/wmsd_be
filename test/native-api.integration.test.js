@@ -144,6 +144,10 @@ run('area units auto-generate conversions and round up to whole pieces', async (
   assert.equal(created.conversions.find(row => row.uom.code === 'SQM').basePerUnit, '2.777777777778');
   const make = (enteredQty, enteredUnit = 'SQM') => transaction(session =>
     makeItem({ productId: created.id, enteredUnit, enteredQty }, 1, session));
+  const rounded = await make('20');
+  assert.equal(rounded.enteredQty, '20.16');
+  assert.equal(rounded.qtyBase, '56');
+  assert.equal((await make(rounded.enteredQty)).qtyBase, rounded.qtyBase);
   assert.equal((await make('100')).qtyBase, '278');
   assert.equal((await make('0.36')).qtyBase, '1');
   await assert.rejects(make('1.5', 'BOX'), /Thiếu quy đổi/);
@@ -187,12 +191,15 @@ run('planned PO conversion and actual lot conversion remain separate through rec
  });
  const requestInput = {
    creationKey: key(), action: 'SUBMIT', warehouseId: String(warehouse._id), neededOn: '2026-12-01',
-   triggerReason: 'Conversion test', lines: [{ productId: String(product._id), enteredUnit: 'BOX', enteredQty: '10', reasonNote: 'Test' }],
+   triggerReason: 'Conversion test', lines: [{
+     productId: String(product._id), lotId: String(batch._id), enteredUnit: 'BOX', enteredQty: '15', reasonNote: 'Test',
+   }],
  };
  await acknowledgeIndependentNeed(requestInput);
  const created = await rr.createReplenishment(worker, requestInput);
  let request = await m.ReplenishmentRequest.findById(created.id);
  assert.equal(String(request.items[0].qtyBase), '60');
+ assert.equal(String(request.items[0].baseUnitsPerUnit), '4');
  await rr.reviewReplenishment(owner, created.id, {
    ...input(), expectedVersion: request.version, decision: 'APPROVE', reason: 'Test',
    lines: [{ lineId: String(request.items[0]._id), approvedQtyBase: '60' }],
@@ -204,6 +211,8 @@ run('planned PO conversion and actual lot conversion remain separate through rec
  });
  await po.confirmPurchaseOrder(accountant, order.id, { ...input(), expectedVersion: 1 });
  let orderDoc = await m.PurchaseOrder.findById(order.id);
+ assert.equal(String(orderDoc.items[0].baseUnitsPerUnit), '4');
+ assert.equal(String(orderDoc.items[0].qtyBase), '40');
  const inspect = async enteredQty => {
    const createdInspection = await receiving.createInspection(worker, order.id, {
      creationKey: key(), expectedPoVersion: orderDoc.version, arrivedAt: new Date().toISOString(),
@@ -215,21 +224,22 @@ run('planned PO conversion and actual lot conversion remain separate through rec
    ...input(), expectedVersion: inspection.version, expectedPoVersion: orderDoc.version,
    destinations: [{ inspectionItemId: String(inspection.items[0]._id), locationId: String(receivingLocation._id) }],
  });
- const over = await inspect('8');
+ const over = await inspect('6');
  await assert.rejects(confirm(over), /vượt/i);
- const inspection = await inspect('7');
+ const inspection = await inspect('4');
  assert.equal(String(inspection.items[0].baseUnitsPerUnit), '8');
- assert.equal(String(inspection.items[0].qtyBase), '56');
+ assert.equal(String(inspection.items[0].qtyBase), '32');
  const confirmed = await confirm(inspection);
  const receiptId = confirmed.resultRefs.find(ref => ref.documentType === 'goods_receipts').documentId;
  orderDoc = await m.PurchaseOrder.findById(order.id);
  await receiving.postReceipt(worker, receiptId, { ...input(), expectedVersion: 1, expectedPoVersion: orderDoc.version });
  const receipt = await m.PurchaseReceipt.findById(receiptId);
  assert.equal(String(receipt.items[0].baseUnitsPerUnit), '8');
- assert.equal(String(receipt.items[0].qtyBase), '56');
+ assert.equal(String(receipt.items[0].qtyBase), '32');
  const [balance] = await receiving.commitments(await m.PurchaseOrder.findById(order.id));
- assert.equal(balance.outstandingQtyBase, '4');
- assert.equal(String(orderDoc.items[0].baseUnitsPerUnit), '6');
+ assert.equal(balance.outstandingQtyBase, '8');
+ assert.equal(String(orderDoc.items[0].baseUnitsPerUnit), '4');
+ assert.equal(String(orderDoc.items[0].lotId), String(batch._id));
 });
 async function postedReceipt(packagingCondition='SEALED',custodyOnly=false,qualityCode='GOOD',{qtyBase,location=receivingLocation,portion}={}){
  const requestInput={creationKey:key(),action:'SUBMIT',warehouseId:String(warehouse._id),neededOn:'2026-12-01',triggerReason:'Test',lines:[{productId:String(product._id),lotId:String(batch._id),enteredUnit:'BOX',enteredQty:'2',reasonNote:'Test'}]};
@@ -239,7 +249,7 @@ async function postedReceipt(packagingCondition='SEALED',custodyOnly=false,quali
  await assert.rejects(rr.reviewReplenishment(worker,created.id,{...input(),expectedVersion:request.version,decision:'APPROVE',reason:'Test',lines:request.items.map(i=>({lineId:String(i._id),approvedQtyBase:'8'}))}));
  await assert.rejects(rr.reviewReplenishment(owner,created.id,{...input(),expectedVersion:request.version,decision:'APPROVE',reason:'Test fractional approval',lines:request.items.map(i=>({lineId:String(i._id),approvedQtyBase:'1.5'}))}),/đơn vị gốc/);
  await rr.reviewReplenishment(owner,created.id,{...input(),expectedVersion:request.version,decision:'APPROVE',reason:'Test',lines:request.items.map(i=>({lineId:String(i._id),approvedQtyBase:'8'}))});request=await m.ReplenishmentRequest.findById(created.id);
- const order=await po.createPurchaseOrder(accountant,{creationKey:key(),warehouseId:String(warehouse._id),supplierId:String(supplier._id),expectedOn:'2026-12-01',currency:'VND',lines:[{rrLineId:String(request.items[0]._id),approvalId:String(request.header.latestDecisionId),enteredQty:'2',unitPurchasePrice:'100000'}]});
+ const order=await po.createPurchaseOrder(accountant,{creationKey:key(),warehouseId:String(warehouse._id),supplierId:String(supplier._id),expectedOn:'2026-12-01',currency:'VND',lines:[{rrLineId:String(request.items[0]._id),approvalId:String(request.header.latestDecisionId),uomCode:'PIECE',enteredQty:'8',unitPurchasePrice:'100000'}]});
  await po.confirmPurchaseOrder(accountant,order.id,{...input(),expectedVersion:1});let orderDoc=await m.PurchaseOrder.findById(order.id);
  const inspection=await receiving.createInspection(worker,order.id,{creationKey:key(),expectedPoVersion:orderDoc.version,arrivedAt:new Date().toISOString(),deliveredBy:'Người giao A - 0901234567',deliveryReference:'PG-001',lines:[{poLineId:String(orderDoc.items[0]._id),lotId:String(batch._id),enteredQty:qtyBase??'2',enteredUnit:qtyBase?'PIECE':'BOX',qualityCode,ownershipDecision:custodyOnly?'CUSTODY':'ACCEPT',packagingCondition}]});
  let inspected=await m.GoodsInspection.findById(inspection.id);
@@ -258,11 +268,16 @@ run('product image URLs create, list, detail, update, audit and legacy defaults'
  const suffix=key().slice(0,8);const imageUrls=[`https://images.example.com/${suffix}-front.webp`,`https://images.example.com/${suffix}-texture.webp`];
  const created=await productService.createProduct(owner,{sku:`IMG-${suffix}`,name:'Image URL test tile',manufacturerCode:'TEST',categoryId:String(product.categoryId),baseUnit:'PIECE',wholeBaseUnits:true,lengthMm:'600',widthMm:'600',heightMm:'10',color:`Image ${suffix}`,imageUrls});
  assert.deepEqual(created.imageUrls,imageUrls);
+ assert.equal(created.category,'Tile');
  const legacyCreated=await productService.createProduct(owner,{sku:`IMG-OLD-${suffix}`,name:'Legacy image client tile',manufacturerCode:'TEST',categoryId:String(product.categoryId),baseUnit:'PIECE',wholeBaseUnits:true,lengthMm:'600',widthMm:'600',heightMm:'10',color:`Legacy ${suffix}`});
  assert.deepEqual(legacyCreated.imageUrls,[]);
- assert.deepEqual((await productService.getProduct(owner,created.id)).imageUrls,imageUrls);
+ const fetchedCreated=await productService.getProduct(owner,created.id);
+ assert.deepEqual(fetchedCreated.imageUrls,imageUrls);
+ assert.equal(fetchedCreated.category,'Tile');
  const listed=await productService.listProducts(owner,{page:1,limit:100,sortBy:'createdAt',sortOrder:'desc'});
- assert.deepEqual(listed.items.find(item=>item.id===created.id).imageUrls,imageUrls);
+ const listedCreated=listed.items.find(item=>item.id===created.id);
+ assert.deepEqual(listedCreated.imageUrls,imageUrls);
+ assert.equal(listedCreated.category,'Tile');
 
  const id=new mongoose.Types.ObjectId(created.id);let current=await m.Product.findById(id).lean();
  const editable={name:current.name,manufacturerCode:current.manufacturerCode,categoryId:String(current.categoryId),material:current.material??null,surface:current.surface??null,origin:current.origin??null,description:current.description??null,baseUnit:current.baseUnit,wholeBaseUnits:current.wholeBaseUnits,lengthMm:String(current.lengthMm),widthMm:String(current.widthMm),heightMm:String(current.heightMm),color:current.color};
@@ -590,7 +605,7 @@ async function draftPurchaseReceipt(condition) {
   const requestInput={creationKey:key(),action:'SUBMIT',warehouseId:String(warehouse._id),neededOn:'2026-12-01',triggerReason:'Test',lines:[{productId:String(product._id),lotId:String(batch._id),enteredUnit:'BOX',enteredQty:'2',reasonNote:'Test'}]};
   await acknowledgeIndependentNeed(requestInput);const created=await rr.createReplenishment(worker,requestInput);let request=await m.ReplenishmentRequest.findById(created.id);
   await rr.reviewReplenishment(owner,created.id,{...input(),expectedVersion:request.version,decision:'APPROVE',reason:'Test',lines:request.items.map(i=>({lineId:String(i._id),approvedQtyBase:'8'}))});request=await m.ReplenishmentRequest.findById(created.id);
-  const order=await po.createPurchaseOrder(accountant,{creationKey:key(),warehouseId:String(warehouse._id),supplierId:String(supplier._id),expectedOn:'2026-12-01',currency:'VND',lines:[{rrLineId:String(request.items[0]._id),approvalId:String(request.header.latestDecisionId),enteredQty:'2',unitPurchasePrice:'1'}]});
+  const order=await po.createPurchaseOrder(accountant,{creationKey:key(),warehouseId:String(warehouse._id),supplierId:String(supplier._id),expectedOn:'2026-12-01',currency:'VND',lines:[{rrLineId:String(request.items[0]._id),approvalId:String(request.header.latestDecisionId),uomCode:'PIECE',enteredQty:'8',unitPurchasePrice:'1'}]});
   await po.confirmPurchaseOrder(accountant,order.id,{...input(),expectedVersion:1});let orderDoc=await m.PurchaseOrder.findById(order.id);
   const inspection=await receiving.createInspection(worker,order.id,{creationKey:key(),expectedPoVersion:orderDoc.version,arrivedAt:new Date().toISOString(),lines:[{poLineId:String(orderDoc.items[0]._id),lotId:String(batch._id),enteredQty:'2',enteredUnit:'BOX',qualityCode:'GOOD',ownershipDecision:'ACCEPT',packagingCondition:condition}]});
   const inspected=await m.GoodsInspection.findById(inspection.id);
@@ -747,6 +762,7 @@ run('PO keeps one line per RR line; area-unit lines round up to whole pieces', a
  const createdRequest = await rr.createReplenishment(worker, requestBody);
  const request = await m.ReplenishmentRequest.findById(createdRequest.id);
  assert.equal(request.items[0].qtyBase.toString(), '278');
+ assert.equal(request.items[0].enteredQty.toString(), '100.08');
  const rrLineId = String(request.items[0]._id);
  const approval = await rr.reviewReplenishment(owner, createdRequest.id, {
    ...input(), expectedVersion: request.version, decision: 'APPROVE', reason: 'Approved',
@@ -760,11 +776,14 @@ run('PO keeps one line per RR line; area-unit lines round up to whole pieces', a
  // 100.09 m2 rounds up to 279 pieces > 278 approved.
  await assert.rejects(po.createPurchaseOrder(accountant, { ...form, creationKey: key(),
    lines: [{ ...source, enteredQty: '100.09' }] }), /vượt nguồn được duyệt/);
+ await assert.rejects(po.createPurchaseOrder(accountant, { ...form, creationKey: key(),
+   lines: [{ ...source, enteredQty: '101' }] }), /vượt nguồn được duyệt/);
  const created = await po.createPurchaseOrder(accountant, { ...form, creationKey: key(),
-   lines: [{ ...source, enteredQty: '100.08', note: 'Lô NCC báo giao' }] });
+   lines: [{ ...source, enteredQty: '100', note: 'Lô NCC báo giao' }] });
  const detail = await getPurchaseOrder(accountant, created.id);
  assert.deepEqual(detail.items.map(item => [item.enteredQty, item.qtyBase, item.lineAmount, item.note]),
    [['100.08', '278', '100080', 'Lô NCC báo giao']]);
+ assert.equal(detail.totalAmount, '100080');
  const confirmed = await po.confirmPurchaseOrder(accountant, created.id, { ...input(), expectedVersion: created.version });
  assert.equal(confirmed.workflowStatus, 'OPEN');
 });
@@ -772,8 +791,12 @@ run('PO keeps one line per RR line; area-unit lines round up to whole pieces', a
 
 run('PO rounds up in the chosen unit and preserves it through edit, confirmation and reconciliation', async () => {
  const box = await m.Uom.create({ code: 'PO_BOX', name: 'Hộp', isCarton: true });
+ const pack = await m.Uom.create({ code: 'PO_PACK', name: 'Gói', isCarton: false });
  await productService.createConversion(owner, String(product._id), {
    uomId: String(box._id), basePerUnit: '3', verificationReference: 'Supplier box fixture',
+ });
+ await productService.createConversion(owner, String(product._id), {
+   uomId: String(pack._id), basePerUnit: '3', verificationReference: 'Supplier pack fixture',
  });
  const requestBody = {
    creationKey: key(), action: 'SUBMIT', warehouseId: String(warehouse._id), neededOn: '2026-12-01',
@@ -794,9 +817,10 @@ run('PO rounds up in the chosen unit and preserves it through edit, confirmation
    ...form, creationKey: key(), lines: [{ ...line, enteredQty, uomCode }],
  });
  await assert.rejects(create('5'), /vượt nguồn được duyệt/);
- await assert.rejects(create('3.666667'), /vượt nguồn được duyệt/);
- await assert.rejects(create('1.5', 'PIECE'), /Số lượng sau quy đổi sang đơn vị gốc phải là số nguyên/);
- await assert.rejects(create('1.5'), /Số lượng sau quy đổi sang đơn vị gốc phải là số nguyên/);
+ await assert.rejects(create('3.666667'), /Số thùng phải là số nguyên/);
+ await assert.rejects(create('1.5', 'PIECE'), /Số lượng theo đơn vị gốc phải là số nguyên/);
+ await assert.rejects(create('2.5'), /Số thùng phải là số nguyên/);
+ await assert.rejects(create('4', pack.code), /vượt nguồn được duyệt/);
  await assert.rejects(create('4', 'UNAVAILABLE'), /không tồn tại/);
  await assert.rejects(create('4', 'ROLL'), /Thiếu quy đổi/);
  const created = await create('4');
@@ -807,7 +831,7 @@ run('PO rounds up in the chosen unit and preserves it through edit, confirmation
  await assert.rejects(po.updatePurchaseOrder(accountant, created.id, {
    ...form, ...input(), expectedVersion: created.version,
    lines: [{ ...line, id: draft.items[0]._id, enteredQty: '1.5' }],
- }), /Số lượng sau quy đổi sang đơn vị gốc phải là số nguyên/);
+ }), /Số thùng phải là số nguyên/);
  const updated = await po.updatePurchaseOrder(accountant, created.id, {
    ...form, ...input(), expectedVersion: created.version,
    // Omitting uomCode on edit must keep the saved box unit, not reread 4 as 4 pieces.

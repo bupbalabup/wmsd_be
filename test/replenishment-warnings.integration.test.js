@@ -32,10 +32,10 @@ test.before(async () => {
     await Model.createCollection();
     await Model.createIndexes();
   }
-  await m.Uom.create([
+  const [, carton, area] = await m.Uom.create([
     { code: "PIECE", name: "Viên" },
-    { code: "BOX", name: "Thùng" },
-    { code: "M2", name: "Mét vuông" },
+    { code: "BOX", name: "Thùng", isCarton: true },
+    { code: "M2", name: "Mét vuông", areaMm2: "1000000" },
   ]);
   const permissions = await m.Permission.insertMany(
     PERMISSION_CATALOGUE.map((p) => ({
@@ -93,6 +93,13 @@ test.before(async () => {
     widthMm: "600",
     heightMm: "10",
   });
+  await m.Conversion.create([
+    { uomId: carton._id, basePerUnit: "4" },
+    { uomId: area._id, basePerUnit: "2.777777777778" },
+  ].map(unit => ({
+    ...unit, productId: product._id, productBatchId: null, validFrom: new Date(0),
+    version: 1, verificationReference: "RR quantity fixture", createdBy: owner._id,
+  })));
   supplier = await m.Supplier.create({
     code: "SUP",
     name: "Supplier",
@@ -334,19 +341,48 @@ run("review skips new warnings and keeps quantity and separation-of-duties check
   assert.equal(approved.body.data.workflowStatus, "APPROVED");
 });
 
-run("review derives the base amount from the approved amount in the line unit", async () => {
-  const document = await create(draft({ action: "SUBMIT" }));
+run("RR area quantities are normalized and review only accepts a base amount", async () => {
+  const document = await create(draft({
+    action: "SUBMIT", lines: [{ ...draft().lines[0], enteredUnit: "M2" }],
+  }));
+  assert.equal(String(document.items[0].enteredQty), "20.16");
+  assert.equal(String(document.items[0].qtyBase), "56");
   const reviewPath = rr + "/" + document._id + "/review";
-  const line = { lineId: String(document.items[0]._id), reason: "Giảm theo nhu cầu đã kiểm" };
-  const over = await api(reviewPath, owner, { ...decision(document), lines: [{ ...line, approvedEnteredQty: "21" }] });
-  assert.equal(over.status, 400, JSON.stringify(over.body));
-  assert.match(over.body.message, /vượt lượng đề nghị/);
-
-  const approved = await api(reviewPath, owner, { ...decision(document), lines: [{ ...line, approvedEnteredQty: "12" }] });
+  const approval = decision(document, "28");
+  const [line] = approval.lines;
+  const missing = await api(reviewPath, owner, { ...approval, lines: [{ lineId: line.lineId }] });
+  assert.equal(missing.status, 400, JSON.stringify(missing.body));
+  const legacyInput = await api(reviewPath, owner, { ...approval, lines: [{ ...line, approvedEnteredQty: "10" }] });
+  assert.equal(legacyInput.status, 400, JSON.stringify(legacyInput.body));
+  const withoutReason = await api(reviewPath, owner, { ...approval, lines: [{ ...line, reason: undefined }] });
+  assert.equal(withoutReason.status, 400, JSON.stringify(withoutReason.body));
+  assert.match(withoutReason.body.message, /Cần lý do cho dòng duyệt giảm/);
+  const approved = await api(reviewPath, owner, approval);
   assert.equal(approved.status, 200, JSON.stringify(approved.body));
+});
+
+run("RR rejects partial cartons at creation, edit and review", async () => {
+  const carton = { ...draft().lines[0], enteredUnit: "BOX", enteredQty: "3.5" };
+  const invalid = await api(rr, worker, draft({ lines: [carton] }));
+  assert.equal(invalid.status, 400, JSON.stringify(invalid.body));
+  assert.match(invalid.body.message, /Số thùng phải là số nguyên/);
+  const partialPiece = await api(rr, worker, draft({ lines: [{ ...carton, enteredUnit: "PIECE", enteredQty: "55.5" }] }));
+  assert.equal(partialPiece.status, 400, JSON.stringify(partialPiece.body));
+  assert.match(partialPiece.body.message, /đơn vị gốc/);
+  const document = await create(draft({ lines: [{ ...carton, enteredQty: "4" }] }));
+  const path = rr + "/" + document._id;
+  const { creationKey, action, ...edit } = draft({ lines: [{ ...carton, id: String(document.items[0]._id) }] });
+  const edited = await api(path, worker, { ...edit, ...input(), expectedVersion: document.version }, "PUT");
+  assert.equal(edited.status, 400, JSON.stringify(edited.body));
+  assert.match(edited.body.message, /Số thùng phải là số nguyên/);
+  const submitted = await api(path + "/submit", worker, { ...input(), expectedVersion: document.version });
+  assert.equal(submitted.status, 200, JSON.stringify(submitted.body));
   const saved = await m.ReplenishmentRequest.findById(document._id);
-  assert.equal(String(saved.items[0].approvedEnteredQty), "12");
-  assert.equal(String(saved.items[0].approvedQtyBase), "12");
+  const invalidApproval = await api(path + "/review", owner, decision(saved, "14"));
+  assert.equal(invalidApproval.status, 400, JSON.stringify(invalidApproval.body));
+  assert.match(invalidApproval.body.message, /Số thùng duyệt phải là số nguyên/);
+  const approved = await api(path + "/review", owner, decision(saved, "12"));
+  assert.equal(approved.status, 200, JSON.stringify(approved.body));
 });
 
 run("creation and cancellation replay their original receipts", async () => {
@@ -378,17 +414,73 @@ run("PO draft, edit and issue honor approved quantities with new RR warnings pre
   const created = await api(po, accountant, form);
   assert.equal(created.status, 200, JSON.stringify(created.body));
   const { creationKey, ...draftForm } = form;
+  const savedOrder = await m.PurchaseOrder.findById(created.body.data.id);
   const poPath = po + "/" + created.body.data.id;
   const updated = await api(poPath, accountant, {
     ...draftForm, ...input(), expectedVersion: created.body.data.version,
+    lines: [{ ...form.lines[0], id: String(savedOrder.items[0]._id), uomCode: "M2", enteredQty: "3.5" }],
     evaluations: [{ lineId: String(document.items[0]._id), evaluationKey: "ignored" }],
   }, "PUT");
   assert.equal(updated.status, 200, JSON.stringify(updated.body));
+  const editedOrder = await m.PurchaseOrder.findById(savedOrder._id);
+  assert.equal(String(editedOrder.items[0]._id), String(savedOrder.items[0]._id));
+  assert.equal(String(editedOrder.items[0].qtyBase), "10");
+  assert.equal(String(editedOrder.items[0].enteredQty), "3.6");
+  assert.equal(String(editedOrder.items[0].lineAmount), "36");
   const issued = await api(poPath + "/confirm", accountant, {
     ...input(), expectedVersion: updated.body.data.version,
   });
   assert.equal(issued.status, 200, JSON.stringify(issued.body));
   assert.equal(issued.body.data.workflowStatus, "OPEN");
+});
+
+run("PO overage is allowed only for whole cartons; area and base units stay within the approval", async () => {
+  const document = await create(draft({ action: "SUBMIT", lines: [{ ...draft().lines[0], enteredQty: "30" }] }));
+  const approval = await api(rr + "/" + document._id + "/review", owner, decision(document, "30"));
+  assert.equal(approval.status, 200, JSON.stringify(approval.body));
+  const order = (uomCode, enteredQty) => {
+    const form = purchaseForm(document, approval.body.data.decisionId, enteredQty);
+    form.lines[0].uomCode = uomCode;
+    return api(po, accountant, form);
+  };
+  const partial = await order("BOX", "7.5");
+  assert.equal(partial.status, 400, JSON.stringify(partial.body));
+  assert.match(partial.body.message, /Số thùng phải là số nguyên/);
+  assert.equal((await order("BOX", "9")).status, 400);
+  assert.equal((await order("M2", "11")).status, 400); // 31 pieces > 30
+  assert.equal((await order("PIECE", "31")).status, 400);
+  const created = await order("BOX", "8"); // 32 pieces: the smallest whole-carton count covering 30
+  assert.equal(created.status, 200, JSON.stringify(created.body));
+  const [line] = (await m.PurchaseOrder.findById(created.body.data.id)).items;
+  assert.equal(String(line.qtyBase), "32");
+  assert.equal(String(line.enteredQty), "8");
+  assert.equal(String(line.lineAmount), "80");
+});
+
+run("PO kept in the RR carton unit reuses the RR lot factor", async () => {
+  const batch = await m.ProductBatch.create({
+    productId: product._id, manufacturerLot: "LOT-5", identificationStatus: "VERIFIED",
+    piecesPerCarton: 5, cartonLengthMm: "620", cartonWidthMm: "620", cartonHeightMm: "50",
+  });
+  const carton = await m.Uom.findOne({ code: "BOX" });
+  await m.Conversion.create({
+    productId: product._id, productBatchId: batch._id, uomId: carton._id, basePerUnit: "5",
+    validFrom: new Date(0), version: 1, verificationReference: "Lot carton", createdBy: owner._id,
+  });
+  const document = await create(draft({
+    action: "SUBMIT",
+    lines: [{ ...draft().lines[0], enteredUnit: "BOX", enteredQty: "3", lotId: String(batch._id) }],
+  }));
+  assert.equal(String(document.items[0].qtyBase), "15");
+  const approval = await api(rr + "/" + document._id + "/review", owner, decision(document, "15"));
+  assert.equal(approval.status, 200, JSON.stringify(approval.body));
+  const form = purchaseForm(document, approval.body.data.decisionId, "3");
+  form.lines[0].uomCode = "BOX";
+  const created = await api(po, accountant, form);
+  assert.equal(created.status, 200, JSON.stringify(created.body));
+  const [line] = (await m.PurchaseOrder.findById(created.body.data.id)).items;
+  assert.equal(String(line.qtyBase), "15");
+  assert.equal(String(line.baseUnitsPerUnit), "5");
 });
 
 run("a concurrent PO creation and approved RR cancellation cannot both commit", async () => {

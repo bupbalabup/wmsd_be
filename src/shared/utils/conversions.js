@@ -34,18 +34,32 @@ export async function areaFactor(uom, product, session) {
     .toDecimalPlaces(12, ExactDecimal.ROUND_HALF_UP);
 }
 
+const roundsArea = (product, uom) =>
+  uom?.areaMm2 != null && uom.code !== product.baseUnit && product.wholeBaseUnits;
+
 // Area units on whole-piece products round up to the next whole piece; everything else is exact.
 export function toBaseQuantity(enteredQty, factor, product, uom) {
   const quantity = exact(enteredQty).mul(factor);
-  return uom?.areaMm2 != null && uom.code !== product.baseUnit && product.wholeBaseUnits
-    ? quantity.toDecimalPlaces(6).ceil() : quantity;
+  return roundsArea(product, uom) ? quantity.toDecimalPlaces(6).ceil() : quantity;
+}
+
+export function normalizedEnteredQty(qtyBase, factor, product, uom, enteredQty) {
+  if (!roundsArea(product, uom)) return enteredQty;
+  const quantity = exact(qtyBase).div(factor).toDecimalPlaces(6);
+  if (!toBaseQuantity(quantity, factor, product, uom).eq(qtyBase.toString())) {
+    throw validationError('Số lượng diện tích không thể biểu diễn chính xác lượng gốc với 6 chữ số thập phân');
+  }
+  return quantity.toFixed();
+}
+
+export function isWholeUnit(product, uom) {
+  return uom.isCarton || (uom.code === product.baseUnit && product.wholeBaseUnits);
 }
 
 // PO may round up to whole packages; over approved only when one unit fewer would fall short.
-// approvedEntered: pass the RR's approved qty only when the PO line uses the RR's own unit — no overage there.
-export function withinApproved(qtyBase, enteredQty, factor, approvedBase, approvedEntered = null) {
-  if (approvedEntered != null && exact(enteredQty).gt(approvedEntered.toString())) return false;
+export function withinApproved(qtyBase, enteredQty, factor, approvedBase, isPackage) {
   if (exact(qtyBase).lte(approvedBase.toString())) return true;
+  if (!isPackage) return false;
   const quantity = exact(enteredQty);
   return quantity.isInteger() && quantity.minus(1).mul(factor.toString()).lt(approvedBase.toString());
 }

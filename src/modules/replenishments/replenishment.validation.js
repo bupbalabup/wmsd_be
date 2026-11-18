@@ -205,9 +205,7 @@ export const submitReplenishmentSchema = z.object({
 const reviewLineSchema = z
   .object({
     lineId: objectIdSchema,
-    // Either amount is enough: approvedEnteredQty (the line's unit) wins and the server derives the base amount.
     approvedQtyBase: approvedQty.optional(),
-    approvedEnteredQty: approvedQty.optional(),
     reason: z.string().trim().max(2000).optional().nullable(),
   })
   .strict();
@@ -224,7 +222,14 @@ export const reviewReplenishmentSchema = z.object({
       reason: z.string().trim().max(2000).optional().nullable(),
       lines: z.array(reviewLineSchema).max(100).optional().default([]),
     })
-    .strict(),
+    .strict()
+    .superRefine(({ decision, lines }, ctx) => {
+      if (decision !== "APPROVE") return;
+      for (const [index, line] of lines.entries()) {
+        if (line.approvedQtyBase == null)
+          ctx.addIssue({ code: "custom", path: ["lines", index, "approvedQtyBase"], message: "Thiếu lượng duyệt" });
+      }
+    }),
 });
 
 export const replenishmentLotOptionsSchema = z.object({

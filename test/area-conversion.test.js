@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { exact, ExactDecimal } from '../src/models/model-utils.js';
-import { toBaseQuantity, withinApproved } from '../src/shared/utils/conversions.js';
+import { normalizedEnteredQty, toBaseQuantity, withinApproved } from '../src/shared/utils/conversions.js';
 
 const area = { code: 'M2', areaMm2: '1000000' };
 const carton = { code: 'BOX', isCarton: true };
@@ -10,20 +10,25 @@ const f600 = exact('1000000').div(360000).toDecimalPlaces(12, ExactDecimal.ROUND
 
 test('area factor is rounded to 12 places', () => assert.equal(f600.toFixed(), '2.777777777778'));
 
-test('PO allowance permits only the smallest whole-unit overage', () => {
-  assert.equal(withinApproved('9.9', '3.3', '3', '10'), true);
-  assert.equal(withinApproved('12', '4', '3', '10'), true);
-  assert.equal(withinApproved('15', '5', '3', '10'), false);
-  assert.equal(withinApproved('12', '4', '3', '9'), false);
-  assert.equal(withinApproved('10.5', '3.5', '3', '10'), false);
-  assert.equal(withinApproved('281', '101', f600, '278'), true);
-  assert.equal(withinApproved('278', '100.08', f600, '278'), true);
+test('PO area and base units cannot exceed the approved base quantity', () => {
+  assert.equal(withinApproved('14', '5', f600, '12', false), false);
+  assert.equal(withinApproved('12', '4.32', f600, '12', false), true);
+  assert.equal(withinApproved('13', '13', '1', '12', false), false);
 });
 
-test('same unit as the RR never exceeds approvedEnteredQty', () => {
-  assert.equal(withinApproved('15', '5', '3', '16', '4'), false);
-  assert.equal(withinApproved('12', '4', '3', '12', '4'), true);
-  assert.equal(withinApproved('12', '4', '3', '10', null), true);
+test('PO carton overage allows only the smallest whole carton count that covers the approval', () => {
+  assert.equal(withinApproved('28', '7', '4', '28', true), true);
+  assert.equal(withinApproved('32', '8', '4', '30', true), true);
+  assert.equal(withinApproved('36', '9', '4', '30', true), false);
+  assert.equal(withinApproved('32', '8', '4', '28', true), false);
+  assert.equal(withinApproved('30', '7.5', '4', '29', true), false);
+});
+
+test('normalized area must convert back to the same base quantity at six decimal places', () => {
+  assert.equal(normalizedEnteredQty('56', f600, whole, area, '20'), '20.16');
+  assert.equal(toBaseQuantity('20.16', f600, whole, area).toFixed(), '56');
+  assert.throws(() => normalizedEnteredQty('1', '6', whole, area, '0.1'), /không thể biểu diễn chính xác/);
+  assert.equal(normalizedEnteredQty('6', '4', whole, carton, '1.5'), '1.5');
 });
 
 test('area units round up to whole pieces on whole-piece products', () => {

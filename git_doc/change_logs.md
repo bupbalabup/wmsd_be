@@ -1,3 +1,49 @@
+## 19/11/2026 · RR và PO lấy lượng gốc làm căn cứ
+
+Theo `PLAN_lam_tron_theo_vien_RR_PO.md`, mục này thay thế các quyết định ngày 18/11 về `approvedEnteredQty`, giới hạn theo đơn vị RR và ví dụ điền sẵn 4 m². RR và lịch sử duyệt chỉ ghi lượng duyệt ở `approvedQtyBase`. Khi duyệt giảm, API yêu cầu lý do trên dòng. RR và PO chặn số lẻ đối với đơn vị thùng và đơn vị gốc yêu cầu số nguyên.
+
+`makeItem` và lệnh lập hoặc sửa PO ghi lượng diện tích quy ngược từ lượng gốc đã làm tròn, sau khi kiểm kết quả quy đổi lại. PO tính tiền theo lượng đã lưu. Lệnh lập, sửa, phát hành và đối soát PO chỉ cho vượt lượng duyệt với số thùng nguyên nhỏ nhất đủ phủ lượng duyệt. Kiểm nhận sử dụng quy cách của lô thực nhận.
+
+Đã cập nhật hợp đồng API, H01/H02, Model Map, Data Dictionary, hướng dẫn code và seed. Seed `wmsd_demo_rr_po_quantity_20261119` trên MongoDB cục bộ có 58 collection, 717 bản ghi và đối soát mua hàng không có lỗi. PO mẫu đặt theo viên, giá trị đơn hàng giữ nguyên. Đã chạy 96 ca BE về quy đổi, RR, PO, nhận hàng, chuyển kho, bán, nhập khác, tồn đầu và seed. Giữ dữ liệu hiện có, áp dụng hợp đồng mới khi FE dùng payload duyệt tương ứng.
+
+Sửa sau review cùng ngày: dòng PO giữ đơn vị của RR thì dùng lại hệ số và lô đã lưu trên dòng RR. Trước đó, dòng RR đặt theo thùng của lô 5 viên/thùng bị quy theo hệ số thùng cấp sản phẩm (4 viên), nên 3 thùng bị ghi thành 12 viên thay vì 15. Chỉ khi đổi đơn vị, PO mới dùng quy đổi cấp sản phẩm và bỏ lô. FE tạo và sửa PO cũng dùng lại hệ số của RR khi người dùng chọn lại đơn vị đó. Bảng tiến độ PO không còn hiện lặp số lượng theo đơn vị đặt. Bỏ đoạn tự ẩn `approvedEnteredQty` của bản ghi cũ (`toObject` trong model RR, projection ở danh sách và chi tiết RR) cùng ca test tương ứng, vì DB sẽ được seed lại. Đã thêm 2 ca BE trong `test/replenishment-warnings.integration.test.js` (giới hạn vượt lượng duyệt theo thùng, m² và viên; hệ số thùng của lô) và 1 ca FE trong `CreatePurchaseOrderModal.test.tsx`. Đã chạy với `RUN_NATIVE_API_TESTS=1`: `replenishment-warnings`, `replenishment-evaluation`, `area-conversion` đều đạt. FE: `vitest run` cho `purchase-orders` (82 ca), `replenishments`, `shared/lib`, `inspections`, `receipts` đều đạt.
+
+## 18/11/2026 · Tone và calibre của lô hàng
+
+Người dùng quyết định thêm lại tone màu và calibre cho `product_batches` (đảo quyết định bỏ hai trường ngày 06/11/2026). Cả hai tùy chọn ở BE (null/thiếu được, tối đa 20 ký tự) để opening-stock import, seed và lô cũ vẫn hợp lệ; FE bắt buộc nhập khi lô `VERIFIED`. Khóa duy nhất giữ `productId + manufacturerLot`, không đổi index, không migration/backfill.
+
+API `/lots`: `POST`/`PUT` nhận `tone`, `calibre`; `GET /lots` lọc `tone`, `calibre` (khớp một phần, không phân biệt hoa thường). `PUT` chặn đổi tone/calibre khi lô đã có chứng từ hoặc tồn (cùng quy tắc với số lô và quy cách thùng); `null` và thiếu được coi là như nhau. `GET /lots` trả thêm `product {id, sku, name}` và `hasScopedStock` (có tồn trong phạm vi kho của người dùng). `GET /lots/:id` trả thêm `identityLocked`, `product`, `stock[]` (kho, vị trí, chất lượng, số lượng gốc) và `verifiedBy {id, fullName}`. `POST`/`PUT` nhận `verificationReference` và `notes` (≤ 500 ký tự, null để xóa); `verifiedAt/verifiedBy` do server đặt khi lô thành VERIFIED. FE: `LotCreatePage`, `CreateLotDialog`, `LotDetailPage`, `LotsListPage`, `lotsApi.ts`; sửa cập nhật lô truyền `expectedUpdatedAt` thật.
+
+Sửa: `lot.service.js` (join sản phẩm, `hasScopedStock`, `stock`, người kiểm tra), `test/lots.integration.test.js` (mới, chạy với `RUN_LOT_TESTS=1` trên DB `rs0` cục bộ, đạt), `product-batch.model.js`, `field-cleanup.js`, `lot.validation.js`, `lot.service.js`, `test/consolidation.test.js`, `InspectionFormPage.test.tsx`. Chạy: `lots.integration.test.js` (1 đạt, DB tạm tự xóa), `consolidation`, `db-rebuild`, `reviewed-demo` (46 đạt), `InspectionFormPage` + `LotTracePage` (18 đạt), `tsc` không lỗi ở `features/lots`. Kiểm thủ công trên trình duyệt với BE tạm và DB cục bộ: tạo lô, sửa tone/ghi chú, lô đã có tồn hiện "Đã khóa" và khóa ô số lô/tone/calibre, danh sách có sản phẩm và trạng thái tồn. Lưu ý: seed fixture cũ giờ giữ `tone`/`calibre` có sẵn trong dữ liệu (trước đây bị xóa khi dựng DB).
+
+## 18/11/2026 · Xóa phiếu tồn đầu demo trên DB dev Atlas
+
+Theo yêu cầu trực tiếp của người dùng, xóa toàn bộ 45 phiếu `opening_stocks` (đều POSTED, dữ liệu seed không có `openingImportSource`, 3 kho) trên DB dev Atlas `wmsd_database`. Chỉ xóa phiếu: 327 `stock_transactions` (gồm 45 giao dịch của các phiếu này) và số dư tồn giữ nguyên, nên các giao dịch đó không còn chứng từ gốc và 3 kho vẫn bị chặn nhập tồn đầu vì đã có tồn. Bản sao lưu EJSON (45 tài liệu) nằm ngoài repo tại `../backups/opening_stocks_wmsd_database_20261118.ejson` trong workspace cục bộ; khôi phục bằng `insertMany(EJSON.parse(...))`.
+
+## 18/11/2026 · Cấp quyền tồn đầu trên DB dev Atlas
+
+Theo yêu cầu trực tiếp của người dùng, chạy `setup-opening-stock-remote.mongosh.js` (cùng logic với `scripts/setup-opening-stock.mjs`, vốn chỉ cho phép localhost) trên DB dev Atlas `wmsd_database`: thêm 3 quyền `opening_stock:read/create/post`, chỉ gán cho OWNER, tạo index `opening_stock_file_import_once`, đặt `stockOperationVersion = 0` cho kho thiếu trường. Chạy thử trước: chưa có quyền nào, không có phiếu ghi trùng kho. Sau khi ghi: chỉ OWNER có quyền. Cũng chạy `setup-opening-stock.mjs --apply` trên DB local `wmsd_demo_tile_shop_v9`. Kiểm thủ công: đăng nhập Chủ cửa hàng, mục Tồn Đầu Kỳ hiện trong Cài đặt & danh mục, trang `/settings/opening-stocks` mở modal nhập. Nguyên nhân lỗi 403 trước đó: BE đọc `.env` (Atlas) nên quyền cấp ở DB local không có tác dụng.
+
+## 18/11/2026 · Tồn đầu: chuyển vào Cài đặt, nhập qua modal
+
+Theo yêu cầu người dùng (tạm thời), trang tồn đầu chuyển từ nhóm Kho & hàng hóa sang Cài đặt & danh mục: route FE đổi thành `/settings/opening-stocks` và `/settings/opening-stocks/:id` (đường dẫn cũ không còn). Mở trang sẽ hiện modal nhập gồm ô chọn kho có tìm kiếm, nút chọn file Excel, tải file mẫu, xác nhận kho trống, kết quả kiểm tra và lưu nháp; nút Nhập tồn đầu mở lại modal. Modal bỏ ba ô mốc tồn đầu, mã đợt và nguồn số liệu: FE tự điền `openingAt` = thời điểm gửi, `cutoverKey` = `TONDAU-<mã kho>`, `sourceDescription` = `File <tên file>` (hoặc `Xác nhận kho trống`). API không đổi. Sửa FE `routes.config.ts`, `roleNavigation.tsx`, `OpeningStockPage.tsx` và test `routeAccess.test.ts`, `OpeningStockPage.test.tsx`; cập nhật [hợp đồng API](docs/08_api/EXCEL_AND_OPENING_STOCK.md). Chạy: `vitest` opening-stock + routeAccess + roleNavigation (36 đạt), `tsc` 0 lỗi. Chưa kiểm thủ công trên trình duyệt. Hạn chế: không chọn được mốc tồn đầu lùi ngày.
+
+## 18/11/2026 · Tồn đầu: tone và calibre của lô
+
+Theo yêu cầu người dùng, nhập tồn đầu đồng bộ với thay đổi tone/calibre của `product_batches`. File Excel thêm 2 cột `Tone`, `Calibre` (17 cột). Lô mới tạo từ tồn đầu bắt buộc có tone và calibre (cùng quy tắc lô VERIFIED trên màn hình lô), được lưu kèm `verifiedAt`/`verifiedBy` là người lưu nháp. Lô đã có: tone/calibre trong file nếu điền phải khớp danh mục, file không sửa lô. Preview và chi tiết phiếu trả thêm `tone`, `calibre`; FE hiện ở cột "Lô / Tone / Calibre". Sửa `opening-stock/validation.js`, `routes.js`, `service.js`; FE `file.ts`, `api.ts`, `OpeningStockPage.tsx`; cập nhật [hợp đồng API](docs/08_api/EXCEL_AND_OPENING_STOCK.md). Test: `test/opening-stock.test.js` với `RUN_OPENING_TESTS=1` trên DB tạm của `rs0` cục bộ (2 đạt; thêm ca lô mới thiếu tone/calibre, tone lệch lô có sẵn, lô mới lưu đúng tone/calibre/người xác minh), FE `vitest src/features/opening-stock` (11 đạt), `tsc` 0 lỗi. Không migration.
+
+## 18/11/2026 · Tồn đầu: đồng bộ FE và kiểm tra lô mới
+
+Review sau khi triển khai `PLAN_ton_dau_khu_tiep_nhan.md` phát hiện FE chưa đổi theo hợp đồng mới, nên mọi file Excel bị BE từ chối vì thừa cột. Đã sửa FE: `file.ts` chỉ còn 15 cột (sau đó thêm tone/calibre thành 17) (số lượng theo đơn vị gốc), trang hướng dẫn mới; `OpeningStockPage.tsx` đổi đoạn mô tả và hiện nhắc cất hàng từ `TONDAU-NHAN` (kèm link `/location-moves`) khi phiếu đã ghi tồn có hàng. BE `opening-stock/service.js`: lô mới thiếu số viên mỗi thùng (số nguyên) hoặc kích thước thùng trả lỗi dòng tiếng Việt thay cho lỗi validate của mongoose. Cập nhật [hợp đồng API](docs/08_api/EXCEL_AND_OPENING_STOCK.md). Test: `test/opening-stock.test.js` thêm ca lô mới thiếu quy cách; FE `file.test.ts` (cột mới, từ chối mẫu 20 cột), `OpeningStockPage.test.tsx` (nhắc cất hàng). Không đổi dữ liệu, không migration.
+
+## 18/11/2026 · Tồn đầu vào khu tiếp nhận
+
+Theo `PLAN_ton_dau_khu_tiep_nhan.md`, API nhập tồn đầu nhận số lượng theo đơn vị gốc. Preview trả một kết quả mỗi dòng và chỉ đọc DB. Khi lưu nháp có hàng, service tạo hoặc dùng lại `TONDAU-NHAN`, ghi nhật ký nếu tạo mới, tách nguyên thùng và hàng lẻ thành các dòng GOOD của cửa hàng. Hủy nháp giữ khu tiếp nhận để dùng lại. Sau khi ghi tồn, kho chuyển hàng bằng BF03. Xác nhận kho trống không tạo khu tiếp nhận.
+
+Cập nhật `opening-stock/validation.js`, `routes.js`, `service.js`, `test/opening-stock.test.js`, [hợp đồng API](docs/08_api/EXCEL_AND_OPENING_STOCK.md), [hướng dẫn local](docs/09_phat_trien/EXCEL_OPENING_SETUP.md) và PROJECT_GUIDE. Không cần migration. Mẫu Excel và payload của FE cần đồng bộ với hợp đồng mới trước khi sử dụng giao diện nhập tồn.
+
+`npm test` có 261 test đạt, 127 test được bỏ qua theo cấu hình mặc định. Chạy riêng `RUN_OPENING_TESTS=1` trên DB thử nghiệm của replica set cục bộ `rs0` qua đủ 2 test, gồm rollback khi dữ liệu lỗi, ghi 10 viên thành 8 nguyên thùng và 2 lẻ, rồi chuyển đủ 10 viên sang STORAGE. Chỉ ghi dữ liệu thử nghiệm.
+
 ## 18 November 2026 — Link the location catalogue and drawing in both directions
 
 Location create/edit now optionally assigns draft slots within the selected warehouse in the same transaction. Both screens use the slot's existing locationId. Location detail shows applied and draft assignments and links to the selected draft slot. No new collection, backfill or inventory transaction. See the [warehouse API](docs/08_api/HIEUDT_WAREHOUSE_SCOPE.md) and [drawing contract](docs/10_Kho3D/STAGE2_ZONES.md).
@@ -32,6 +78,22 @@ Updated canonical BF03 API, performance projection contract, model map, Data Dic
 
 Final mixed-entry validation: FE TypeScript `tsc --noEmit` passed after completing the typed edit fixture; changed-file ESLint and both repositories' `git diff --check` passed. BE `npm run docs:check` passed (58 collections, 885 local links). Tests used direct Vitest/Node runners; no full suite rerun.
 
+## 18/11/2026 · PO cùng đơn vị với RR không vượt lượng duyệt
+
+Theo yêu cầu của người dùng, khi dòng PO dùng đúng đơn vị nhập của dòng RR thì `enteredQty` không được lớn hơn `approvedEnteredQty`; quy tắc làm tròn gói của `withinApproved` chỉ còn áp dụng khi đổi sang đơn vị khác (hoặc RR cũ chưa có `approvedEnteredQty`). Ví dụ RR duyệt 4 M2 thì PO không đặt được 5 M2. Cập nhật `conversions.js` (tham số thứ 5 của `withinApproved`), `purchase-order.commands.js` (tạo/sửa nháp và phát hành), `purchase-reconciliation.js`, test `area-conversion.test.js`; FE `capToApprovedEntered` trong form tạo và sửa PO nháp. Không đổi dữ liệu. Chưa chạy test tích hợp API; `vitest src/features/purchase-orders` còn 3 ca lỗi từ trước (`maxEnteredQty` 278 viên, `orderedBaseQuantity`, form M2 100,08) chưa xử lý.
+
+## 18/11/2026 · Thông báo số lượng PO không nguyên
+
+Tạo và sửa PO nháp trả thông báo rõ khi lượng sau quy đổi sang đơn vị gốc không nguyên với sản phẩm yêu cầu số nguyên; quy tắc kiểm tra và dữ liệu không đổi. Cập nhật `purchase-order.commands.js`, test tích hợp PO và hợp đồng `NATIVE_MODEL_RUNTIME.md`.
+
+## 18/11/2026 · Duyệt RR theo đơn vị nhập
+
+Theo yêu cầu của người dùng, yêu cầu và duyệt dùng cùng một đơn vị. `replenishment_requests.items[]` và `approval_history.itemDecisions[]` có thêm `approvedEnteredQty` (tùy chọn); `reviewReplenishment` nhận `approvedEnteredQty`, tự tính `approvedQtyBase` bằng hệ số đã lưu trên dòng và `toBaseQuantity`, từ chối khi vượt `enteredQty`. Client chỉ gửi `approvedQtyBase` vẫn dùng được. Dữ liệu cũ không có trường mới nên FE hiển thị theo đơn vị gốc.
+
+FE gửi `approvedEnteredQty` ở màn duyệt và hiển thị lượng duyệt dạng "10 m² (28 viên)" ở tab dòng hàng và lịch sử quyết định. Cập nhật CONTRACT trong NATIVE_MODEL_RUNTIME và sheet 13.
+
+Kiểm tra: `RUN_NATIVE_API_TESTS=1` chạy replenishment-warnings (11/11, gồm ca mới duyệt theo đơn vị nhập) và native-api + area-conversion (33/33) trên MongoDB cục bộ; vitest `src/features/replenishments/api` và `detail` 25/25; tsc không lỗi. PO (FE, không đổi API): form tạo PO lấy lượng duyệt theo đơn vị nhập từ `approvedEnteredQty` khi có (thay vì chia ngược từ số viên đã làm tròn lên); form tạo và sửa PO nháp hiện thêm dòng "= N viên" và "vượt lượng duyệt M viên do làm tròn" khi đơn vị đặt khác đơn vị gốc, tính cùng quy tắc với `toBaseQuantity` (`orderedBaseQuantity` trong purchaseOrderLineUtils.ts). `vitest src/features/purchase-orders` 74/74, tsc không lỗi. Sửa 18/11/2026: ô số lượng đặt mua điền sẵn đúng lượng duyệt theo đơn vị nhập (4 m²) thay vì số viên làm tròn lên đổi ngược (4,32 m²); RR duyệt đủ nhưng chưa có `approvedEnteredQty` dùng `enteredQty` của dòng. Chưa làm: trường đơn vị mua mặc định của sản phẩm (cần quyết định thêm trường), chưa xem trên trình duyệt.
+
 ## 17 November 2026 — Relocation source packaging overview
 
 Source: user chose the limited display-only scope: sealed cartons, base units inside already open cartons and loose base units from existing data. BF03 options now select packagingPortions.sealedPackCount and quantityBase in the existing balance query; other option endpoints are unchanged. FE presentMoveOptions sums stored sealed counts and OPEN/LOOSE quantities exactly and verifies portion totals against the balance. Current carton factors never invent physical counts. Missing, malformed, unknown or inconsistent packaging is explicit instead of fabricated zero. MoveForm displays the three values in the existing stock cell, keeping seven columns and the total/unit. No open-carton count, new schema, migration, stock mutation, permission or transfer-command change. Updated BF03 README and paired contexts. Main already integrated; preserved all prior inventory/seed and concurrent 3D work.
@@ -59,22 +121,6 @@ Initial local test access required sandbox escalation. Auto-review rejected a br
 Source: user explicitly selected `src/seeds/atlas-demo.seed.js` for deletion. Removed that script and its dedicated `test/atlas-demo.integration.test.js`, which imported it. Updated `docs/09_phat_trien/SEED_CUA_HANG_GACH.md` to remove obsolete commands and the source link, retaining the dated description of previously loaded demo data. Other seeds and runtime APIs are unchanged. No database connection, deletion, migration or remote data write was performed. Main was already up to date before edits.
 
 Validation: `npm run docs:check` passes (58 collections, 881 local links); the reference scan finds only documentation/history mentions, with no remaining source or test imports. Diff review and whitespace checks pass. The deleted integration test is no longer applicable; no full suite or live database verification was run for this file removal.
-## 18/11/2026 · PO cùng đơn vị với RR không vượt lượng duyệt
-
-Theo yêu cầu của người dùng, khi dòng PO dùng đúng đơn vị nhập của dòng RR thì `enteredQty` không được lớn hơn `approvedEnteredQty`; quy tắc làm tròn gói của `withinApproved` chỉ còn áp dụng khi đổi sang đơn vị khác (hoặc RR cũ chưa có `approvedEnteredQty`). Ví dụ RR duyệt 4 M2 thì PO không đặt được 5 M2. Cập nhật `conversions.js` (tham số thứ 5 của `withinApproved`), `purchase-order.commands.js` (tạo/sửa nháp và phát hành), `purchase-reconciliation.js`, test `area-conversion.test.js`; FE `capToApprovedEntered` trong form tạo và sửa PO nháp. Không đổi dữ liệu. Chưa chạy test tích hợp API; `vitest src/features/purchase-orders` còn 3 ca lỗi từ trước (`maxEnteredQty` 278 viên, `orderedBaseQuantity`, form M2 100,08) chưa xử lý.
-
-## 18/11/2026 · Thông báo số lượng PO không nguyên
-
-Tạo và sửa PO nháp trả thông báo rõ khi lượng sau quy đổi sang đơn vị gốc không nguyên với sản phẩm yêu cầu số nguyên; quy tắc kiểm tra và dữ liệu không đổi. Cập nhật `purchase-order.commands.js`, test tích hợp PO và hợp đồng `NATIVE_MODEL_RUNTIME.md`.
-
-## 18/11/2026 · Duyệt RR theo đơn vị nhập
-
-Theo yêu cầu của người dùng, yêu cầu và duyệt dùng cùng một đơn vị. `replenishment_requests.items[]` và `approval_history.itemDecisions[]` có thêm `approvedEnteredQty` (tùy chọn); `reviewReplenishment` nhận `approvedEnteredQty`, tự tính `approvedQtyBase` bằng hệ số đã lưu trên dòng và `toBaseQuantity`, từ chối khi vượt `enteredQty`. Client chỉ gửi `approvedQtyBase` vẫn dùng được. Dữ liệu cũ không có trường mới nên FE hiển thị theo đơn vị gốc.
-
-FE gửi `approvedEnteredQty` ở màn duyệt và hiển thị lượng duyệt dạng "10 m² (28 viên)" ở tab dòng hàng và lịch sử quyết định. Cập nhật CONTRACT trong NATIVE_MODEL_RUNTIME và sheet 13.
-
-Kiểm tra: `RUN_NATIVE_API_TESTS=1` chạy replenishment-warnings (11/11, gồm ca mới duyệt theo đơn vị nhập) và native-api + area-conversion (33/33) trên MongoDB cục bộ; vitest `src/features/replenishments/api` và `detail` 25/25; tsc không lỗi. PO (FE, không đổi API): form tạo PO lấy lượng duyệt theo đơn vị nhập từ `approvedEnteredQty` khi có (thay vì chia ngược từ số viên đã làm tròn lên); form tạo và sửa PO nháp hiện thêm dòng "= N viên" và "vượt lượng duyệt M viên do làm tròn" khi đơn vị đặt khác đơn vị gốc, tính cùng quy tắc với `toBaseQuantity` (`orderedBaseQuantity` trong purchaseOrderLineUtils.ts). `vitest src/features/purchase-orders` 74/74, tsc không lỗi. Sửa 18/11/2026: ô số lượng đặt mua điền sẵn đúng lượng duyệt theo đơn vị nhập (4 m²) thay vì số viên làm tròn lên đổi ngược (4,32 m²); RR duyệt đủ nhưng chưa có `approvedEnteredQty` dùng `enteredQty` của dòng. Chưa làm: trường đơn vị mua mặc định của sản phẩm (cần quyết định thêm trường), chưa xem trên trình duyệt.
-
 ## 17/11/2026 · Chọn đơn vị đặt mua trên PO
 
 Theo yêu cầu của người dùng, Kế toán chọn đơn vị và nhập đơn giá cho từng dòng khi tạo hoặc sửa PO nháp. Nếu đơn vị đặt trùng đơn vị nhập trên RR, BE dùng hệ số đã lưu trên RR. Đơn vị khác dùng quy đổi cấp sản phẩm đang hiệu lực. Khi lượng đặt vượt lượng RR đã duyệt, BE chỉ chấp nhận số nguyên đơn vị nhỏ nhất đủ phủ lượng duyệt mà không cần Owner duyệt. Ví dụ RR duyệt 10 viên, hộp có 3 viên thì đặt 4 hộp hợp lệ. Quy tắc áp dụng khi lưu nháp, mở PO và đối soát `RR_ALLOWANCE`. Nháp cũ có nhiều dòng cùng nguồn RR cần gộp về một dòng trước khi mở.
