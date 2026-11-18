@@ -42,7 +42,7 @@ classDiagram
   "layout": {
     "points": [{"x":0,"y":0},{"x":10,"y":0},{"x":10,"y":8},{"x":0,"y":8}],
     "height": 4,
-    "doors": [{"edge":0,"offset":2,"width":3,"height":3.5}]
+    "doors": [{"edge":0,"offset":1.25,"width":3,"height":3.5}]
   }
 }
 ```
@@ -76,5 +76,7 @@ Kiểm chứng đợt này: 7 test FE (zoom/fit, kéo pan không thêm điểm, 
 Con lăn hoặc nút +/− để zoom; giữ chuột phải rồi kéo, hoặc Ctrl + kéo chuột trái để pan. Menu chuột phải bị chặn trong canvas; các thao tác pan không thêm điểm, kéo đỉnh hoặc chọn vị trí cửa. Nút bàn tay vẫn có thể dùng khi thao tác cảm ứng.
 
 Cửa không có tường mặc định. Người dùng bấm Chọn vị trí cửa trên bản vẽ, rồi bấm lên cạnh tường; vị trí chuột chiếu lên cạnh để tính khoảng cách đầu cạnh. Tường được tô cam, vị trí cửa dự kiến hiện nét đứt xanh. Thêm cửa chỉ bật sau khi có tường được chọn; có thể chọn tường từ danh sách và nhập khoảng cách thay thế. Kiểm vừa tường/chồng cửa giữ nguyên. Sau thêm cửa, bỏ chọn tường; phải chọn lại cho cửa tiếp theo. Không đổi payload hoặc schema BE.
+
+Từ 18/11/2026, ô **Cách đầu cạnh (m)** giữ nguyên chuỗi người dùng đang gõ, chấp nhận `1,25` hoặc `1.25` và gửi `offset: 1.25`. Khoảng cách phải không âm, cửa phải vừa tường và không chồng lên cửa khác. [Chặng 2](STAGE2_ZONES.md) quy định ngoại lệ cho khu tập kết ngoài tường kho.
 
 Kiểm chứng: 10 test FE Kho 3D đạt, gồm pan chuột phải/Ctrl không thêm đỉnh và bấm tường 2 chọn đúng cạnh/offset. Build/lint đạt. Chưa kiểm trực quan browser.

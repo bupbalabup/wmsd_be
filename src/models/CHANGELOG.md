@@ -2,6 +2,13 @@
 
 18/11/2026: `product_batches` thêm lại `tone` và `calibre` (String, tùy chọn, tối đa 20 ký tự, trim). Đảo quyết định 06/11/2026 (v6) theo yêu cầu mới của người dùng; khóa duy nhất vẫn là `productId + manufacturerLot`, không đổi index. `field-cleanup.js` không còn gỡ hai trường này. Lô cũ không có giá trị, không backfill. Thêm `verificationReference`, `notes` (String ≤ 500, tùy chọn), `verifiedAt` (Date), `verifiedBy` (ref User), đặt `verifiedAt/By` khi lô chuyển sang VERIFIED.
 
+## 18 November 2026 — Existing warehouse positions on 3D design slots
+
+`warehouses.layout3d` and `layout3dApplied` accept optional `zones[].slots[].locationId` (ObjectId string). The layout API validates each reference against warehouse_locations from the same warehouse. The existing Mixed fields need no Mongoose schema change, new index, migration or backfill; operational locations and transactions are unaffected. See [Kho 3D stage 2](../git_doc/docs/10_Kho3D/STAGE2_ZONES.md).
+
+## 18 November 2026 — BF03 mixed sealed cartons and loose pieces
+
+User requested optional cartons plus loose entry. WAREHOUSE_TASK embedded details adds optional `packagingState` enum SEALED/LOOSE with no default. BF03 stores separate items for each category, preserves independent partial progress and matches category when editing. Explicit LOOSE may split known-volume stock using existing conservative bounds; SEALED cannot open. Old absent values retain existing behavior. No collection/index/ref/relationship changes, ERD relationship changes, migration or backfill; deploy paired FE/BE. Updated model map, dictionary, API, project guide and contexts. Focused validation and isolated local transaction checks passed, including 10 cartons × 4 + 1 loose, source remainder 21, retry and conservation. No application database write or remote rollout.
 18/11/2026: thêm `approvedEnteredQty` (tùy chọn, Decimal128 ≥ 0) vào dòng `replenishment_requests` và `approval_history.itemDecisions`; `approvedQtyBase` được BE tính từ trường này.
 
 ## Customer details on documents — 17 November 2026
