@@ -10,7 +10,17 @@ import { copyItem, sourceLink } from '../../shared/utils/document-copy.js';
 import { buildStocktakeListFilter } from './stocktake-list.query.js';
 async function scoped(user, id, session) { const document = await m.Stocktake.findById(id).session(session); if (!document)
     throw notFoundError(); requireWarehouseAccess(user, document.header.warehouseId); return document; }
-export async function listStocktakes(user, query) { requirePermission(user, 'stocktake:read'); return page(m.Stocktake, buildStocktakeListFilter(user, query), query); }
+// Blind count is enforced here: while COUNTING nobody receives frozen book quantities, and a session
+// cancelled before any reconciliation never reveals them afterwards (decision 18 Nov 2026).
+export const isBlind = document => document.workflowStatus === 'COUNTING' || (document.workflowStatus === 'CANCELLED' && !document.header?.lastReconciledAt && !document.header?.lastReconciledBy);
+// Plans cancelled by "Mở lại bước đếm" stay on the session; their lines (count − delta) would reveal the book,
+// so while blind only their identity and status are returned.
+const redactPlans = value => ({ ...value, resolutionPlans: (value.resolutionPlans ?? []).map(plan => ({ ...plan, items: [], selectedCounts: [], executionRecords: [] })) });
+export async function listStocktakes(user, query) {
+    requirePermission(user, 'stocktake:read');
+    const result = await page(m.Stocktake, buildStocktakeListFilter(user, query), query);
+    return { ...result, items: result.items.map(item => (isBlind(item) ? redactPlans(item) : item)) };
+}
 export async function getStocktake(user, id) {
     requirePermission(user, 'stocktake:read');
     const document = await scoped(user, id);
@@ -43,11 +53,9 @@ export async function getStocktake(user, id) {
     });
     const units = await m.Uom.find({ _id: { $in: [...new Set(conversions.map(row => String(row.uomId)))] } }).select('_id code name').lean();
     const unitById = new Map(units.map(unit => [String(unit._id), unit]));
-    // Blind count is enforced here: while COUNTING nobody receives frozen book quantities, and a session
-    // cancelled before any reconciliation never reveals them afterwards (decision 18 Nov 2026).
-    const blind = document.workflowStatus === 'COUNTING' || (document.workflowStatus === 'CANCELLED' && !document.header.lastReconciledAt && !document.header.lastReconciledBy);
+    const blind = isBlind(document);
     return {
-        ...dto(document), snapshots: snapshots.map(row => { const value = dto(row); if (blind) delete value.bookQtyBase; return value; }), counts: counts.map(dto), locks: locks.map(dto),
+        ...(blind ? redactPlans(dto(document)) : dto(document)), snapshots: snapshots.map(row => { const value = dto(row); if (blind) delete value.bookQtyBase; return value; }), counts: counts.map(dto), locks: locks.map(dto),
         lookups: {
             warehouses: warehouses.map(row => ({ id: String(row._id), code: row.code, name: row.name })),
             locations: locations.map(row => ({ id: String(row._id), warehouseId: String(row.warehouseId), code: row.code, name: row.name })),
