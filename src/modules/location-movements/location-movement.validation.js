@@ -18,13 +18,15 @@ export const createBody = z.object({
     toLocationId: objectId,
     enteredUnit: z.string().trim().min(1).max(60),
     enteredQty: quantity,
+    packagingState: z.enum(['SEALED', 'LOOSE']).optional(),
   }).strict()).min(1).max(100),
 }).strict().superRefine((body, ctx) => {
-  const seen = new Set();
+  const seen = new Map();
   body.lines.forEach((line, index) => {
     const key = `${line.sourceBalanceId}:${line.toLocationId}`;
-    if (seen.has(key)) ctx.addIssue({ code: 'custom', path: ['lines', index], message: 'Merge duplicate source/destination lines' });
-    seen.add(key);
+    const states = seen.get(key) ?? new Set();
+    if (states.has(line.packagingState) || (states.size && (!line.packagingState || states.has(undefined)))) ctx.addIssue({ code: 'custom', path: ['lines', index], message: 'Merge duplicate source/destination/packaging lines' });
+    states.add(line.packagingState); seen.set(key, states);
   });
 });
 
@@ -41,11 +43,12 @@ export const editSchema = z.object({ params: z.object({ id: documentIdentifier }
   body: z.object({ idempotencyKey: createBody.shape.idempotencyKey,
     reason: createBody.shape.reason, lines: createBody.shape.lines,
     expectedVersion: z.number().int().min(1) }).strict().superRefine((body, ctx) => {
-      const seen = new Set();
+      const seen = new Map();
       body.lines.forEach((line, index) => {
         const key = `${line.sourceBalanceId}:${line.toLocationId}`;
-        if (seen.has(key)) ctx.addIssue({ code: 'custom', path: ['lines', index], message: 'Merge duplicate source/destination lines' });
-        seen.add(key);
+        const states = seen.get(key) ?? new Set();
+        if (states.has(line.packagingState) || (states.size && (!line.packagingState || states.has(undefined)))) ctx.addIssue({ code: 'custom', path: ['lines', index], message: 'Merge duplicate source/destination/packaging lines' });
+        states.add(line.packagingState); seen.set(key, states);
       });
     }) });
 export const cancelSchema = z.object({ params: z.object({ id: documentIdentifier }).strict(), body: z.object({
