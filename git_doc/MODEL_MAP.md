@@ -1,3 +1,7 @@
+## BF03 mixed packaging — 18 November 2026
+
+`transfer_orders.items[].details.packagingState` (WAREHOUSE_TASK embedded schema) is optional `SEALED|LOOSE`, with no default. Explicit BF03 lines consume only that category; mixed entry creates separate items for independent partial progress. Historical absent values retain generic behavior. No collection, index, ref/relationship, ERD relationship or migration changes. See [contract](docs/08_api/location-movements/README.md#mixed-sealed-cartons-and-loose-pieces--18-november-2026) and current Data Dictionary. Other task kinds do not enable this mode.
+
 ## Customer details on documents — 17 November 2026
 
 User decision: customers are not managed as catalogue records. New sales orders require `customerName` (1–160 characters) and allow `customerPhone` (up to 30 characters); the delivery address remains on the order. Creating an order does not query or create a Customer. Sales options return an empty compatibility `customers` array.
@@ -52,7 +56,7 @@ receipts without an ITR use the explicit legacy open-task command. See [BF04 API
 | `users` | Tài khoản nhân viên: một vai trò, nhiều kho được phân công; mật khẩu được băm, lý do khoá hiện tại lưu ở `lockReason`. | [user.model.js](../src/models/user.model.js) |
 | `roles` | Vai trò có sẵn hoặc do Administrator tạo; giữ danh sách quyền được chọn. | [role.model.js](../src/models/role.model.js) |
 | `permissions` | Danh mục quyền thao tác có sẵn, phân nhóm theo chức năng. | [permission.model.js](../src/models/permission.model.js) |
-| `warehouses` | Kho vật lý, kích thước; `layout3d` nháp gồm mặt bằng/khu vực/ô, `layout3dApplied` snapshot áp dụng và `layout3dAppliedAt`; [hợp đồng chặng 2](docs/10_Kho3D/STAGE2_ZONES.md), [lớp hàng pallet](docs/10_Kho3D/STAGE3_PALLET_LAYERS.md) chỉ là phương án, không ghi tồn. | [warehouse.model.js](../src/models/warehouse.model.js) |
+| `warehouses` | Kho vật lý, kích thước; `layout3d` nháp gồm mặt bằng/khu vực/ô, `layout3dApplied` snapshot áp dụng và `layout3dAppliedAt`. Ô thiết kế có thể giữ `locationId` của vị trí nghiệp vụ cùng kho; [hợp đồng chặng 2](docs/10_Kho3D/STAGE2_ZONES.md), [lớp hàng pallet](docs/10_Kho3D/STAGE3_PALLET_LAYERS.md) chỉ là phương án, không ghi tồn. | [warehouse.model.js](../src/models/warehouse.model.js) |
 | `warehouse_locations` | Ô/vị trí thuộc một kho, loại ô và kích thước phục vụ kiểm sức chứa. | [warehouse-location.model.js](../src/models/warehouse-location.model.js) |
 | `categories` | Nhóm phân loại sản phẩm: 5 nhóm đã duyệt, mỗi sản phẩm thuộc một category. | [category.model.js](../src/models/category.model.js) |
 | `uoms` | Danh mục đơn vị. Mã bất biến và `isCarton` đánh dấu đơn vị thùng. `areaMm2` (mm² của một đơn vị, bất biến, null = không phải đơn vị diện tích; M2 = 1000000) bật quy đổi tự sinh và làm tròn lên tới viên. `Product.baseUnit` tham chiếu mã qua service. | [uom.model.js](../src/models/uom.model.js) |
