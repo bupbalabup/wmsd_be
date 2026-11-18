@@ -23,7 +23,7 @@ function catalogue(){
   mock.method(m.Warehouse,'find',()=>query([{_id:wh,code:'WH',name:'Warehouse',isActive:true,layout3d:{unused}}]));
   mock.method(m.WarehouseLocation,'find',()=>query([{_id:'loc',warehouseId:wh,code:'A1',name:'Bin',locationType:'STORAGE',isActive:true,isAllocatable:true,unused}]));
   mock.method(m.StockHoldingPoint,'find',()=>query([{_id:'point',locationId:'loc',type:'LOCATION',unused}]));
-  mock.method(m.InventoryBalance,'find',()=>query([{_id:'balance',holdingPointId:'point',batchId:'batch',version:2,quantityBase:'8',qualityStatus:'GOOD',ownerType:'STORE',packagingPortions:[{packagingState:'SEALED',unused}],unused}]));
+  mock.method(m.InventoryBalance,'find',()=>query([{_id:'balance',holdingPointId:'point',batchId:'batch',version:2,quantityBase:'8',qualityStatus:'GOOD',ownerType:'STORE',packagingPortions:[{packagingState:'SEALED',sealedPackCount:1,quantityBase:'4',unused},{packagingState:'OPEN',quantityBase:'3',unused},{packagingState:'LOOSE',quantityBase:'1',unused}],unused}]));
   mock.method(m.ProductBatch,'find',()=>query([{_id:'batch',productId:'product',manufacturerLot:'LOT1',piecesPerCarton:4,identificationStatus:'VERIFIED',unused}]));
   mock.method(m.Product,'find',()=>query([{_id:'product',name:'Tile',sku:'T1',baseUnit:'PIECE',isActive:true,unused}]));
   mock.method(m.Uom,'find',()=>query([{_id:'uom',code:'CARTON',name:'Thùng',isCarton:true,unused}]));
@@ -46,7 +46,10 @@ test('summary list projection omits item arrays while full/export preserves quan
 });
 test('both option endpoints retain selection and packaging fields without unused catalogue payload',async()=>{
   catalogue();for(const model of [m.StockReservation,m.TransferOrder,m.DefectReport])mock.method(model,'find',()=>query([]));
-  for(const data of [await locationMovementOptions(actor,wh),await transferOptions(actor,wh)]){
+  const relocation=await locationMovementOptions(actor,wh),transfer=await transferOptions(actor,wh);
+  assert.deepEqual(relocation.balances[0].packagingPortions,[{packagingState:'SEALED',sealedPackCount:1,quantityBase:'4'},{packagingState:'OPEN',quantityBase:'3'},{packagingState:'LOOSE',quantityBase:'1'}]);
+  assert.equal(transfer.balances[0].packagingPortions[0].sealedPackCount,undefined);
+  for(const data of [relocation,transfer]){
     assert.equal(data.products[0].name,'Tile');assert.equal(data.products[0].baseUnit,'PIECE');
     assert.equal(data.balances[0].version,2);assert.equal(data.balances[0].quantityBase,'8');
     assert.equal(data.balances[0].packagingPortions[0].packagingState,'SEALED');
