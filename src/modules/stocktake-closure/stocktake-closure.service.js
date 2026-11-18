@@ -5,7 +5,7 @@ import { command, checkVersion, saveVersion, same, newId, hash } from '../../sha
 import { dto, page, serialize } from '../../shared/utils/persistence.js';
 import { requirePermission, requireWarehouseAccess } from '../../shared/utils/access.js';
 import { validationError, notFoundError } from '../../shared/utils/ApiError.js';
-import { sourceContext, beginStock, moveStock, receiveStock, splitPortions, remainingReservation, verifyCapacity, heldQuantity } from '../../shared/utils/stock.js';
+import { sourceContext, balanceAt, beginStock, moveStock, receiveStock, splitPortions, remainingReservation, verifyCapacity, heldQuantity } from '../../shared/utils/stock.js';
 import { copyItem, sourceLink } from '../../shared/utils/document-copy.js';
 import { buildStocktakeListFilter } from './stocktake-list.query.js';
 async function scoped(user, id, session) { const document = await m.Stocktake.findById(id).session(session); if (!document)
@@ -121,6 +121,7 @@ export function closeStocktake(user, id, input) {
             projection.set(String(ctx.balance._id), exact(ctx.balance.quantityBase));
         }
         let posting, adjustment;
+        const damagedTargets = new Map();
         if (plan) {
             if (plan.version !== input.expectedPlanVersion || !['APPROVED', 'EXECUTED'].includes(plan.workflowStatus) || plan.header.scopeVersion !== document.header.scopeVersion || !same(plan.header.stocktakeId, document._id))
                 throw validationError('Phương án hoặc phiên bản không còn hiệu lực');
@@ -133,8 +134,18 @@ export function closeStocktake(user, id, input) {
             const groupDeltas = new Map();
             for (const item of plan.items) {
                 const details = item.details, quantity = exact(item.qtyBase);
-                const from = details.fromBalanceId && contexts.get(String(details.fromBalanceId)), to = details.toBalanceId && contexts.get(String(details.toBalanceId));
-                if (!quantity.gt(0) || (!from && !to) || (details.fromBalanceId && !from) || (details.toBalanceId && !to))
+                const from = details.fromBalanceId && contexts.get(String(details.fromBalanceId));
+                let to = details.toBalanceId && contexts.get(String(details.toBalanceId));
+                if (!details.toBalanceId && details.actionKind === 'RECLASS' && details.reasonCode === 'DAMAGED' && from) {
+                    // Broken tiles go to the damaged balance of the same location, lot and owner, created now if missing
+                    // (the session had no damaged row for it, so it has no snapshot or count). Locations are already serialized above.
+                    const target = await balanceAt({ type: 'LOCATION', locationId: from.location._id }, from.balance, 'DAMAGED', session);
+                    if (snapshots.some(s => same(s.sourceBalanceId, target._id)))
+                        throw validationError('Nhóm hàng lỗi đã có mốc trong đợt; phương án phải chuyển sang mốc đó');
+                    to = await sourceContext(target._id, session);
+                    damagedTargets.set(String(item._id), target._id);
+                }
+                if (!quantity.gt(0) || (!from && !to) || (details.fromBalanceId && !from) || (details.toBalanceId && !to) || (details.actionKind !== 'DELTA' && !to))
                     throw validationError('Dòng phương án ngoài phạm vi mốc');
                 const ctx = from || to;
                 if (ctx.product.wholeBaseUnits && !quantity.isInteger()) throw validationError('Lượng xử lý phải nguyên theo đơn vị gốc');
@@ -176,7 +187,8 @@ export function closeStocktake(user, id, input) {
                     if (details.actionKind === 'RELOCATE' && (same(from.location._id, to.location._id) || from.balance.qualityStatus !== to.balance.qualityStatus))
                         throw validationError('RELOCATE chỉ chuyển vị trí');
                     projection.set(String(from.balance._id), projection.get(String(from.balance._id)).minus(quantity));
-                    projection.set(String(to.balance._id), projection.get(String(to.balance._id)).plus(quantity));
+                    if (projection.has(String(to.balance._id)))
+                        projection.set(String(to.balance._id), projection.get(String(to.balance._id)).plus(quantity));
                 }
             }
         }
@@ -192,7 +204,8 @@ export function closeStocktake(user, id, input) {
                     const reserved = await m.StockReservation.find({ balanceId: d.fromBalanceId }).session(session);
                     if (d.actionKind === 'RECLASS' && reserved.some(r => remainingReservation(r).gt(0)))
                         throw validationError('Phải xử lý cam kết hàng trước khi đổi chất lượng');
-                    await moveStock(d.fromBalanceId, d.toBalanceId, String(item.qtyBase), item._id, posting, actor, session, { preserveReservations: d.actionKind === 'RELOCATE' });
+                    // Broken tiles are taken out of their cartons, so moving them to damaged stock may open a carton.
+                    await moveStock(d.fromBalanceId, d.toBalanceId ?? damagedTargets.get(String(item._id)), String(item.qtyBase), item._id, posting, actor, session, { preserveReservations: d.actionKind === 'RELOCATE', allowOpening: d.reasonCode === 'DAMAGED' });
                     continue;
                 }
                 if (!adjustment)

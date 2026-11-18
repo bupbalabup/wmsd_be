@@ -1,3 +1,5 @@
+18/11/2026: thêm `reasonCode` (tùy chọn, `DAMAGED`/`LOST`/`MISPLACED`/`FOUND`/`RECORD_ERROR`/`OTHER`) và `reasonNote` (≤ 500) vào `stocktakes.resolutionPlans[].items[].details`; phương án mới luôn gửi lý do, phương án cũ không cần sửa dữ liệu.
+
 18/11/2026: thêm `approvedEnteredQty` (tùy chọn, Decimal128 ≥ 0) vào dòng `replenishment_requests` và `approval_history.itemDecisions`; `approvedQtyBase` được BE tính từ trường này.
 
 ## Customer details on documents — 17 November 2026

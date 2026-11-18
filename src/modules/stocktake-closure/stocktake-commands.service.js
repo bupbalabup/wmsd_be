@@ -411,6 +411,8 @@ export function reconcileStocktake(user, id, input) {
     });
 }
 
+const sameIdentity = (a, b) => same(a.locationId, b.locationId) && same(a.batchId, b.batchId) && a.ownerType === b.ownerType && String(a.ownerId ?? '') === String(b.ownerId ?? '');
+
 export function submitResolutionPlan(user, id, input) {
     return command(user, 'SUBMIT_STOCKTAKE_PLAN', 'stock_adjustment:create', id, input, (sid, actor, session) => scoped(actor, sid, session), async (session, actor) => {
         const document = await scoped(actor, id, session);
@@ -488,9 +490,16 @@ export function submitResolutionPlan(user, id, input) {
                     countId: count._id,
                     actionKind: row.actionKind,
                     ...(row.holdId && { holdId: row.holdId }),
+                    reasonCode: row.reasonCode,
+                    ...(row.reasonNote && { reasonNote: row.reasonNote }),
                 },
             };
+            const short = diff.lt(0);
+            if (row.reasonCode === 'OTHER' && !row.reasonNote)
+                throw validationError('Lý do "Khác" cần ghi chú cụ thể');
             if (row.actionKind === 'DELTA') {
+                if (!(short ? ['LOST', 'RECORD_ERROR', 'OTHER'] : ['FOUND', 'RECORD_ERROR', 'OTHER']).includes(row.reasonCode))
+                    throw validationError(row.reasonCode === 'DAMAGED' ? 'Hàng vỡ/hỏng phải chuyển sang hàng lỗi, không ghi giảm tồn' : 'Lý do không phù hợp với chiều chênh lệch của dòng');
                 const delta = exact(row.deltaQty);
                 if (diff.gt(0) ? !delta.gt(0) : !delta.lt(0))
                     throw validationError('Lượng điều chỉnh không khớp chiều chênh lệch của mốc');
@@ -502,8 +511,27 @@ export function submitResolutionPlan(user, id, input) {
                 item.details.deltaQty = delta.toFixed();
                 item.details[delta.gt(0) ? 'toBalanceId' : 'fromBalanceId'] = chosen.snapshot.sourceBalanceId;
             }
+            else if (row.actionKind === 'RECLASS' && row.reasonCode === 'DAMAGED' && !row.toBalanceId) {
+                // Broken tiles left out of the count of a group that has no damaged counterpart in the session:
+                // they stay in the location as damaged stock instead of being written off.
+                const source = chosen.snapshot;
+                if (!short)
+                    throw validationError('Hàng vỡ/hỏng chỉ giải trình cho phần thiếu');
+                if (source.qualityStatus === 'DAMAGED')
+                    throw validationError('Nhóm tồn đã là hàng lỗi');
+                if (!source.sourceBalanceId || !same(row.fromBalanceId, source.sourceBalanceId))
+                    throw validationError('Hàng vỡ/hỏng phải chuyển từ chính nhóm tồn bị thiếu');
+                if (exact(row.qtyBase).gt(diff.abs()))
+                    throw validationError('Lượng xử lý vượt chênh lệch đếm/sổ của nhóm');
+                if (snapshots.some(other => other.qualityStatus === 'DAMAGED' && sameIdentity(other, source)))
+                    throw validationError('Vị trí đã có dòng hàng lỗi cùng lô trong đợt: hàng vỡ phải được đếm vào dòng đó và chuyển sang dòng đó');
+                // No target yet: close finds or creates the damaged balance, so a rejected plan leaves nothing behind.
+                item.details.fromBalanceId = source.sourceBalanceId;
+            }
             else {
                 const from = endpointOf(row.fromBalanceId), to = endpointOf(row.toBalanceId);
+                if (!['MISPLACED', 'RECORD_ERROR', 'OTHER', ...(row.actionKind === 'RECLASS' && to.qualityStatus === 'DAMAGED' ? ['DAMAGED'] : [])].includes(row.reasonCode))
+                    throw validationError('Lý do không phù hợp với dòng đổi chất lượng/vị trí');
                 for (const endpoint of [from, to]) {
                     const chosenEndpoint = selected.get(String(endpoint._id));
                     if (!chosenEndpoint)
@@ -545,7 +573,9 @@ export function submitResolutionPlan(user, id, input) {
                 shift(item.details.toBalanceId ?? item.details.fromBalanceId, item.details.deltaQty);
             else {
                 shift(item.details.fromBalanceId, exact(item.qtyBase).negated());
-                shift(item.details.toBalanceId, item.qtyBase);
+                // A new damaged group (no target until close) is not part of the count, so only its source is checked.
+                if (item.details.toBalanceId)
+                    shift(item.details.toBalanceId, item.qtyBase);
             }
         }
         if ([...selected.values()].some(({ snapshot, count }) => !projected.get(String(snapshot.sourceBalanceId))?.eq(String(count.countedQtyBase))))

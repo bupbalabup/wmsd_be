@@ -17,6 +17,7 @@ import * as commands from './stocktake-commands.service.js';
 import * as evidence from './stocktake-evidence.service.js';
 import { decimalStringSchema } from '../../shared/utils/domain.js';
 import { QUALITY_CODES } from '../../models/constants.js';
+import { DISCREPANCY_REASONS } from '../../models/stocktake-resolution-details.schema.js';
 const qty = decimalStringSchema({ positive: true });
 const portion = z.object({ packagingState: z.enum(['SEALED', 'OPEN', 'LOOSE']), sealedPackCount: z.number().int().nonnegative().optional(), quantityBase: qty, measuredVolumeMm3: qty.optional(), extraOccupiedVolumeMm3: decimalStringSchema().optional(), packagingSnapshot: z.object({ packageUnit: z.string().min(1).max(60), baseUnitsPerPackage: qty, outerLengthMm: decimalStringSchema({ positive: true, scale: 3 }), outerWidthMm: decimalStringSchema({ positive: true, scale: 3 }), outerHeightMm: decimalStringSchema({ positive: true, scale: 3 }) }).strict().optional() }).strict();
 const packagingSchema = z.array(z.object({ lineId: objectId, portions: z.array(portion).min(1).max(100) }).strict()).max(200);
@@ -35,7 +36,7 @@ const discovered = z.object({ locationId: oid, batchId: oid, ownerType: z.enum([
 const countBody = operation.extend({ targetType: z.enum(['STOCK', 'EMPTY_LOCATION']), snapshotId: oid.optional(), discovered: discovered.optional(), locationId: oid.optional(), countedQtyBase: nonnegative, quantityEntries: z.array(entry).max(100).optional(), previousCountId: oid.optional(), recountReason: text.optional(), conditionNote: z.string().max(2000).optional(), evidenceIds: z.array(oid).max(50).optional() }).strict()
     .refine(v => v.targetType === 'STOCK' ? !!v.snapshotId !== !!v.discovered && !v.locationId : !!v.locationId && !v.snapshotId && !v.discovered, 'Chọn mốc tồn, hàng phát hiện ngoài sổ hoặc vị trí trống');
 const selectedCount = z.object({ snapshotId: oid, countId: oid }).strict();
-const planItem = z.object({ snapshotId: oid, countId: oid, actionKind: z.enum(['DELTA','RECLASS','RELOCATE']), qtyBase: qty, deltaQty: z.string().regex(/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/).refine(v => v !== '0' && v !== '-0').optional(), fromBalanceId: oid.optional(), toBalanceId: oid.optional(), holdId: oid.optional() }).strict();
+const planItem = z.object({ snapshotId: oid, countId: oid, actionKind: z.enum(['DELTA','RECLASS','RELOCATE']), qtyBase: qty, deltaQty: z.string().regex(/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/).refine(v => v !== '0' && v !== '-0').optional(), fromBalanceId: oid.optional(), toBalanceId: oid.optional(), holdId: oid.optional(), reasonCode: z.enum(DISCREPANCY_REASONS), reasonNote: z.string().trim().max(500).optional() }).strict();
 const planBody = operation.extend({ scopeVersion: z.number().int().positive(), selectedCounts: z.array(selectedCount).min(1).max(5000), items: z.array(planItem).min(1).max(200), reason: text }).strict();
 const reviewBody = operation.extend({ expectedPlanVersion: z.number().int().positive(), decision: z.enum(['APPROVE','REJECT','REVISE']), reason: text }).strict();
 const executionBody = operation.extend({ expectedPlanVersion: z.number().int().positive(), itemId: oid, quantityBase: qty, evidenceIds: z.array(oid).min(1).max(50), note: z.string().max(2000).optional() }).strict();
