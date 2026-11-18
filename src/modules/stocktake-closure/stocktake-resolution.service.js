@@ -112,7 +112,7 @@ export async function getResolutionPlan(user, planId) {
       id: String(item._id), lineNo: item.lineNo, productId: item.productId, lotId: item.lotId ?? null,
       productNameSnapshot: item.productNameSnapshot, baseUnitSnapshot: item.baseUnitSnapshot, qtyBase: item.qtyBase,
       executedQtyBase: done.toFixed(),
-      details: pick(details, ['actionKind', 'deltaQty', 'countId', 'fromBalanceId', 'toBalanceId', 'holdId']),
+      details: pick(details, ['actionKind', 'deltaQty', 'countId', 'fromBalanceId', 'toBalanceId', 'holdId', 'reasonCode', 'reasonNote']),
       snapshotId: snapshot ? String(snapshot._id) : null,
       fromSnapshotId: snapshotByBalance.get(String(details.fromBalanceId))?._id ?? null,
       toSnapshotId: snapshotByBalance.get(String(details.toBalanceId))?._id ?? null,

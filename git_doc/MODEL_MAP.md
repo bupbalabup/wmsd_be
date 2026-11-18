@@ -94,7 +94,7 @@ receipts without an ITR use the explicit legacy open-task command. See [BF04 API
 | `sales_goods_issues` | GI_SALE/GI_OTHER: mã tham chiếu tay, sản phẩm/lượng/ghi chú; SALES tạo PENDING_APPROVAL, Owner duyệt cùng ID sang DRAFT, không đổi tồn. Kho phân bổ lô/ô vào PICK TO rồi PGI. OD/giá nguồn cũ vẫn tương thích; approval User refs và bàn giao nhúng. [Goods Issue + sơ đồ quan hệ](docs/08_api/GOODS_ISSUES.md). | [sales-goods-issue.model.js](../src/models/sales-goods-issue.model.js) |
 | `defect_reports` | Hồ sơ phần hàng nghi lỗi, nguồn phát hiện, dấu hiệu, bằng chứng và các lần kiểm. | [defect-report.model.js](../src/models/defect-report.model.js) |
 | `stock_scrap_records` | Phiếu thực hủy theo phương án duyệt; chỉ trừ đúng lượng thực hủy. | [stock-scrap-record.model.js](../src/models/stock-scrap-record.model.js) |
-| `stocktakes` | Đợt kiểm kê theo kho/phạm vi, lịch, người đếm, mốc kích hoạt và chốt. | [stocktake.model.js](../src/models/stocktake.model.js) |
+| `stocktakes` | Đợt kiểm kê theo kho/phạm vi, lịch, người đếm, mốc kích hoạt và chốt; dòng phương án xử lý chênh lệch mang lý do (`details.reasonCode`, `details.reasonNote`, từ 18/11/2026). | [stocktake.model.js](../src/models/stocktake.model.js) |
 | `stock_adjustments` | Phiếu điều chỉnh số lượng theo phần thiếu/thừa được duyệt khi chốt kiểm kê. | [stock-adjustment.model.js](../src/models/stock-adjustment.model.js) |
 | `failed_deliveries` | Phần hàng đã xuất nhưng khách không nhận, gồm lý do, lượng và người đang giữ. | [failed-delivery.model.js](../src/models/failed-delivery.model.js) |
 | `stock_quality_changes` | Phiếu chuyển lượng giữa trạng thái chất lượng; tổng lượng và vị trí không tự thay đổi. | [stock-quality-change.model.js](../src/models/stock-quality-change.model.js) |

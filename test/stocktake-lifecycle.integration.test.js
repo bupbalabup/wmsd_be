@@ -140,7 +140,7 @@ run('Owner plans, assigned Staff freezes; counts stay blind-append-only; full fl
     const header = (await m.Stocktake.findById(id)).header;
     const latest = async snap => (await m.StocktakeCount.find({ stocktakeId: id, snapshotId: snap._id }).sort({ attemptNo: -1 }))[0];
     const selected = [{ snapshotId: String(snapshot._id), countId: String((await latest(snapshot))._id) }, { snapshotId: String(discovered._id), countId: String((await latest(discovered))._id) }];
-    const items = [{ snapshotId: selected[0].snapshotId, countId: selected[0].countId, actionKind: 'DELTA', qtyBase: '4', deltaQty: '-4' }, { snapshotId: selected[1].snapshotId, countId: selected[1].countId, actionKind: 'DELTA', qtyBase: '4', deltaQty: '4' }];
+    const items = [{ snapshotId: selected[0].snapshotId, countId: selected[0].countId, actionKind: 'DELTA', qtyBase: '4', deltaQty: '-4', reasonCode: 'LOST' }, { snapshotId: selected[1].snapshotId, countId: selected[1].countId, actionKind: 'DELTA', qtyBase: '4', deltaQty: '4', reasonCode: 'FOUND' }];
     const planBody = { idempotencyKey: key(), expectedVersion: await version(id), scopeVersion: header.scopeVersion, selectedCounts: selected, items, reason: 'Four missing, four found' };
     await assert.rejects(st.submitResolutionPlan(owner, id, planBody), /quyền/i);
     await assert.rejects(st.submitResolutionPlan(worker, id, { ...planBody, idempotencyKey: key(), items: [{ ...items[0], deltaQty: '4' }, items[1]] }), /chiều chênh lệch/);
@@ -186,7 +186,7 @@ run('independent approval: proposer cannot approve; rejection preserves history 
     await count(id, { targetType: 'STOCK', snapshotId: String(snapshot._id), countedQtyBase: '4' }, dual);
     await reconcile(id, dual);
     const countRow = await m.StocktakeCount.findOne({ stocktakeId: id });
-    const body = async () => ({ idempotencyKey: key(), expectedVersion: await version(id), scopeVersion: 1, selectedCounts: [{ snapshotId: String(snapshot._id), countId: String(countRow._id) }], items: [{ snapshotId: String(snapshot._id), countId: String(countRow._id), actionKind: 'DELTA', qtyBase: '4', deltaQty: '-4' }], reason: 'Four missing' });
+    const body = async () => ({ idempotencyKey: key(), expectedVersion: await version(id), scopeVersion: 1, selectedCounts: [{ snapshotId: String(snapshot._id), countId: String(countRow._id) }], items: [{ snapshotId: String(snapshot._id), countId: String(countRow._id), actionKind: 'DELTA', qtyBase: '4', deltaQty: '-4', reasonCode: 'LOST' }], reason: 'Four missing' });
     await st.submitResolutionPlan(dual, id, await body());
     const planDoc = (await m.Stocktake.findById(id)).resolutionPlans[0];
     await assert.rejects(st.reviewResolutionPlan(dual, id, planDoc._id, { idempotencyKey: key(), expectedVersion: await version(id), expectedPlanVersion: 1, decision: 'APPROVE', reason: 'self' }), /không tự duyệt/);
@@ -212,7 +212,7 @@ run('no-variance close needs reconciliation, writes no adjustment and releases l
     const closeBody = async () => ({ idempotencyKey: key(), expectedVersion: await version(id), reason: 'Matched', selectedCounts });
     await assert.rejects(closeStocktake(owner, id, await closeBody()), /chưa được đối chiếu/);
     await reconcile(id);
-    await assert.rejects(st.submitResolutionPlan(worker, id, { idempotencyKey: key(), expectedVersion: await version(id), scopeVersion: 1, selectedCounts, items: [{ ...selectedCounts[0], actionKind: 'DELTA', qtyBase: '1', deltaQty: '1' }], reason: 'None needed' }), /khớp sổ/);
+    await assert.rejects(st.submitResolutionPlan(worker, id, { idempotencyKey: key(), expectedVersion: await version(id), scopeVersion: 1, selectedCounts, items: [{ ...selectedCounts[0], actionKind: 'DELTA', qtyBase: '1', deltaQty: '1', reasonCode: 'FOUND' }], reason: 'None needed' }), /khớp sổ/);
     const adjustments = await m.StockAdjustment.countDocuments();
     assert.equal((await closeStocktake(owner, id, await closeBody())).workflowStatus, 'COMPLETED');
     assert.equal(await m.StockAdjustment.countDocuments(), adjustments);

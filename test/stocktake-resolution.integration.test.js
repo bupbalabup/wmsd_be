@@ -64,7 +64,7 @@ async function submitPlan(session, proposer, difference, reason) {
     const selected = { snapshotId: String(session.snapshot._id), countId: String(session.countRow._id) };
     await st.submitResolutionPlan(proposer, session.id, {
         idempotencyKey: key(), expectedVersion: doc.version, scopeVersion: doc.header.scopeVersion, selectedCounts: [selected],
-        items: [{ ...selected, actionKind: 'DELTA', qtyBase: difference.replace('-', ''), deltaQty: difference }], reason,
+        items: [{ ...selected, actionKind: 'DELTA', qtyBase: difference.replace('-', ''), deltaQty: difference, reasonCode: 'RECORD_ERROR' }], reason,
     });
     return (await m.Stocktake.findById(session.id)).resolutionPlans.at(-1);
 }
