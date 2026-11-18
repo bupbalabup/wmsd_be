@@ -86,7 +86,7 @@ const orderSchedule = async (id, session) => {
   if (!schedule) throw validationError('SO cũ không có lịch giao, không xử lý theo luồng mới');
   return schedule;
 };
-const settle = (order, deliveries) => {
+export const settle = (order, deliveries) => {
   const live = deliveries.filter(active);
   order.workflowStatus = live.length && live.every(d => d.status === 'HANDED_OVER') ? 'COMPLETED' : 'OPEN';
 };

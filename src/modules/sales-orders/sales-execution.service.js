@@ -319,7 +319,8 @@ export async function listSalesOrders(user, query) {
     let filter = currentRole(user)?.code === 'SALES' ? { createdBy: user._id } : {};
     if (!named) {
         const ids = await m.WarehouseIssueRequest.find({ 'header.requestedWarehouseId': { $in: user.warehouseIds || [] } }).distinct('header.salesOrderId');
-        filter._id = { $in: ids };
+        const scheduled = await m.DeliverySchedule.find({ 'deliveries.warehouseId': { $in: user.warehouseIds || [] } }).distinct('salesOrderId');
+        filter._id = { $in: [...ids, ...scheduled] };
     }
     if (query.q)
         filter.documentNo = new RegExp(escapeRegex(query.q), 'i');

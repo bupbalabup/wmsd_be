@@ -10,6 +10,7 @@ import {
   outboundDeliveryRouter,
   pickingRouter,
 } from "./modules/sales-orders/sales-read.routes.js";
+import { deliveryScheduleRouter, deliveryOrderRouter } from "./modules/delivery-orders/delivery-order.routes.js";
 import healthRouter from "./modules/health/health.routes.js";
 import authRouter from "./modules/auth/auth.routes.js";
 import usersRouter from "./modules/users/user.routes.js";
@@ -38,6 +39,8 @@ router.use('/uoms',uomRouter);
 router.use("/location-movements", locationMovementRouter);
 router.use("/warehouse-transfers", transferWriteRouter, transferReadRouter);
 router.use("/sales-orders", salesOrderRouter);
+router.use("/delivery-schedules", deliveryScheduleRouter);
+router.use("/delivery-orders", deliveryOrderRouter);
 router.use("/outbound-deliveries", outboundDeliveryRouter);
 router.use('/picking-tasks',pickingRouter);
 

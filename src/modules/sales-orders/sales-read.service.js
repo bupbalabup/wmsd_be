@@ -39,7 +39,8 @@ export async function orderSource(user,id,session,{ replay = false } = {}) {
   if (replay && hasCustomSalesScope(user)) {
     if (!same(order.createdBy, user._id)) throw notFoundError();
   } else if (!hasNamedSalesScope(user) &&
-    !await WarehouseIssueRequest.exists({ 'header.salesOrderId': id, ...assignedRequests(user) }).session(session)) {
+    !await WarehouseIssueRequest.exists({ 'header.salesOrderId': id, ...assignedRequests(user) }).session(session) &&
+    !await DeliverySchedule.exists({ salesOrderId: id, 'deliveries.warehouseId': { $in: user.warehouseIds || [] } }).session(session)) {
     throw notFoundError();
   }
   return order;
@@ -118,15 +119,19 @@ export async function getSalesOrder(user,id){
     const tasks=await TransferOrder.find({'sources.subjectCollection':'sales_goods_issues','sources.documentId':{$in:issues.map(i=>i._id)}}).session(session);
     const confirmations=(order.deliveryConfirmations||[]).map(c=>({...dto(c),items:c.items.filter(i=>issueIds.some(id=>same(id,i.details.salesIssueLineId))).map(dto)})).filter(c=>c.items.length);
     const result={...dto(order),issueRequests:requests.map(dto),outboundDeliveries:deliveries.map(dto),goodsIssues:issues.map(dto),failedDeliveryReceipts:returns.map(dto),tasks:tasks.map(dto),deliveryConfirmations:confirmations};
+    // Schedule-driven flow: warehouse staff see only the deliveries of their own warehouses.
+    const schedule=await DeliverySchedule.findOne({salesOrderId:id}).session(session).lean();
+    const visible=(schedule?.deliveries??[]).filter(d=>!scoped||(user.warehouseIds||[]).some(w=>same(w,d.warehouseId)));
+    const places=visible.length?await WarehouseLocation.find({_id:{$in:visible.flatMap(d=>d.lines.flatMap(l=>l.allocations.map(a=>a.locationId)))}}).select('code name').session(session).lean():[];
+    const deliverySchedule=schedule&&{...dto(schedule),deliveries:visible.map(d=>({...dto(d),lines:d.lines.map(l=>({...dto(l),allocations:l.allocations.map(a=>({...dto(a),locationCode:places.find(p=>same(p._id,a.locationId))?.code}))}))}))};
+    result.deliveryOrders=(await DeliveryOrder.find({'header.salesOrderId':id,...(scoped&&{'header.warehouseId':{$in:user.warehouseIds||[]}})}).session(session).lean()).map(dto);
     if(scoped){
-      const allowed=new Set(requests.flatMap(row=>row.items.map(item=>String(item.details.salesOrderLineId))));
+      const allowed=new Set([...requests.flatMap(row=>row.items.map(item=>String(item.details.salesOrderLineId))),...visible.flatMap(d=>d.lines.map(l=>String(l.soLineId)))]);
       result.items=result.items.filter(item=>allowed.has(String(item._id)));
+      result.deliverySchedule=deliverySchedule;
       delete result.paymentConfirmations;delete result.evidenceIds;delete result.externalReferenceIds;
       return scopedSalesDto(user, result);
     }
-    const schedule=await DeliverySchedule.findOne({salesOrderId:id}).session(session).lean();
-    const places=schedule?await WarehouseLocation.find({_id:{$in:schedule.deliveries.flatMap(d=>d.lines.flatMap(l=>l.allocations.map(a=>a.locationId)))}}).select('code name').session(session).lean():[];
-    const deliverySchedule=schedule&&{...dto(schedule),deliveries:schedule.deliveries.map(d=>({...dto(d),lines:d.lines.map(l=>({...dto(l),allocations:l.allocations.map(a=>({...dto(a),locationCode:places.find(p=>same(p._id,a.locationId))?.code}))}))}))};
     const receipts=await FailedDeliveryReceipt.find({workflowStatus:'POSTED','demandReopenings.salesOrderLineId':{$in:order.items.map(i=>i._id)}}).session(session);
     const reopenedSources=receipts.flatMap(receipt=>(receipt.demandReopenings||[]).filter(r=>order.items.id(r.salesOrderLineId)).map(row=>{
       const cancelled=(order.cancellations||[]).filter(c=>same(c.reopeningReceiptLineId,row.receiptLineId)).reduce((n,c)=>n.plus(String(c.cancelledQtyBase)),exact('0'));

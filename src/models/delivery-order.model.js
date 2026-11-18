@@ -35,6 +35,7 @@ export function createDeliveryOrderSchema() {
       sources: { type: [createDocumentSourceSchema()], default: undefined },
       header: { type: createDeliveryOrderHeaderSchema(), required: true },
       updatedBy: ref("User", false),
+      stockTransactionId: ref("StockTransaction", false),
       evidenceIds: refs("Attachment"),
       cancelledBy: ref("User", false),
       cancelledAt: date(false),
