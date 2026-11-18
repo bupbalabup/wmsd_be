@@ -1,3 +1,5 @@
+19/11/2026. Gỡ `approvedEnteredQty` khỏi `replenishment_requests.items[]` và `approval_history.itemDecisions[]`. Lượng duyệt được ghi theo đơn vị gốc ở `approvedQtyBase`. Các bản ghi cũ vẫn đọc được qua lượng gốc. Áp dụng quy tắc chuẩn hóa diện tích ở lớp nghiệp vụ.
+
 18/11/2026: `product_batches` thêm lại `tone` và `calibre` (String, tùy chọn, tối đa 20 ký tự, trim). Đảo quyết định 06/11/2026 (v6) theo yêu cầu mới của người dùng; khóa duy nhất vẫn là `productId + manufacturerLot`, không đổi index. `field-cleanup.js` không còn gỡ hai trường này. Lô cũ không có giá trị, không backfill. Thêm `verificationReference`, `notes` (String ≤ 500, tùy chọn), `verifiedAt` (Date), `verifiedBy` (ref User), đặt `verifiedAt/By` khi lô chuyển sang VERIFIED.
 
 18/11/2026: thêm `approvedEnteredQty` (tùy chọn, Decimal128 ≥ 0) vào dòng `replenishment_requests` và `approval_history.itemDecisions`; `approvedQtyBase` được BE tính từ trường này.

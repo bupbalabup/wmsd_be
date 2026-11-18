@@ -39,13 +39,15 @@ export async function get(user, id) {
   const document = dto(await replay(id, user));
   const [products, batches, locations, warehouse] = await Promise.all([
     m.Product.find({ _id: { $in: document.items.map(i => i.productId) } }).select('_id sku').lean(),
-    m.ProductBatch.find({ _id: { $in: document.items.map(i => i.lotId) } }).select('_id manufacturerLot').lean(),
+    m.ProductBatch.find({ _id: { $in: document.items.map(i => i.lotId) } }).select('_id manufacturerLot tone calibre').lean(),
     m.WarehouseLocation.find({ warehouseId: document.header.warehouseId }).select('_id code name').lean(),
     m.Warehouse.findById(document.header.warehouseId).select('code name').lean(),
   ]);
   return { ...document, header: { ...document.header, warehouseName: warehouse?.name }, items: document.items.map(item => ({ ...item,
     sku: products.find(p => same(p._id, item.productId))?.sku,
     manufacturerLot: batches.find(b => same(b._id, item.lotId))?.manufacturerLot,
+    tone: batches.find(b => same(b._id, item.lotId))?.tone,
+    calibre: batches.find(b => same(b._id, item.lotId))?.calibre,
     locationCode: locations.find(l => same(l._id, item.locationId))?.code,
   })) };
 }
@@ -130,7 +132,11 @@ async function resolveRows(user, input, session, persist = false) {
       let newBatch = false;
       if (!batch) {
         requirePermission(user, 'product_lot:create');
+        if (!/^\d+$/.test(row.piecesPerCarton || '') || !row.cartonLengthMm || !row.cartonWidthMm || !row.cartonHeightMm) throw validationError('Lô mới cần số viên mỗi thùng (số nguyên) và ba kích thước thùng.');
+        // Same rule as the lot screens: a VERIFIED lot needs the tone and calibre printed on the box.
+        if (!row.tone || !row.calibre) throw validationError('Lô mới cần tone và calibre in trên vỏ hộp.');
         batch = new m.ProductBatch({ productId: product._id, manufacturerLot: row.manufacturerLot, identificationStatus: 'VERIFIED',
+          tone: row.tone, calibre: row.calibre, verifiedAt: new Date(), verifiedBy: user._id,
           piecesPerCarton: Number(row.piecesPerCarton), cartonLengthMm: row.cartonLengthMm, cartonWidthMm: row.cartonWidthMm, cartonHeightMm: row.cartonHeightMm });
         await batch.validate(); newBatch = true;
         if (persist) {
@@ -142,6 +148,9 @@ async function resolveRows(user, input, session, persist = false) {
       if (!Number.isSafeInteger(batch.piecesPerCarton) || batch.piecesPerCarton < 1) throw validationError('Lô thiếu số lượng hợp lệ mỗi thùng.');
       for (const field of ['piecesPerCarton', 'cartonLengthMm', 'cartonWidthMm', 'cartonHeightMm']) {
         if (row[field] && !exact(String(batch[field])).eq(row[field])) throw validationError('Quy cách lô trong file khác danh mục: ' + field);
+      }
+      for (const field of ['tone', 'calibre']) {
+        if (row[field] && row[field] !== batch[field]) throw validationError(`${field === 'tone' ? 'Tone' : 'Calibre'} trong file khác lô trong danh mục (${batch[field] || 'chưa có'}).`);
       }
       batches.set(batchKey, batch);
       const qty = exact(row.enteredQty);
@@ -175,7 +184,7 @@ async function resolveRows(user, input, session, persist = false) {
           productNameSnapshot: product.name, enteredUnit: product.baseUnit, baseUnitSnapshot: product.baseUnit, baseUnitsPerUnit: '1',
           enteredQty: qtyBase, qtyBase, packagingSnapshot, locationId: location._id, ownerType: 'STORE', qualityStatus: 'GOOD', ...packaging };
       });
-      rows.push({ rowNumber: index + 2, sku: product.sku, product: product.name, batch: batch.manufacturerLot, location: location.code,
+      rows.push({ rowNumber: index + 2, sku: product.sku, product: product.name, batch: batch.manufacturerLot, tone: batch.tone ?? null, calibre: batch.calibre ?? null, location: location.code,
         quantityBase: qty.toFixed(), unit: product.baseUnit, newProduct, newBatch, items });
     } catch (error) {
       if (persist) throw error;

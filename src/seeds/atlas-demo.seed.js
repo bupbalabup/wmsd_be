@@ -56,8 +56,9 @@ function addReceivingCases(template, cohort) {
   });
   const caseKind = ['DRAFT_RR', 'SUBMIT_RR', 'APPROVED_RR', 'DRAFT_PO', 'OPEN_PO', 'DRAFT_INS', 'DRAFT_INS', 'OPEN_PO'][cohort - 1];
   const requestState = { DRAFT_RR: 'DRAFT', SUBMIT_RR: 'SUBMITTED' }[caseKind] ?? 'APPROVED';
+  const { approvedQtyBase, ...requestLine } = originalRequest.items[0];
   const line = {
-    ...originalRequest.items[0], _id: id('rr-line'), enteredQty: decimalValue(32), qtyBase: decimalValue(32),
+    ...requestLine, _id: id('rr-line'), enteredQty: decimalValue(32), qtyBase: decimalValue(32),
     createdAt: occurredAt, updatedAt: occurredAt,
     details: { triggerType: 'MANUAL_OTHER', reasonNote: 'Bổ sung hàng cho kịch bản kiểm thử mua và nhận.' },
   };
@@ -96,10 +97,12 @@ function addReceivingCases(template, cohort) {
   data.replenishment_requests = [...template.replenishment_requests, request];
   const destination = template.warehouse_locations.find(row => row.warehouseId.equals(warehouse._id) && row.locationType === 'STORAGE');
   const { sources, requestItemId, unitPurchasePrice, lineAmount, ...receiptLine } = originalPo.items[0];
+  const { lotId, packagingSnapshot, enteredUnit, baseUnitsPerUnit } = originalArrival.items[0];
   const other = createDocument('other-draft', 'OTHER', 'DRAFT', originalRequest.createdBy, {
     warehouseId: warehouse._id, reason: 'Nhập bổ sung ngoài chuỗi mua để thử trình duyệt phiếu.',
   }, [{
     ...receiptLine, _id: id('other-line'), destinationLocationId: destination._id, qualityCode: 'GOOD',
+    lotId, packagingSnapshot, enteredUnit, baseUnitsPerUnit,
     enteredQty: decimalValue(2), qtyBase: decimalValue(8), createdAt: occurredAt, updatedAt: occurredAt,
   }]);
   data.goods_receipts = [...template.goods_receipts, other];
@@ -107,7 +110,7 @@ function addReceivingCases(template, cohort) {
 
   const poLine = {
     ...originalPo.items[0], _id: id('po-line'), requestItemId: line._id, sources: [link('replenishment_requests', request, line)],
-    enteredQty: decimalValue(8), qtyBase: line.qtyBase, unitPurchasePrice, lineAmount: decimalValue(1120000), createdAt: occurredAt, updatedAt: occurredAt,
+    enteredQty: line.qtyBase, qtyBase: line.qtyBase, unitPurchasePrice, lineAmount: decimalValue(1120000), createdAt: occurredAt, updatedAt: occurredAt,
   };
   const po = createDocument('po-followup', 'PO', caseKind === 'DRAFT_PO' ? 'DRAFT' : 'OPEN', originalPo.createdBy, {
     warehouseId: warehouse._id, supplierId: originalPo.header.supplierId, supplierSnapshot: originalPo.header.supplierSnapshot,

@@ -1,6 +1,6 @@
 # Hướng dẫn đọc code: từ Yêu cầu bổ sung (RR) đến Nhập hàng và Cất hàng
 
-> Ngày viết: 16/11/2026. Cập nhật 18/11/2026 theo code hiện tại (gồm thay đổi đang staged chưa commit): gỡ lệnh cất hàng mua (`purchase-putaway.service.js`), đưa hàng lên kệ bằng **Chuyển vị trí BF03** (`location-movements`); duyệt RR theo đơn vị nhập (`approvedEnteredQty`); PO được đổi đơn vị và làm tròn lên nguyên gói (`withinApproved`); khóa tồn theo kho (`guardWarehouses`); `splitPortions` có chế độ mở thùng. Nguồn: đọc trực tiếp code trong `be/src`. Tài liệu chỉ mô tả code hiện có, không đưa ra quyết định nghiệp vụ mới. Số dòng có thể lệch khi code thay đổi; tên hàm là mốc ổn định hơn.
+> RR duyệt theo đơn vị gốc. PO đối chiếu lượng duyệt theo đơn vị gốc và chỉ áp dụng ngoại lệ vượt trần cho thùng. Sau khi ghi nhập, kho đưa hàng lên kệ qua Chuyển vị trí BF03. Tên hàm trong hướng dẫn dùng để tra code trong `be/src`.
 
 ## 1. Thông tin quy trình nghiệp vụ
 
@@ -57,8 +57,8 @@ Route của bước 6–8 khai báo trong [po-receiving.routes.js](../../../src/
 1. **Lập RR (nháp hoặc gửi luôn).** Nhân viên kho/Sales chọn kho, ngày cần hàng, lý do và từng dòng sản phẩm + đơn vị + số lượng. Server quy đổi số lượng sang **đơn vị gốc** (`qtyBase`), tự đánh giá tồn khả dụng, RR đang mở, PO đang về và tồn ở kho khác. Nếu có cảnh báo, người lập phải xác nhận "vẫn cần" kèm giải trình. RR được lưu `DRAFT` (hoặc `SUBMITTED` nếu `action = 'SUBMIT'`), `version = 1`.
 2. **Sửa RR** (chỉ người lập, chỉ khi `DRAFT`/`REVISION_REQUIRED`, chưa có PO). Mỗi lần sửa tăng `version`.
 3. **Gửi duyệt RR.** Server đánh giá lại từng dòng theo dữ liệu mới nhất, rồi chụp **ảnh bất biến** (`submissions[]`) gồm kho, sản phẩm, đơn vị, hệ số quy đổi, số lượng. Trạng thái → `SUBMITTED`.
-4. **Owner duyệt RR.** Người duyệt phải khác người lập. Với `APPROVE`, phải xét **mọi dòng**; mỗi dòng nhập lượng duyệt theo **đơn vị của dòng** (`approvedEnteredQty`, vd 8 Thùng) hoặc theo đơn vị gốc (`approvedQtyBase`, client cũ). Server quy ra `approvedQtyBase ≤ qtyBase`; giảm số lượng thì phải có lý do riêng của dòng. Một bản ghi `approval_history` bất biến được tạo. RR → `APPROVED` / `REJECTED` / `REVISION_REQUIRED`.
-5. **Lập PO từ RR đã duyệt.** Mỗi dòng PO trỏ về đúng một dòng RR và quyết định duyệt còn hiệu lực. Kế toán có thể đặt theo **đơn vị khác** đơn vị của RR (`uomCode`). Lượng PO ≤ lượng duyệt, trừ khi chỉ vượt vì **làm tròn lên nguyên gói** (bớt 1 gói thì thiếu). Một RR chỉ có **một PO sống** (unique index). PO lưu `DRAFT`.
+4. **Owner duyệt RR.** Người duyệt phải khác người lập. Với `APPROVE`, xét mọi dòng và gửi lượng gốc `approvedQtyBase` cho từng dòng. Giảm lượng cần lý do riêng trên dòng. Dòng thùng chỉ duyệt lượng tương ứng số thùng nguyên. Quyết định được ghi vào `approval_history`. RR chuyển sang `APPROVED`, `REJECTED` hoặc `REVISION_REQUIRED`.
+5. **Lập PO từ RR đã duyệt.** Mỗi dòng PO trỏ về một dòng RR và quyết định duyệt còn hiệu lực. Kế toán có thể đổi đơn vị bằng `uomCode`. Chỉ đơn vị thùng được vượt lượng duyệt với số thùng nguyên nhỏ nhất đủ phủ lượng duyệt. Chỉ mục duy nhất giữ một PO còn hiệu lực cho mỗi RR. PO lưu `DRAFT`.
 6. **Phát hành PO.** Kiểm lại RR vẫn `APPROVED` cùng revision, sản phẩm/NCC/kho còn hoạt động. PO → `OPEN`.
 7. **Hàng đến – lập phiếu kiểm nhận.** Thủ kho ghi thời điểm đến, người giao, rồi từng dòng: dòng PO, **lô thực nhận**, số đếm (theo thùng nguyên hoặc đơn vị gốc), chất lượng (`GOOD/DAMAGED/PENDING/BLOCKED`), quyết định sở hữu (`ACCEPT/CUSTODY/REJECT`), tình trạng bao bì. Server tạo cùng lúc `GoodsArrival` + `GoodsInspection` ở `DRAFT`. Chưa có tồn kho.
 8. **Xác nhận kiểm nhận.** Server kiểm tổng lượng `ACCEPT` không vượt phần PO còn được nhận; bắt buộc chọn **vị trí RECEIVING** cho mỗi dòng `ACCEPT`. Sinh **Phiếu nhập mua `DRAFT`** cho phần `ACCEPT`, sinh **Phiếu giữ hộ** cho phần `CUSTODY`. Kiểm nhận → `CONFIRMED`, Hàng đến → `RECORDED`.
@@ -104,7 +104,7 @@ Mỗi document còn có mảng `sources[]` (`{ documentId, subjectCollection, it
 | `Conversion` (`conversions`) | Find (sort `validFrom`) / Aggregate | Hệ số quy đổi `basePerUnit` theo sản phẩm, đơn vị, (tùy chọn) lô. |
 | `ProductBatch` (`product_batches`) | Find / Update (`updatedAt`) | Lô phải `VERIFIED`; `piecesPerCarton` và kích thước thùng; khóa định danh lô khi đưa vào chứng từ. |
 | `ReplenishmentRequest` (`replenishment_requests`) | Create / Find / Update | Chứng từ RR, dòng hàng, ảnh gửi duyệt, lượng duyệt. |
-| `ApprovalHistory` (`approval_history`) | Create / Find | Quyết định duyệt RR bất biến (append-only); `itemDecisions[]` có `approvedQtyBase` và (tùy chọn) `approvedEnteredQty`; PO dựa vào đây để giới hạn lượng. |
+| `ApprovalHistory` (`approval_history`) | Create / Find | Quyết định duyệt RR bất biến. PO đọc `itemDecisions[].approvedQtyBase` để giới hạn lượng. |
 | `SalesOrder`, `WarehouseIssueRequest`, `Stocktake`, `StocktakeSnapshot` | Find / exists | Chỉ khi dòng RR có nguồn `SALES_SHORTAGE` hoặc `STOCKTAKE_LOW_STOCK`. |
 | `PurchaseOrder` (`purchase_orders`) | Create / Find / Update / exists | Đơn mua; trạng thái theo lượng đã nhập. |
 | `Supplier` (`suppliers`) | Find / exists | NCC phải `ACTIVE`; chụp `supplierSnapshot`. |
@@ -141,7 +141,7 @@ Mỗi document còn có mảng `sources[]` (`{ documentId, subjectCollection, it
 { _id: 'YCBS-...', documentNo, workflowStatus, version, createdBy,
   header: { warehouseId, neededOn, triggerReason, creationKey, submittedBy, submittedAt,
             approvedRevision, latestDecisionId: ref('ApprovalHistory') },
-  items: [ DocumentItem + { approvedQtyBase, approvedEnteredQty /*lượng duyệt theo đơn vị dòng*/, details: ReplenishmentDetails } ],
+  items: [ DocumentItem + { approvedQtyBase, details: ReplenishmentDetails } ],
   submissions: [ { documentVersion, warehouseCodeSnapshot, lines: [...] } ] }
 
 // PO: src/models/purchase-order.model.js
@@ -498,7 +498,7 @@ const line = z.object({ id: oid.optional(), poLineId: oid, lotId: oid, enteredQt
   ```
 
   *Tại sao:* số viên/thùng khác nhau theo lô, nên đơn vị **thùng** bắt buộc phải có quy đổi theo lô; đơn vị diện tích (m²) thì dùng chung theo sản phẩm.
-- `toBaseQuantity`: nhân hệ số; nếu đơn vị là diện tích (`uom.areaMm2 != null`) và sản phẩm đếm nguyên ⇒ làm tròn 6 chữ số rồi **làm tròn lên** (`ceil`) — mua 10 m² thì đặt đủ số viên phủ được 10 m².
+- `toBaseQuantity` nhân hệ số. Với đơn vị diện tích khác đơn vị gốc của sản phẩm nguyên viên, hàm làm tròn tích đến 6 chữ số rồi lấy `ceil`. `normalizedEnteredQty` chia lượng gốc cho hệ số, làm tròn 6 chữ số và kiểm tra quy đổi lại. `makeItem` lưu lượng diện tích đã chuẩn hóa. Ví dụ 10 m² gạch 600×600 được lưu thành 10,08 m² và 28 viên.
 
 ### Hàm: `evaluateLines(user, input, session, options)`
 
@@ -646,15 +646,14 @@ if (invalidLines.length) throw reviewRequired(evaluated, undefined, invalidLines
 |---|---|---|
 | `input.decision` | `'APPROVE'\|'REJECT'\|'REVISE'` | Quyết định. |
 | `input.reason` | string | Căn cứ chung, **bắt buộc**. |
-| `input.lines[]` | `{ lineId, approvedEnteredQty?, approvedQtyBase?, reason? }` | Lượng duyệt từng dòng. Gửi **một trong hai**: `approvedEnteredQty` (theo đơn vị của dòng, ưu tiên) hoặc `approvedQtyBase` (đơn vị gốc, cho client cũ). Schema: [replenishment.validation.js:205](../../../src/modules/replenishments/replenishment.validation.js). |
+| `input.lines[]` | `{ lineId, approvedQtyBase, reason? }` với `APPROVE` | Lượng duyệt từng dòng theo đơn vị gốc, dưới dạng chuỗi thập phân. [replenishment.validation.js](../../../src/modules/replenishments/replenishment.validation.js) |
 | `seen` | `Set` | Kiểm không trùng dòng và đủ dòng. |
 | `products` | `Product[]` | Để kiểm `wholeBaseUnits`. |
-| `uoms` | `Uom[]` | Đơn vị của các dòng, để `toBaseQuantity` biết đơn vị diện tích cần làm tròn lên. |
+| `uoms` | `Uom[]` | Nhận diện dòng thùng và diện tích để kiểm lượng duyệt. |
 | `approve` | bool | `input.decision === "APPROVE"`. |
-| `enteredQty` | Decimal \| null | Lượng duyệt theo đơn vị dòng; `0` khi từ chối/yêu cầu sửa; `null` khi client chỉ gửi đơn vị gốc. |
 | `quantity` | Decimal | Lượng duyệt đơn vị gốc, ghi vào `item.approvedQtyBase`. |
 | `positive` | bool | Có ít nhất một dòng > 0. |
-| `itemDecisions[]` | `{ itemId, approvedQtyBase, approvedEnteredQty?, outcome, reason }` | Ghi vào `approval_history`. |
+| `itemDecisions[]` | `{ itemId, approvedQtyBase, outcome, reason }` | Ghi vào `approval_history`. |
 | `approval` | `ApprovalHistory` | Bản ghi quyết định. |
 
 - **Tương tác DB:** `Product.find`, `Uom.find`, `ApprovalHistory.save`, `saveVersion(RR)`.
@@ -669,44 +668,11 @@ if (invalidLines.length) throw reviewRequired(evaluated, undefined, invalidLines
 
   Schema `approval_history` cũng có rule chặn `requestedBy == decidedBy` (trừ một luồng trả hàng đặc thù).
 
-  2. Duyệt thì phải xét tất cả dòng. Lượng duyệt theo đơn vị dòng được ưu tiên ([replenishment.commands.js:499](../../../src/modules/replenishments/replenishment.commands.js)):
+  2. Mỗi dòng `APPROVE` phải gửi `approvedQtyBase`. BE kiểm lượng duyệt từ 0 đến `qtyBase` và kiểm số nguyên nếu sản phẩm có `wholeBaseUnits`.
 
-  ```js
-  if (approve && decision.approvedEnteredQty == null && decision.approvedQtyBase == null)
-    throw validationError("Thiếu lượng duyệt");
-  const enteredQty = !approve ? exact("0")
-    : decision.approvedEnteredQty != null ? exact(decision.approvedEnteredQty) : null;
-  if (enteredQty && enteredQty.gt(String(item.enteredQty)))
-    throw validationError("Lượng duyệt vượt lượng đề nghị");
-  ```
+  3. BE dùng hệ số trên dòng RR để kiểm đơn vị thùng hoặc diện tích. Với thùng, lượng duyệt phải chia hết cho hệ số. Với diện tích làm tròn đến viên, lượng quy đổi ngược phải cho lại đúng lượng gốc.
 
-  3. Quy ra đơn vị gốc bằng **hệ số lịch sử của chính dòng RR** (`item.baseUnitsPerUnit`), không tra lại bảng quy đổi:
-
-  ```js
-  const quantity = !approve ? exact("0")
-    : enteredQty
-      ? enteredQty.eq(String(item.enteredQty))
-        ? exact(String(item.qtyBase))
-        : toBaseQuantity(enteredQty, String(item.baseUnitsPerUnit), product ?? {}, uoms.find((row) => row.code === item.enteredUnit))
-      : exact(decision.approvedQtyBase);
-  ```
-
-  *Tại sao:* duyệt đủ lượng xin thì lấy đúng `qtyBase` đã lưu (tránh sai lệch do làm tròn diện tích). Duyệt giảm theo m² thì `toBaseQuantity` làm tròn lên nguyên viên, cùng quy tắc lúc lập RR.
-
-  4. Các chốt chặn còn lại và ghi kết quả:
-
-  ```js
-  if (!product || (product.wholeBaseUnits && !quantity.isInteger())) throw validationError("Lượng duyệt phải đúng đơn vị gốc của sản phẩm");
-  if (quantity.gt(String(item.qtyBase))) throw validationError("Lượng duyệt vượt lượng đề nghị");
-  if (input.decision === "APPROVE" && quantity.lt(String(item.qtyBase)) && !decision?.reason?.trim())
-    throw validationError("Cần lý do cho dòng duyệt giảm số lượng");
-  item.approvedQtyBase = quantity.toFixed();
-  item.approvedEnteredQty = enteredQty?.toFixed();
-  return { itemId: item._id, approvedQtyBase: quantity.toFixed(),
-    ...(enteredQty && { approvedEnteredQty: enteredQty.toFixed() }), outcome: input.decision, reason: decision?.reason || input.reason };
-  ```
-
-  *Tại sao:* Owner được cắt giảm nhưng không được tăng quá lượng xin; cắt giảm phải giải thích ở đúng dòng (quy tắc H01). Dòng duyệt `0` coi như từ chối dòng đó; nhưng duyệt mà **tất cả** bằng 0 thì bị chặn — khi đó phải chọn `REJECT`. Dòng chỉ duyệt theo đơn vị gốc thì `approvedEnteredQty` để trống. Chi tiết RR trả `approvedEnteredQty` trong lịch sử duyệt ([replenishment.service.js:225](../../../src/modules/replenishments/replenishment.service.js)).
+  4. Mỗi dòng duyệt giảm cần lý do riêng. `APPROVE` cần ít nhất một dòng được duyệt dương. BE ghi `approvedQtyBase` vào dòng RR và `itemDecisions`. Với `REJECT` hoặc `REVISE`, lượng trên các dòng là 0.
 
   5. Lưu quyết định bất biến và cập nhật RR:
 
@@ -760,7 +726,7 @@ if (invalidLines.length) throw reviewRequired(evaluated, undefined, invalidLines
 
 [purchase-order.commands.js:37](../../../src/modules/purchase-orders/purchase-order.commands.js)
 
-- **Biến:** `supplier` (`status: 'ACTIVE'`), `request` (RR duy nhất của PO), `rr`, `approval`, `source` (dòng RR), `decision` (quyết định dòng), `old` (dòng PO đã lưu khi sửa), `uomCode` (đơn vị đặt mua), `changedUnit` (đơn vị đặt khác đơn vị RR), `factor` (= `source.baseUnitsPerUnit` — **hệ số lịch sử của RR** — nếu giữ đơn vị; ngược lại hệ số **hiện hành** từ `resolveConversion`), `amount` (lượng PO đơn vị gốc), `rounded` (có làm tròn diện tích), `value` (`unitPurchasePrice × enteredQty`, làm tròn 6 số).
+- **Biến:** `source` là dòng RR, `decision` là quyết định trên dòng. `uomCode` chỉ đơn vị đặt, `factor` là hệ số quy đổi, `amount` là lượng đặt theo đơn vị gốc và `enteredQty` là lượng lưu theo đơn vị đặt.
 - **Logic:**
 
   1. Mỗi dòng phải thuộc **cùng một RR đã duyệt và cùng kho**:
@@ -795,33 +761,26 @@ if (invalidLines.length) throw reviewRequired(evaluated, undefined, invalidLines
 
   ```js
   const uomCode = line.uomCode ?? old?.enteredUnit ?? source.enteredUnit;
-  const changedUnit = uomCode !== source.enteredUnit;
-  const factor = changedUnit
+  const factor = uomCode !== source.enteredUnit || (enteredUom.isCarton && source.lotId)
     ? (await resolveConversion(product, null, uomCode, session)).toFixed()
     : String(source.baseUnitsPerUnit);
   const amount = toBaseQuantity(line.enteredQty, factor, product, enteredUom);
   ```
 
-  *Tại sao:* RR có thể xin theo m² nhưng NCC bán theo thùng. Khi sửa PO mà client không gửi `uomCode`, giữ đơn vị đã lưu — nếu đọc lại theo đơn vị RR thì cùng con số `enteredQty` sẽ bị hiểu thành lượng khác. `resolveConversion(product, null, …)` lấy quy đổi **chung của sản phẩm** (không theo lô) vì PO chưa có lô.
+  BE kiểm số thùng và số theo đơn vị gốc có `wholeBaseUnits` là số nguyên. Khi sửa và bỏ `uomCode`, PO giữ đơn vị đã lưu. Khi giữ đơn vị của RR, PO dùng lại hệ số và lô của dòng RR. Khi chọn đơn vị mới, PO lấy quy đổi cấp sản phẩm và bỏ lô.
 
-  5. Lượng PO không vượt lượng duyệt, **trừ khi chỉ vượt do làm tròn lên nguyên gói**:
+  5. BE gọi `withinApproved(amount, line.enteredQty, factor, decision.approvedQtyBase, enteredUom.isCarton)` để kiểm trần.
 
-  ```js
-  if (!withinApproved(amount, line.enteredQty, factor, decision.approvedQtyBase) || amount.lte(0) ||
-      (product.wholeBaseUnits && !amount.isInteger()) || amount.decimalPlaces() > 6)
-    throw validationError("Sản phẩm hoặc lượng PO vượt nguồn được duyệt");
-  ```
+  6. `normalizedEnteredQty` xác định lượng diện tích sẽ lưu. BE tính `lineAmount = round(unitPurchasePrice × enteredQty, 6)`. Dòng PO lưu hệ số và liên kết dòng RR. Kho ghi lô và quy cách thực nhận khi kiểm nhận.
 
-  6. Dựng dòng PO bằng `copyItem(source, amount, { requestItemId, unitPurchasePrice, lineAmount, ...(changedUnit && { enteredUnit: uomCode, baseUnitsPerUnit: factor }), ...((changedUnit || rounded) && { enteredQty }), sources: [sourceLink(rr, source, amount, "REPLENISHMENT_PURCHASE")] })`. Đổi đơn vị thì dòng PO lưu **đơn vị và hệ số mới** làm ảnh lịch sử của chính nó.
-
-### Hàm: `withinApproved(qtyBase, enteredQty, factor, approvedBase, approvedEntered = null)`
+### Hàm: `withinApproved(qtyBase, enteredQty, factor, approvedBase, isPackage)`
 
 [conversions.js:45](../../../src/shared/utils/conversions.js) — dùng ở `draftItems`, `confirmPurchaseOrder` và đối soát `reconcilePurchasing`.
 
 ```js
-export function withinApproved(qtyBase, enteredQty, factor, approvedBase, approvedEntered = null) {
-  if (approvedEntered != null && exact(enteredQty).gt(approvedEntered.toString())) return false;
+export function withinApproved(qtyBase, enteredQty, factor, approvedBase, isPackage) {
   if (exact(qtyBase).lte(approvedBase.toString())) return true;
+  if (!isPackage) return false;
   const quantity = exact(enteredQty);
   return quantity.isInteger() && quantity.minus(1).mul(factor.toString()).lt(approvedBase.toString());
 }
@@ -833,7 +792,8 @@ export function withinApproved(qtyBase, enteredQty, factor, approvedBase, approv
 | `enteredQty` | Lượng PO theo đơn vị đặt (vd 8 thùng). |
 | `factor` | Hệ số của đơn vị đặt (vd 4 viên/thùng). |
 | `approvedBase` | Lượng Owner duyệt, đơn vị gốc. |
-| Trả về | `true` nếu không vượt, hoặc vượt nhưng bớt **1 đơn vị đặt** thì thiếu so với lượng duyệt. |
+| `isPackage` | Dấu `isCarton` từ danh mục của đơn vị đặt. |
+| Trả về | `true` nếu trong trần. Nếu vượt, chỉ trả `true` khi số thùng là số nguyên và bớt một thùng thì thiếu. |
 
 *Ví dụ:* duyệt 30 viên, NCC bán thùng 4 viên. 8 thùng = 32 viên > 30, nhưng 7 thùng = 28 < 30 ⇒ hợp lệ. 9 thùng = 36 viên bị chặn vì 8 thùng đã đủ.
 
@@ -856,7 +816,7 @@ export function withinApproved(qtyBase, enteredQty, factor, approvedBase, approv
     throw validationError("Nguồn RR đã đổi");
   ...
   if (!source || !decision || seen.has(sourceId) || !same(source.productId, item.productId) ||
-      !withinApproved(item.qtyBase, item.enteredQty, item.baseUnitsPerUnit, decision.approvedQtyBase))
+      !withinApproved(item.qtyBase, item.enteredQty, item.baseUnitsPerUnit, decision.approvedQtyBase, cartonUnits.has(item.enteredUnit)))
     throw validationError("Nguồn duyệt PO không còn hợp lệ");
   seen.add(sourceId);
   ...
@@ -1534,14 +1494,14 @@ return await InventoryBalance.findOne(fields).session(session) ??
 
 ## 2.16. Dữ liệu biến đổi qua toàn quy trình — ví dụ số
 
-Giả sử gạch `G60` có `baseUnit = 'viên'`, lô `L01` có `piecesPerCarton = 4`.
+Giả sử gạch `G60` có đơn vị gốc là viên và đã khai báo quy đổi cấp sản phẩm 4 viên/thùng. Lô thực nhận `L01` cũng có 4 viên/thùng.
 
 | Bước | Collection | Dữ liệu chính sau bước |
 |---|---|---|
 | Lập RR | `replenishment_requests` | `items[0] = { enteredUnit: 'Thùng', enteredQty: '10', baseUnitsPerUnit: '4', qtyBase: '40', details.availableQtySnapshot: '12' }`, `DRAFT`, v1 |
 | Gửi | `replenishment_requests` | `SUBMITTED`, v2, `submissions[0].documentVersion = 2` |
-| Duyệt giảm | `approval_history` + RR | Owner gửi `approvedEnteredQty: '8'` (Thùng) ⇒ `itemDecisions[0] = { approvedEnteredQty: '8', approvedQtyBase: '32' }` (có lý do dòng); RR `items[0].approvedEnteredQty = '8'`, `APPROVED`, v3, `approvedRevision = 2` |
-| Lập + phát hành PO | `purchase_orders` | `items[0] = { enteredUnit: 'Thùng', enteredQty: '8', qtyBase: '32', requestItemId: RR.items[0]._id }`, `OPEN`. (Nếu Owner duyệt 30 viên, 8 thùng = 32 viên vẫn qua `withinApproved` vì 7 thùng = 28 < 30.) |
+| Duyệt giảm | `approval_history` + RR | Owner gửi `approvedQtyBase: '32'` và lý do giảm. Lượng 32 viên tương đương 8 thùng nguyên. RR sang `APPROVED`, v3, `approvedRevision = 2`. |
+| Lập + phát hành PO | `purchase_orders` | `items[0] = { enteredUnit: 'Thùng', enteredQty: '8', qtyBase: '32', requestItemId: RR.items[0]._id }`, `OPEN`. |
 | Kiểm nhận | `goods_arrivals`, `goods_inspections` | Dòng 1: lô `L01`, 7 thùng = 28 viên, `GOOD/ACCEPT/SEALED`; dòng 2: 3 viên, `GOOD/ACCEPT/LOOSE` |
 | Xác nhận kiểm | `goods_receipts` | GR `DRAFT` hai dòng (28 + 3), `destinationLocationId = R-01` (RECEIVING). Headroom PO = 32 − 31 = 1 |
 | Ghi tồn | `inventory_balances`, `stock_transactions` | Balance (R-01, L01, GOOD, STORE): `quantityBase` 0 → 31, kiện `[SEALED×7=28, LOOSE 3]`; 2 movement `to`. PO `PARTIAL` (còn 1) |
@@ -1576,9 +1536,9 @@ Các điểm dưới đây rút ra từ đọc code, **chưa** được kiểm b
 12. **BF03 không ràng buộc loại vị trí hay chất lượng như lệnh cất cũ.** Đích có thể là `RECEIVING`, `STORAGE`, `STAGING`, `QUARANTINE` hoặc `CUSTODY`; nguồn có thể là số dư bất kỳ chất lượng/chủ hàng (kể cả hàng giữ hộ NCC). `moveStock` giữ nguyên lô, chất lượng và chủ hàng, nên tồn không bị đổi bản chất, nhưng hàng `GOOD` của cửa hàng có thể bị đặt vào ô `CUSTODY` mà không có cảnh báo.
 13. **Lượng chuyển chỉ nhận số nguyên** (`/^\d+$/` ở `relocationItems`, `/^\d{1,14}$/` ở xác nhận và Zod). Sản phẩm có `wholeBaseUnits = false` (lượng gốc thập phân) không chuyển được phần lẻ thập phân qua BF03.
 14. **`submission()` ghi `conversionVersion: document.version`** ([replenishment.commands.js:246](../../../src/modules/replenishments/replenishment.commands.js)) — đây là version của phiếu RR, không phải version của bản ghi `Conversion`. Ai đọc ảnh gửi duyệt nên dựa vào `conversionSnapshot` (= `baseUnitsPerUnit`), không dựa vào `conversionVersion`.
-15. **`reviewReplenishment` với `REJECT`/`REVISE`** đặt `approvedQtyBase = '0'` **và** `approvedEnteredQty = '0'` cho mọi dòng, ghi `itemDecisions` với `outcome = 'REJECT'/'REVISE'`. Sau khi sửa và gửi lại, các giá trị `0` cũ vẫn nằm trên dòng cho tới lần duyệt kế tiếp; nơi đọc nên dựa vào quyết định `APPROVE` của đúng revision (như README RR mô tả), không dựa vào hai trường này khi phiếu chưa `APPROVED`.
-16. **`reviewedContent: document.toObject()`** được chụp **sau** khi đã gán `item.approvedQtyBase`/`approvedEnteredQty`, nên "nội dung đã duyệt" chứa sẵn lượng duyệt mới chứ không phải đúng trạng thái trước quyết định. Ảnh trước quyết định nằm ở `submissions[]`.
-17. **PO được phép vượt lượng duyệt tới gần 1 đơn vị đặt khi đổi sang đơn vị khác** (từ 18/11/2026, cùng đơn vị với RR thì bị chặn ở `approvedEnteredQty`). `withinApproved` cho qua khi bớt 1 gói thì thiếu. Với đơn vị đặt lớn (vd pallet, hoặc thùng nhiều viên), phần vượt có thể đáng kể so với lượng Owner duyệt, và không cần Owner duyệt lại. Đối soát `RR_ALLOWANCE` dùng cùng quy tắc nên không báo phần vượt này. Changelog 17/11/2026 ghi DB demo còn một PO mẫu bị `RR_ALLOWANCE`.
+15. Với `REJECT` hoặc `REVISE`, `reviewReplenishment` ghi `approvedQtyBase = '0'` và quyết định tương ứng trên mọi dòng. PO đọc quyết định `APPROVE` của đúng bản RR đã duyệt.
+16. `reviewedContent` chụp RR sau khi đã ghi lượng duyệt. Nội dung lúc gửi duyệt nằm ở `submissions[]`.
+17. `RR_ALLOWANCE` dùng cùng trần với lệnh lập và phát hành PO. Ngoại lệ vượt trần chỉ áp dụng cho đơn vị có `isCarton`.
 18. **Hệ số của dòng PO tùy đơn vị đặt.** Giữ đơn vị của RR ⇒ dùng hệ số lịch sử của RR (`source.baseUnitsPerUnit`). Đổi đơn vị (`uomCode`) ⇒ dùng quy đổi **hiện hành, cấp sản phẩm** (`resolveConversion(product, null, …)`) — không theo lô, vì PO chưa có lô. Nếu thùng thực tế của lô về có số viên khác quy đổi chung, lượng PO theo thùng và lượng đếm thực tế theo lô sẽ lệch; kiểm nhận đếm theo quy đổi **của lô**.
 
 ### 3.3. Kiểm tra null/undefined và đầu vào

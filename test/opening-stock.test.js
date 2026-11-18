@@ -24,6 +24,8 @@ test('opening imports reject invalid decimals, hidden fields, unconfirmed empty 
   assert.equal(previewBody.safeParse({ ...body(), rows: [], confirmEmpty: true }).success, true);
   assert.equal(previewBody.safeParse({ ...body(), rows: [{ ...row, ownerType: 'STORE' }] }).success, false);
   assert.equal(previewBody.safeParse({ ...body(), rows: [{ ...row, locationCode: 'ST' }] }).success, false);
+  assert.equal(previewBody.safeParse({ ...body(), rows: [{ ...row, tone: 'T1', calibre: 'C1' }] }).success, true);
+  assert.equal(previewBody.safeParse({ ...body(), rows: [{ ...row, tone: 'x'.repeat(21) }] }).success, false);
   assert.equal(previewBody.safeParse({ ...body(), rows: [{ ...row, qualityStatus: 'GOOD' }] }).success, false);
   assert.equal(previewBody.safeParse({ ...body(), rows: Array(1001).fill(row) }).success, false);
   assert.equal(createBody.safeParse({ ...body(), idempotencyKey: key() }).success, true);
@@ -74,7 +76,10 @@ test('Owner alone initializes each warehouse once, with replay and atomic stock 
     const mixedInput = { ...input, rows: [{ ...row, enteredQty: '10' }] };
     const preview = await service.preview(owner, mixedInput);
     assert.equal(preview.valid, true);
-    assert.deepEqual(preview.rows, [{ rowNumber: 2, sku: 'TEST', product: 'Test tile', batch: 'B1',
+    const toneMismatch = await service.preview(owner, { ...mixedInput, rows: [{ ...row, tone: 'T9' }] });
+    assert.equal(toneMismatch.valid, false);
+    assert.match(toneMismatch.errors[0].message, /Tone trong file khác lô/);
+    assert.deepEqual(preview.rows, [{ rowNumber: 2, sku: 'TEST', product: 'Test tile', batch: 'B1', tone: null, calibre: null,
       location: 'TONDAU-NHAN', quantityBase: '10', unit: 'PIECE', newProduct: false, newBatch: false }]);
     assert.equal(await m.WarehouseLocation.countDocuments({ warehouseId: input.warehouseId }), 2);
     assert.equal(await receivingAt(input.warehouseId), null);
@@ -137,15 +142,31 @@ test('Owner alone initializes each warehouse once, with replay and atomic stock 
     assert.equal(String((await m.InventoryBalance.findById(openingBalance._id)).quantityBase), '0');
 
     const second = await setup('NEW');
-    const newRow = { ...row, sku: 'NEW', name: 'Imported tile', categoryCode: 'TILE', baseUnit: 'PIECE', lengthMm: '600', widthMm: '600', heightMm: '10', piecesPerCarton: '4', cartonLengthMm: '620', cartonWidthMm: '620', cartonHeightMm: '50' };
+    const newRow = { ...row, sku: 'NEW', name: 'Imported tile', categoryCode: 'TILE', baseUnit: 'PIECE', lengthMm: '600', widthMm: '600', heightMm: '10', tone: 'T1', calibre: 'C1', piecesPerCarton: '4', cartonLengthMm: '620', cartonWidthMm: '620', cartonHeightMm: '50' };
     const newInput = { ...second, rows: [newRow], idempotencyKey: key() };
     assert.equal((await service.preview(owner, newInput)).valid, true);
+    const { piecesPerCarton: _omitted, ...noCartonCount } = newRow;
+    for (const badLot of [noCartonCount, { ...newRow, piecesPerCarton: '4.5' }, { ...newRow, cartonHeightMm: undefined }]) {
+      const missingSpec = await service.preview(owner, { ...second, rows: [badLot] });
+      assert.equal(missingSpec.valid, false);
+      assert.match(missingSpec.errors[0].message, /Lô mới cần số viên mỗi thùng/);
+    }
+    for (const field of ['tone', 'calibre']) {
+      const missingLabel = await service.preview(owner, { ...second, rows: [{ ...newRow, [field]: undefined }] });
+      assert.equal(missingLabel.valid, false);
+      assert.match(missingLabel.errors[0].message, /tone và calibre/);
+    }
     assert.equal(await m.Product.countDocuments({ sku: 'NEW' }), 0);
     await assert.rejects(service.create(owner, { ...newInput, idempotencyKey: key(), rows: [newRow, { ...newRow, baseUnit: 'BOX' }] }), /khác danh mục/);
     assert.equal(await m.Product.countDocuments({ sku: 'NEW' }), 0);
     assert.equal(await receivingAt(second.warehouseId), null);
     const ownDraft = await service.create(owner, newInput);
     assert.equal(await m.Product.countDocuments({ sku: 'NEW' }), 1);
+    const importedLot = await m.ProductBatch.findOne({ productId: (await m.Product.findOne({ sku: 'NEW' }))._id });
+    assert.deepEqual([importedLot.tone, importedLot.calibre, importedLot.identificationStatus, String(importedLot.verifiedBy)], ['T1', 'C1', 'VERIFIED', String(owner._id)]);
+    assert.ok(importedLot.verifiedAt);
+    const ownDraftDetail = await service.get(owner, ownDraft.id);
+    assert.deepEqual([ownDraftDetail.items[0].tone, ownDraftDetail.items[0].calibre], ['T1', 'C1']);
     await service.act(owner, ownDraft.id, 'post', { ...postBody, idempotencyKey: key() });
     await assert.rejects(service.create(owner, { ...newInput, idempotencyKey: key(), cutoverKey: 'NEW-CUTOVER' }), /khởi tạo/);
     await assert.rejects(service.act(owner, ownDraft.id, 'cancel', { ...postBody, idempotencyKey: key() }));
