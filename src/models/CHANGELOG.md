@@ -1,3 +1,7 @@
+19/11/2026. Gỡ `approvedEnteredQty` khỏi `replenishment_requests.items[]` và `approval_history.itemDecisions[]`. Lượng duyệt được ghi theo đơn vị gốc ở `approvedQtyBase`. Các bản ghi cũ vẫn đọc được qua lượng gốc. Áp dụng quy tắc chuẩn hóa diện tích ở lớp nghiệp vụ.
+
+18/11/2026: `product_batches` thêm lại `tone` và `calibre` (String, tùy chọn, tối đa 20 ký tự, trim). Đảo quyết định 06/11/2026 (v6) theo yêu cầu mới của người dùng; khóa duy nhất vẫn là `productId + manufacturerLot`, không đổi index. `field-cleanup.js` không còn gỡ hai trường này. Lô cũ không có giá trị, không backfill. Thêm `verificationReference`, `notes` (String ≤ 500, tùy chọn), `verifiedAt` (Date), `verifiedBy` (ref User), đặt `verifiedAt/By` khi lô chuyển sang VERIFIED.
+
 ## 18 November 2026 — Existing warehouse positions on 3D design slots
 
 `warehouses.layout3d` and `layout3dApplied` accept optional `zones[].slots[].locationId` (ObjectId string). The layout API validates each reference against warehouse_locations from the same warehouse. The existing Mixed fields need no Mongoose schema change, new index, migration or backfill; operational locations and transactions are unaffected. See [Kho 3D stage 2](../git_doc/docs/10_Kho3D/STAGE2_ZONES.md).

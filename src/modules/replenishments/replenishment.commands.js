@@ -10,7 +10,7 @@ import {
   ProductBatch,
 } from "../../models/runtime.js";
 import { exact } from "../../models/model-utils.js";
-import { toBaseQuantity } from "../../shared/utils/conversions.js";
+import { normalizedEnteredQty } from "../../shared/utils/conversions.js";
 import { saigonDateOnly } from "../../shared/utils/domain.js";
 import {
   requirePermission,
@@ -122,6 +122,9 @@ async function items(input, actor, session, previous = [], requestId) {
       throw validationError(
         "Không đổi nguồn của dòng đã lưu; xóa dòng và chọn nguồn hợp lệ",
       );
+    if (!exact(line.enteredQty).isInteger() &&
+        await Uom.exists({ code: line.enteredUnit, isCarton: true }).session(session))
+      throw validationError("Số thùng phải là số nguyên");
     const value = await makeItem(line, index + 1, session, {
       previous: old,
       lineKind: "REPLENISHMENT",
@@ -496,45 +499,28 @@ export function reviewReplenishment(user, id, input) {
         const decision = input.lines.find((row) => same(row.lineId, item._id));
         const product = products.find((row) => same(row._id, item.productId));
         const approve = input.decision === "APPROVE";
-        if (approve && decision.approvedEnteredQty == null && decision.approvedQtyBase == null)
+        if (approve && decision.approvedQtyBase == null)
           throw validationError("Thiếu lượng duyệt");
-        // Entered-unit approval wins; reuse the line's own snapshot factor so it matches the request.
-        const enteredQty = !approve
-          ? exact("0")
-          : decision.approvedEnteredQty != null
-            ? exact(decision.approvedEnteredQty)
-            : null;
-        if (enteredQty && enteredQty.gt(String(item.enteredQty)))
-          throw validationError("Lượng duyệt vượt lượng đề nghị");
-        const quantity = !approve
-          ? exact("0")
-          : enteredQty
-            ? enteredQty.eq(String(item.enteredQty))
-              ? exact(String(item.qtyBase))
-              : toBaseQuantity(
-                  enteredQty,
-                  String(item.baseUnitsPerUnit),
-                  product ?? {},
-                  uoms.find((row) => row.code === item.enteredUnit),
-                )
-            : exact(decision.approvedQtyBase);
+        const quantity = exact(approve ? decision.approvedQtyBase : "0");
         if (!product || (product.wholeBaseUnits && !quantity.isInteger()))
           throw validationError(
             "Lượng duyệt phải đúng đơn vị gốc của sản phẩm",
           );
         if (quantity.gt(String(item.qtyBase)))
           throw validationError("Lượng duyệt vượt lượng đề nghị");
+        const uom = uoms.find((row) => row.code === item.enteredUnit);
+        const factor = String(item.baseUnitsPerUnit);
+        if (uom?.isCarton && !quantity.mod(factor).isZero())
+          throw validationError("Số thùng duyệt phải là số nguyên");
+        normalizedEnteredQty(quantity, factor, product, uom);
         // H01: a reduced approval needs its own line explanation, not the general decision note.
         if (input.decision === "APPROVE" && quantity.lt(String(item.qtyBase)) && !decision?.reason?.trim())
           throw validationError("Cần lý do cho dòng duyệt giảm số lượng");
         if (quantity.gt(0)) positive = true;
         item.approvedQtyBase = quantity.toFixed();
-        // Lines approved only in base units (older clients) keep no entered-unit amount.
-        item.approvedEnteredQty = enteredQty?.toFixed();
         return {
           itemId: item._id,
           approvedQtyBase: quantity.toFixed(),
-          ...(enteredQty && { approvedEnteredQty: enteredQty.toFixed() }),
           outcome: input.decision,
           reason: decision?.reason || input.reason,
         };
