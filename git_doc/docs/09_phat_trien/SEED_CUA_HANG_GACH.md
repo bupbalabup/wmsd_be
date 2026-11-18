@@ -8,16 +8,11 @@ Bản seed BE `wmsd-tile-shop-20261114-v11` dựng 58 collection dữ liệu m�
 mongodb://localhost:27017/wmsd_api_test_6aedf823b3e33975e06c07d1
 ```
 
-Sau reset test, database trên phải chưa tồn tại cho đến khi người dùng chạy `npm run seed` từ BE với URI loopback. Để bổ sung dữ liệu vào Atlas, dùng lệnh seed riêng dưới đây.
+Sau reset test, database trên phải chưa tồn tại cho đến khi người dùng chạy `npm run seed` từ BE với URI loopback.
 
-## Bổ sung dữ liệu demo trên Atlas
+## Dữ liệu demo Atlas đã nạp
 
-[Seed bổ sung](../../../src/seeds/atlas-demo.seed.js) dùng `MONGODB_URI` đã cấu hình cho `wmsd_database`. Chạy từ thư mục backend. Lệnh đầu lập kế hoạch và kiểm khóa với dữ liệu đang có. Lệnh sau ghi toàn bộ bản ghi trong một transaction và đối chiếu ID đã ghi. Khi đã nạp, cả hai lệnh trả `ALREADY_SEEDED`.
-
-```powershell
-node src/seeds/atlas-demo.seed.js --database=wmsd_database
-node src/seeds/atlas-demo.seed.js --database=wmsd_database --apply
-```
+Ngày 17/11/2026, theo yêu cầu người dùng, đã xoá `src/seeds/atlas-demo.seed.js` và test riêng `test/atlas-demo.integration.test.js`. Không còn lệnh chạy seed demo Atlas này. Việc xoá file không xoá hoặc thay đổi dữ liệu đã nạp trong `wmsd_database`; các seed khác được giữ nguyên. Phần dưới mô tả bộ dữ liệu đã nạp trước khi xoá script, không phải xác minh lại dữ liệu đang chạy.
 
 Bộ mẫu `wmsd-demo-261116-v1` có 4.016 bản ghi, chia thành tám nhóm `DM01` đến `DM08` tại `K-GACH-01` và `K-GACH-02`. Tìm theo tiền tố trên SKU, mã vị trí hoặc ghi chú phiếu. So sánh trạng thái và lọc theo ngày có thể dùng các chứng từ trải qua nhiều kỳ. Các nhóm có lô, tồn, bút toán và chứng từ nguồn riêng.
 
