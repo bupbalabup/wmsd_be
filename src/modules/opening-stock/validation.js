@@ -8,7 +8,7 @@ export const openingRow = z.object({
   sku: text(60), manufacturerCode: text(100), color: text(160),
   name: optional(200), categoryCode: optional(60), baseUnit: optional(60),
   lengthMm: optional(30), widthMm: optional(30), heightMm: optional(30),
-  manufacturerLot: text(100), piecesPerCarton: optional(20),
+  manufacturerLot: text(100), tone: optional(20), calibre: optional(20), piecesPerCarton: optional(20),
   cartonLengthMm: optional(30), cartonWidthMm: optional(30), cartonHeightMm: optional(30),
   enteredQty: quantity,
 }).strict();

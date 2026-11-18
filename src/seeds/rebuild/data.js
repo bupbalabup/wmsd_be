@@ -14,7 +14,7 @@ import { addTileCategories } from './categories.js';
 import { planConversionBackfill } from '../../migrations/conversions.js';
 
 const FIXTURE_ID_NAMESPACE = 'wmsd-tile-shop-20261109-v10';
-export const SEED_VERSION = 'wmsd-tile-shop-20261114-v11';
+export const SEED_VERSION = 'wmsd-tile-shop-20261119-v12';
 export const hash = value => createHash('sha256').update(value).digest('hex');
 export const fixtureId = key => new mongoose.Types.ObjectId(hash(FIXTURE_ID_NAMESPACE + ':' + key).slice(0,24));
 export const demoDate = (day, hour = 8) => new Date(Date.UTC(2026,9,day,hour));

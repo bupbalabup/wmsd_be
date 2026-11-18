@@ -27,6 +27,10 @@ export async function upgradeSupportingData(context) {
   });
   data.approval_history=data.approval_history.map(row => {
     const subject=document(row.documentId), user=byId('users',row.decidedBy);
+    if (subject.documentKind === 'REPLENISHMENT' && subject.workflowStatus === 'APPROVED' && row.decision === 'APPROVE') {
+      Object.assign(subject.header, { approvedRevision: row.documentVersion, latestDecisionId: row._id });
+      for (const line of row.lines) items.get(String(line.lineId)).approvedQtyBase = line.approvedQty;
+    }
     const permission=row.decisionKind==='STANDARD_ACCEPTANCE'?'customer_return:accept':
       subject.documentKind==='TRANSFER_REQUEST'?'stock_transfer:approve':
       subject.documentKind==='REPLENISHMENT'?'replenishment_request:approve':'defect:approve';

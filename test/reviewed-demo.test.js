@@ -27,6 +27,14 @@ test('complete reviewed demo validates all schemas, links, balances and approved
   const cartons = data.conversions.filter(row => row.productBatchId);
   assert.equal(cartons.length, data.product_batches.filter(batch => batch.identificationStatus === 'VERIFIED').length);
   assert.ok(cartons.every(row => String(row.uomId) === String(data.uoms[1]._id)));
+  const [po] = data.purchase_orders;
+  const rr = data.replenishment_requests.find(row => String(row._id) === String(po.replenishmentRequestId));
+  const approval = data.approval_history.find(row => String(row._id) === String(rr.header.latestDecisionId));
+  assert.equal(String(approval.itemDecisions[0].approvedQtyBase), '120');
+  assert.equal(String(rr.items[0].approvedQtyBase), '120');
+  assert.equal(po.items[0].enteredUnit, po.items[0].baseUnitSnapshot);
+  assert.equal(String(po.items[0].enteredQty), '120');
+  assert.equal(String(po.items[0].lineAmount), '4200000');
   assert.equal(data.roles.filter(row=>!row.isSystemRole).length,1);
   assert.equal(data.sales_invoices[0].items.length,2);
   assert.notEqual(+data.sales_invoices[0].items[0].issuedAt,+data.sales_invoices[0].items[1].issuedAt);

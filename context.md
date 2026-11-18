@@ -38,7 +38,7 @@ Latest explicit user decision supersedes manual-sale and custody requirements fo
 
 > Quyết định 09/11/2026 bổ sung [Conversion theo sản phẩm và lô](git_doc/docs/08_api/CONVERSIONS.md). [Iteration 1 native](git_doc/docs/08_api/ITERATION1_NATIVE_2026-11-06.md) tiếp tục áp dụng cho NCC, giữ hộ và đảo nhập.
 
-> 17/11/2026: Kế toán chọn đơn vị theo từng dòng khi tạo hoặc sửa PO nháp. Nếu vượt lượng RR đã duyệt, hệ thống chỉ cho phép số nguyên đơn vị nhỏ nhất đủ phủ lượng duyệt mà không cần Owner duyệt. Xem [hợp đồng PO](git_doc/docs/08_api/NATIVE_MODEL_RUNTIME.md#mua-và-nhập).
+> 19/11/2026. RR duyệt theo lượng gốc. RR và PO lưu lượng diện tích đã quy đổi ngược từ lượng nguyên viên. PO chỉ được vượt lượng duyệt với số thùng nguyên nhỏ nhất đủ phủ phần duyệt. Xem [hợp đồng mua và nhập](git_doc/docs/08_api/NATIVE_MODEL_RUNTIME.md#mua-và-nhập).
 
 # Backend context
 

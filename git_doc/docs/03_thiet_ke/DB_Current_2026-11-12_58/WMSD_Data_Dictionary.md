@@ -728,6 +728,8 @@ Indexes:
 
 Model: [approval-history.model.js](../../../../src/models/approval-history.model.js).
 
+Mỗi quyết định theo dòng RR lưu lượng duyệt ở `itemDecisions[].approvedQtyBase` theo đơn vị gốc của sản phẩm.
+
 | Trường | Kiểu | Bắt buộc | Liên kết |
 |---|---|---|---|
 | `decisionKey` | String | true |  |
@@ -1381,6 +1383,8 @@ Indexes:
 
 Model: [replenishment-request.model.js](../../../../src/models/replenishment-request.model.js).
 
+`items[].qtyBase` là lượng đề nghị theo đơn vị gốc. Với gạch nguyên viên, `items[].enteredQty` theo đơn vị diện tích được quy đổi ngược từ lượng viên đã làm tròn. `items[].approvedQtyBase` là lượng duyệt theo đơn vị gốc.
+
 | Trường | Kiểu | Bắt buộc | Liên kết |
 |---|---|---|---|
 | `documentNo` | String | true |  |
@@ -1597,6 +1601,8 @@ Indexes:
 ## purchase_orders
 
 Model: [purchase-order.model.js](../../../../src/models/purchase-order.model.js).
+
+`items[].qtyBase` là lượng đặt theo đơn vị gốc. `items[].lineAmount` bằng `unitPurchasePrice × enteredQty` sau chuẩn hóa lượng diện tích, làm tròn 6 chữ số thập phân. Quy cách lô thực nhận được ghi ở kiểm nhận.
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
 |---|---|---|---|
