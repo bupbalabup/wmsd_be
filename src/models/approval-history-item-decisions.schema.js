@@ -7,6 +7,7 @@ export function createApprovalHistoryItemDecisionsSchema() {
     {
       itemId: id(),
       approvedQtyBase: decimal(),
+      approvedEnteredQty: decimal({ required: false }),
       outcome: text(40),
       reason: str(2000),
     },
