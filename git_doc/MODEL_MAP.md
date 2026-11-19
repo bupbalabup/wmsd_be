@@ -73,7 +73,7 @@ receipts without an ITR use the explicit legacy open-task command. See [BF04 API
 | `attachments` | Metadata ảnh/PDF và quyền truy cập bằng chứng; dữ liệu tệp lưu theo storageKey. | [attachment.model.js](../src/models/attachment.model.js) |
 | `return_quantity_claims` | Giữ hạn mức theo nguồn giao/nhận để không đề nghị trả vượt lượng còn được trả. | [return-quantity-claim.model.js](../src/models/return-quantity-claim.model.js) |
 | `stocktake_snapshots` | Số tồn làm mốc theo ô/lô/chủ/chất lượng tại lúc khóa phạm vi. | [stocktake-snapshot.model.js](../src/models/stocktake-snapshot.model.js) |
-| `stocktake_counts` | Các lần đếm/đếm lại, đơn vị/quy đổi và bằng chứng; chưa đếm khác với đã xác nhận 0. | [stocktake-count.model.js](../src/models/stocktake-count.model.js) |
+| `stocktake_counts` | Các lần đếm/đếm lại, đơn vị/quy đổi và bằng chứng; chưa đếm khác với đã xác nhận 0. Correction hàng phát hiện giữ `correctsEmptyCountId` và `correctionReason` để liên kết append-only với xác nhận trống bị sửa. | [stocktake-count.model.js](../src/models/stocktake-count.model.js) |
 | `stocktake_location_locks` | Lịch sử khóa ô khi kiểm kê; mỗi ô chỉ có một khóa đang hiệu lực. | [stocktake-location-lock.model.js](../src/models/stocktake-location-lock.model.js) |
 | `notifications` | Thông báo theo nhân viên và trạng thái đọc; kèm theo dõi gửi email SMTP. | [notification.model.js](../src/models/notification.model.js) |
 | `audit_logs` | Nhật ký người thao tác, kết quả và thay đổi; tách khỏi lịch sử số lượng tồn. | [audit-log.model.js](../src/models/audit-log.model.js) |

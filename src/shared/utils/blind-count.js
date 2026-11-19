@@ -3,6 +3,14 @@ import { isOwner } from './access.js';
 
 const none = () => ({ locations: new Set(), balances: new Set(), has: () => false });
 
+export async function blindLockedLocationIds(user, locks, session) {
+    const stocktakeIds = [...new Set(locks.map(row => row.stocktakeId).filter(Boolean).map(String))];
+    if (isOwner(user) || !stocktakeIds.length) return new Set();
+    const counting = await m.Stocktake.find({ _id: { $in: stocktakeIds }, workflowStatus: 'COUNTING' }).select('_id').session(session).lean();
+    const countingIds = new Set(counting.map(row => String(row._id)));
+    return new Set(locks.filter(row => countingIds.has(String(row.stocktakeId))).map(row => String(row.locationId)));
+}
+
 /**
  * Blind count outside the stocktake screen (decision 18 Nov 2026): while a stocktake is COUNTING,
  * current balances of its locked locations equal the frozen book quantity, so every non-Owner reader

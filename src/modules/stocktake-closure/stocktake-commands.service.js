@@ -253,20 +253,34 @@ async function discoverSnapshot(session, document, actor, input) {
         throw validationError('Vị trí không thuộc phạm vi đợt');
     const key = { stocktakeId: document._id, locationId: found.locationId, batchId: found.batchId, qualityStatus: found.qualityStatus, ownerType: found.ownerType, ownerId };
     const existing = await m.StocktakeSnapshot.findOne(key).session(session);
-    if (existing) {
-        if (existing.origin !== 'DISCOVERED')
-            throw validationError('Hàng đã có trong sổ; hãy đếm theo mốc tồn');
-        return existing;
-    }
+    if (existing && existing.origin !== 'DISCOVERED')
+        throw validationError('Hàng đã có trong sổ; hãy đếm theo mốc tồn');
+    if (existing && input.correctsEmptyCountId)
+        throw validationError('Nhóm hàng đã có mốc; hãy đếm theo mốc tồn');
+    if (existing) return existing;
     if (!exact(input.countedQtyBase).gt(0))
         throw validationError('Hàng phát hiện ngoài sổ phải có số lượng lớn hơn 0');
     if (!input.evidenceIds?.length)
         throw validationError('Hàng phát hiện ngoài sổ cần bằng chứng');
-    const evidenceCount = await m.Attachment.countDocuments({ _id: { $in: input.evidenceIds }, status: 'ATTACHED', ownerDocumentId: document._id, uploadedBy: actor._id }).session(session);
+    const evidenceCount = await m.Attachment.countDocuments({ _id: { $in: input.evidenceIds }, status: 'ATTACHED', ownerDocumentType: 'stocktakes', ownerDocumentId: document._id, uploadedBy: actor._id }).session(session);
     if (evidenceCount !== input.evidenceIds.length)
         throw validationError('Bằng chứng không thuộc đợt kiểm kê hoặc không phải do bạn tải');
-    if (await m.StocktakeCount.exists({ stocktakeId: document._id, locationId: found.locationId, targetType: 'EMPTY_LOCATION' }).session(session))
-        throw validationError('Vị trí đã xác nhận trống; không ghi thêm hàng phát hiện');
+    const scope = { stocktakeId: document._id, scopeVersion: header.scopeVersion, locationId: location._id };
+    const emptyCount = await m.StocktakeCount.findOne({ ...scope, targetType: 'EMPTY_LOCATION' }).sort({ attemptNo: -1 }).session(session);
+    if (input.correctsEmptyCountId && (!same(emptyCount?._id, input.correctsEmptyCountId) || !exact(emptyCount.countedQtyBase).isZero()))
+        throw validationError('Chỉ sửa được lần xác nhận trống mới nhất của vị trí');
+    if (emptyCount) {
+        if (input.correctsEmptyCountId) {
+            if (await m.StocktakeCount.exists({ ...scope, correctsEmptyCountId: emptyCount._id }).session(session))
+                throw validationError('Lần xác nhận trống này đã được sửa');
+            if (!(await m.StocktakeLocationLock.exists({ ...scope, status: 'LOCKED' }).session(session)))
+                throw validationError('Vị trí không còn khóa kiểm kê của đợt');
+        } else if (!(await m.StocktakeCount.exists({ ...scope, correctsEmptyCountId: emptyCount._id }).session(session))) {
+            throw validationError('Vị trí đã xác nhận trống; hãy dùng thao tác sửa xác nhận trống');
+        }
+    } else if (input.correctsEmptyCountId) {
+        throw validationError('Không có lần xác nhận trống để sửa');
+    }
     const batch = await m.ProductBatch.findById(found.batchId).session(session);
     const product = batch && await m.Product.findById(batch.productId).session(session);
     if (!product || !product.isActive || batch.identificationStatus !== 'VERIFIED')
@@ -304,12 +318,27 @@ async function discoverSnapshot(session, document, actor, input) {
 }
 
 export function recordCount(user, id, input) {
-    return command(user, 'RECORD_STOCKTAKE_COUNT', 'stocktake:update', id, input, (sid, actor, session) => scoped(actor, sid, session), async (session, actor) => {
+    return recordCountCommand(user, id, input, 'RECORD_STOCKTAKE_COUNT');
+}
+
+export function correctEmptyLocation(user, id, input) {
+    const { emptyCountId, ...discovery } = input;
+    return recordCountCommand(user, id, {
+        ...discovery,
+        targetType: 'STOCK',
+        correctsEmptyCountId: emptyCountId,
+    }, 'CORRECT_EMPTY_LOCATION');
+}
+
+function recordCountCommand(user, id, input, operationCode) {
+    return command(user, operationCode, 'stocktake:update', id, input, (sid, actor, session) => scoped(actor, sid, session), async (session, actor) => {
         const document = await scoped(actor, id, session);
         if (document.workflowStatus !== 'COUNTING')
             throw validationError('Đợt không còn ở bước đếm; không nhận thêm kết quả');
         checkVersion(document, input.expectedVersion);
         assigned(document, actor);
+        if (operationCode === 'CORRECT_EMPTY_LOCATION' && (!input.correctsEmptyCountId || !input.discovered || !input.correctionReason?.trim()))
+            throw validationError('Sửa xác nhận trống cần chọn lần xác nhận, ghi hàng phát hiện và lý do');
         const header = document.header;
         let snapshot = null, locationId;
         if (input.targetType === 'STOCK') {
@@ -364,6 +393,7 @@ export function recordCount(user, id, input) {
             quantityEntries,
             countedQtyBase,
             ...(snapshot && { baseUnitSnapshot: snapshot.baseUnitSnapshot }),
+            ...(input.correctsEmptyCountId && { correctsEmptyCountId: input.correctsEmptyCountId, correctionReason: input.correctionReason.trim() }),
             ...(input.conditionNote != null && { conditionNote: input.conditionNote }),
             evidenceIds: input.evidenceIds ?? [],
             countedBy: actor._id,
@@ -372,7 +402,7 @@ export function recordCount(user, id, input) {
         }).save({ session });
         header.selectedCounts = [];
         header.lastReconciledAt = null;
-        return { document: await saveVersion(document, input.expectedVersion, session), versionBefore: input.expectedVersion, resultRefs: [{ documentType: 'stocktakes', documentId: document._id, itemId: count._id, revision: attemptNo }], reason: attemptNo > 1 ? input.recountReason : 'Ghi kết quả đếm' };
+        return { document: await saveVersion(document, input.expectedVersion, session), versionBefore: input.expectedVersion, resultRefs: [{ documentType: 'stocktakes', documentId: document._id, itemId: count._id, revision: attemptNo }], reason: input.correctionReason ?? (attemptNo > 1 ? input.recountReason : 'Ghi kết quả đếm') };
     });
 }
 
@@ -432,7 +462,9 @@ export function submitResolutionPlan(user, id, input) {
             throw validationError('Phương án hiện tại chưa được xử lý; không thể trình phương án mới');
         const current = header.selectedCounts.map(row => ({ snapshotId: String(row.snapshotId), countId: String(row.countId) }));
         const submitted = input.selectedCounts.map(row => ({ snapshotId: String(row.snapshotId), countId: String(row.countId) }));
-        if (submitted.length !== current.length
+        if (new Set(current.map(row => row.snapshotId)).size !== snapshots.length
+            || submitted.length !== current.length
+            || new Set(submitted.map(row => row.snapshotId)).size !== snapshots.length
             || submitted.some(row => !current.some(item => item.snapshotId === row.snapshotId && item.countId === row.countId)))
             throw validationError('Tập kết quả không còn là lần chọn hiện tại; hãy đối chiếu lại');
         const bySnapshot = new Map(snapshots.map(snapshot => [String(snapshot._id), snapshot]));
@@ -474,6 +506,8 @@ export function submitResolutionPlan(user, id, input) {
             if (!chosen || !count || !same(count.snapshotId, chosen.snapshot._id) || !same(count._id, chosen.count._id))
                 throw validationError('Dòng phương án phải theo mốc và lần đếm đã chọn');
             const { batch, product } = await productOf(chosen.snapshot.batchId);
+            if (product.wholeBaseUnits && !exact(row.qtyBase).isInteger())
+                throw validationError('Lượng xử lý phải nguyên theo đơn vị gốc');
             const diff = exact(chosen.count.countedQtyBase).minus(String(chosen.snapshot.bookQtyBase));
             const item = {
                 lineNo,
@@ -532,14 +566,21 @@ export function submitResolutionPlan(user, id, input) {
                 const from = endpointOf(row.fromBalanceId), to = endpointOf(row.toBalanceId);
                 if (!['MISPLACED', 'RECORD_ERROR', 'OTHER', ...(row.actionKind === 'RECLASS' && to.qualityStatus === 'DAMAGED' ? ['DAMAGED'] : [])].includes(row.reasonCode))
                     throw validationError('Lý do không phù hợp với dòng đổi chất lượng/vị trí');
-                for (const endpoint of [from, to]) {
-                    const chosenEndpoint = selected.get(String(endpoint._id));
-                    if (!chosenEndpoint)
-                        throw validationError('Nhóm tồn của phương án phải nằm trong tập kết quả đã chọn');
-                    const endpointDiff = exact(chosenEndpoint.count.countedQtyBase).minus(String(endpoint.bookQtyBase));
-                    if (exact(row.qtyBase).gt(endpointDiff.abs()))
-                        throw validationError('Lượng xử lý vượt chênh lệch đếm/sổ của nhóm');
-                }
+                if (!same(from.batchId, to.batchId) || from.ownerType !== to.ownerType || String(from.ownerId ?? '') !== String(to.ownerId ?? ''))
+                    throw validationError('Chỉ chuyển giữa các nhóm cùng lô và chủ hàng');
+                if (row.actionKind === 'RECLASS' && (!same(from.locationId, to.locationId) || from.qualityStatus === to.qualityStatus))
+                    throw validationError('RECLASS phải đổi chất lượng tại cùng vị trí');
+                if (row.actionKind === 'RELOCATE' && (same(from.locationId, to.locationId) || from.qualityStatus !== to.qualityStatus))
+                    throw validationError('RELOCATE chỉ chuyển vị trí');
+                const destination = selected.get(String(to._id));
+                if (!destination || !same(chosen.snapshot._id, from._id))
+                    throw validationError('Chuyển hàng phải theo mốc và lần đếm đã chọn ở cả hai nhóm');
+                const toDiff = exact(destination.count.countedQtyBase).minus(String(to.bookQtyBase));
+                if (!short || !toDiff.gt(0))
+                    throw validationError('Chuyển hàng cần nhóm nguồn bị thiếu và nhóm đích dư');
+                const quantity = exact(row.qtyBase);
+                if (quantity.gt(diff.abs()) || quantity.gt(toDiff))
+                    throw validationError('Lượng xử lý vượt chênh lệch đếm/sổ của nhóm');
                 item.qtyBase = row.qtyBase;
                 item.details.fromBalanceId = from.sourceBalanceId;
                 item.details.toBalanceId = to.sourceBalanceId;

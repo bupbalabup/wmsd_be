@@ -32,6 +32,8 @@ export function createStocktakeCountSchema() {
       baseUnitSnapshot: str(60),
       conditionNote: str(2000),
       evidenceIds: refs("Attachment"),
+      correctsEmptyCountId: ref("StocktakeCount", false),
+      correctionReason: str(2000),
       countedBy: ref("User"),
       countedAt: date(),
       recordedAt: date(),
@@ -82,6 +84,11 @@ export function createStocktakeCountSchema() {
         "countedQtyBase",
         "Empty-location confirmation must be zero",
       );
+    if (this.correctsEmptyCountId && (!this.correctionReason || this.targetType !== "STOCK"))
+      this.invalidate("correctionReason", "Empty-location corrections need a reason");
+    if (this.correctsEmptyCountId && !this.evidenceIds?.length)
+      this.invalidate("evidenceIds", "Empty-location corrections need evidence");
+
   });
   appendOnly(counts);
   return counts;

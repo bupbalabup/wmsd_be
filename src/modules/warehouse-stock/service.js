@@ -8,7 +8,7 @@ import { dto, serialize, page, transaction } from '../../shared/utils/persistenc
 import { command, checkVersion, same, saveVersion } from '../../shared/utils/document-command.js';
 import { remainingReservation, verifyCapacity, guardWarehouses } from '../../shared/utils/stock.js';
 import { stockQuantities } from '../../shared/utils/stock-availability-read.js';
-import { blindCountScope } from '../../shared/utils/blind-count.js';
+import { blindCountScope, blindLockedLocationIds } from '../../shared/utils/blind-count.js';
 import { notFoundError, validationError } from '../../shared/utils/ApiError.js';
 const escape = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export const warehouseScope = user => isOwner(user) ? {} : { _id: { $in: user.warehouseIds || [] } };
@@ -94,14 +94,15 @@ export async function locationDetail(user,id) {
     const row = await getLocation(user,id,session), warehouse = await m.Warehouse.findById(row.warehouseId).session(session).lean();
     const points = await m.StockHoldingPoint.find({locationId:id}).session(session).lean();
     const balances = await m.InventoryBalance.find({holdingPointId:{$in:points.map(p=>p._id)}}).session(session).lean();
-    const locks = await m.StocktakeLocationLock.find({locationId:id,status:'LOCKED'}).select('_id stocktakeId').session(session).lean();
+    const locks = await m.StocktakeLocationLock.find({locationId:id,status:'LOCKED'}).select('locationId stocktakeId').session(session).lean();
     const tasks = await m.TransferOrder.countDocuments({workflowStatus:{$in:['OPEN','PARTIAL','DRAFT']},$or:[{'items.details.fromLocationId':id},{'items.details.toLocationId':id}]}).session(session);
     const batches = await m.ProductBatch.find({_id:{$in:balances.map(b=>b.batchId)}}).session(session).lean();
     const products = await m.Product.find({_id:{$in:batches.map(b=>b.productId)}}).session(session).lean();
     const volume = await verifyLocationVolume(row,warehouse,balances);
-    const blind = (await blindCountScope(user, session)).has(row._id);
+    const blindLocations = await blindLockedLocationIds(user, locks, session);
+    const blind = blindLocations.has(String(row._id));
     return {...dto(row),warehouse:warehouse?dto(warehouse):null,locked:locks.length>0,openTaskCount:tasks,capacity:volume&&blind?{...volume,occupiedMm3:null}:volume,blindCount:blind,
-      stock:balances.filter(b=>exact(b.quantityBase).gt(0)).map(b=>{const batch=batches.find(l=>same(l._id,b.batchId)),product=products.find(p=>same(p._id,batch?.productId));return {id:String(b._id),batch:batch?.manufacturerLot??null,product:product?.name??null,sku:product?.sku??null,unit:product?.baseUnit??null,quality:b.qualityStatus,ownerType:b.ownerType,quantityBase:blind?null:String(b.quantityBase)};})};
+      stock:balances.filter(b=>blind||exact(b.quantityBase).gt(0)).map(b=>{const batch=batches.find(l=>same(l._id,b.batchId)),product=products.find(p=>same(p._id,batch?.productId));return {id:String(b._id),batch:batch?.manufacturerLot??null,product:product?.name??null,sku:product?.sku??null,unit:product?.baseUnit??null,quality:b.qualityStatus,ownerType:b.ownerType,quantityBase:blind?null:String(b.quantityBase)};})};
   });
 }
 async function verifyLocationVolume(location,warehouse,balances) {
@@ -188,9 +189,9 @@ async function inventoryRows(user, rows, view, session) {
   if(!rows.length)return [];
   const sales=currentRole(user)?.code==='SALES',summary=view==='summary';
   const locationIds=[...new Set(rows.flatMap(row=>row.location?[String(row.location._id)]:[]))];
-  const locks=locationIds.length?await m.StocktakeLocationLock.find({locationId:{$in:locationIds},status:'LOCKED'}).select('locationId').session(session).lean():[];
+  const locks=locationIds.length?await m.StocktakeLocationLock.find({locationId:{$in:locationIds},status:'LOCKED'}).select('locationId stocktakeId').session(session).lean():[];
+  const blindLocations=await blindLockedLocationIds(user,locks,session);
   const frozenLocations=new Set(locks.map(row=>String(row.locationId)));
-  const blind=await blindCountScope(user,session);
   const eligible=row=>row.warehouse?.isActive&&row.point?.type!=='IN_TRANSIT'&&!frozenLocations.has(String(row.location?._id))
     &&row.ownerType==='STORE'&&row.qualityStatus==='GOOD'&&row.batch.identificationStatus==='VERIFIED'&&row.product.isActive&&row.location?.isActive;
   const quantities=await stockQuantities(summary||sales?rows.filter(row=>eligible(row)&&row.location.isPickable):rows,session);
@@ -198,9 +199,10 @@ async function inventoryRows(user, rows, view, session) {
     const {point,location,warehouse,batch,product}=row,transit=point?.type==='IN_TRANSIT';
     const amounts=quantities.get(String(row._id));
     const available=eligible(row)&&location.isPickable?ExactDecimal.max(0,amounts.free).toFixed():'0';
+    const hiddenByCount=blindLocations.has(String(location?._id));
     const base={id:String(row._id),warehouse:warehouse?.name??null,location:location?.code??(transit?'Đang chuyển':null),
-      product:product.name,sku:product.sku,batch:batch.manufacturerLot,unit:product.baseUnit,availableQtyBase:blind.has(location?._id)?null:available};
-    if(blind.has(location?._id)){
+      product:product.name,sku:product.sku,batch:batch.manufacturerLot,unit:product.baseUnit,availableQtyBase:hiddenByCount?null:available};
+    if(hiddenByCount){
       const hidden={...base,availableQtyBase:null,blindCount:true};
       if(sales)return hidden;
       return {...hidden,quality:row.qualityStatus,ownerType:row.ownerType,physicalQtyBase:null,usableQtyBase:null,transitQtyBase:'0',custodyQtyBase:null,reservedQtyBase:null,heldQtyBase:null,pendingQtyBase:null,frozen:true,version:row.version};
