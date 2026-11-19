@@ -13,6 +13,7 @@ const itemFields = [
   'details.requestLineId','details.dispatchLineId','details.sourceBalanceId','details.sourceBalanceVersion',
   'details.fromLocationId','details.toLocationId','details.stagingLocationId','details.receivingLocationId',
   'details.destinationBalanceId','details.qualityCode',
+  'details.packagingState',
 ].map(field=>'items.'+field).join(' ');
 export const movementDetailFields = [
   '_id documentNo documentKind workflowStatus version createdBy createdAt cancelReason',

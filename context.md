@@ -1,3 +1,9 @@
+18/11/2026 — BF03 optional mixed SEALED cartons + LOOSE entry, with loose input on line 2. One form row expands into independent typed items via optional details.packagingState; generic historical items retain behavior. Only explicit LOOSE may split known-volume stock with conservative bounds; no carton opening or OPEN substitution. Preserve partial trips, item IDs, versions, retries and scoped posting guards. No collection/index/relationship/migration change. Canonical git_doc/docs/08_api/location-movements/README.md#mixed-sealed-cartons-and-loose-pieces--18-november-2026.
+
+17/11/2026 — BF03 source-stock cells show stored sealed carton counts, base units inside OPEN packaging and LOOSE base units from existing portions. Missing/inconsistent packaging is explicit; no count of physical open cartons is inferred. Only two extra option projection fields, no extra queries or write/schema changes. Canonical git_doc/docs/08_api/location-movements/README.md#source-packaging-breakdown--17-november-2026.
+
+17/11/2026 — UC43/44 inventory: interactive list uses view=summary (labels, physical/available, quality/owner); default full preserves Excel. Projected context/joins, page-batched stock deductions/locks and indexed direct detail replace per-row reads and list reuse. Snapshot, exact decimals and role/warehouse scope remain. Details load history only on request. Canonical git_doc/docs/08_api/HIEUDT_WAREHOUSE_SCOPE.md#inventory-list-and-detail-performance--17-november-2026. No schema/index/migration/online write.
+
 17/11/2026 — BF04 destination receipt posts GOOD stock and automatically creates a waiting ITR/PUTAWAY TO in the same transaction. Destination staff choose STORAGE targets on a separate task page and confirm once. Full requests auto-complete after exact quantities, transit, linked task and variance guards; short requests keep reasoned partial closure. Report creation/replay requires actual destination assignment plus update permission; independent review remains. Canonical git_doc/docs/08_api/transfers/BF04_API.md. No schema migration, grants or online backfill; historical unplanned receipts use an explicit create/reuse command.
 
 17/11/2026 — BF03/BF04 field projections: list view=summary omits item arrays and execution metadata; default full preserves Excel line quantities. Detail/options/ledger/related records select only consumed fields; command versions, packaging factors, scope and posting reads retained. Canonical git_doc/docs/08_api/TRANSFER_PERFORMANCE.md. No DB migration/remote write.
@@ -38,7 +44,7 @@ Latest explicit user decision supersedes manual-sale and custody requirements fo
 
 > Quyết định 09/11/2026 bổ sung [Conversion theo sản phẩm và lô](git_doc/docs/08_api/CONVERSIONS.md). [Iteration 1 native](git_doc/docs/08_api/ITERATION1_NATIVE_2026-11-06.md) tiếp tục áp dụng cho NCC, giữ hộ và đảo nhập.
 
-> 17/11/2026: Kế toán chọn đơn vị theo từng dòng khi tạo hoặc sửa PO nháp. Nếu vượt lượng RR đã duyệt, hệ thống chỉ cho phép số nguyên đơn vị nhỏ nhất đủ phủ lượng duyệt mà không cần Owner duyệt. Xem [hợp đồng PO](git_doc/docs/08_api/NATIVE_MODEL_RUNTIME.md#mua-và-nhập).
+> 19/11/2026. RR duyệt theo lượng gốc. RR và PO lưu lượng diện tích đã quy đổi ngược từ lượng nguyên viên. PO chỉ được vượt lượng duyệt với số thùng nguyên nhỏ nhất đủ phủ phần duyệt. Xem [hợp đồng mua và nhập](git_doc/docs/08_api/NATIVE_MODEL_RUNTIME.md#mua-và-nhập).
 
 # Backend context
 

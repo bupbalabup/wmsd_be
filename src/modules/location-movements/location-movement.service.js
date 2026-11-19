@@ -6,13 +6,13 @@ import { optionFields, movementDetailFields, relocationLedgerFields } from '../.
 import { nextDocumentFields } from '../../shared/utils/document-number.js';
 import { TransferOrder, Warehouse, WarehouseLocation, InventoryBalance, StockHoldingPoint, StockTransaction, ProductBatch, Product, Uom, Conversion, User } from '../../models/runtime.js';
 import { exact } from '../../models/model-utils.js';
-import { blindCountScope } from '../../shared/utils/blind-count.js';
 import { requirePermission, requireWarehouseAccess, isOwner } from '../../shared/utils/access.js';
 import { notFoundError, validationError, forbiddenError, versionConflict } from '../../shared/utils/ApiError.js';
 import { dto } from '../../shared/utils/persistence.js';
 import { command, scopedDocument, checkVersion, saveVersion, newId, same } from '../../shared/utils/document-command.js';
 import { makeItem } from '../../shared/utils/document-items.js';
 import { sourceContext, locationAt, guardLocations, pendingTaskQuantity, beginStock, balanceAt, moveStock, verifyCapacity, splitPortions } from '../../shared/utils/stock.js';
+import { blindCountScope } from '../../shared/utils/blind-count.js';
 export { pendingTaskQuantity } from '../../shared/utils/stock.js';
 
 async function task(id, user, session) {
@@ -51,17 +51,20 @@ export async function relocationItems(user, warehouseId, input, session, exclude
     await locationAt(line.toLocationId, warehouseId, ['RECEIVING','STORAGE','STAGING','QUARANTINE','CUSTODY'], session);
     if (same(ctx.location._id, line.toLocationId)) throw validationError('Vị trí nguồn và đích trùng nhau');
     if (typeof line.enteredQty !== 'string' || !/^\d+$/.test(line.enteredQty)) throw validationError('Số thùng hoặc viên phải là số nguyên');
-    const old = previous.find(item => same(item.details.sourceBalanceId, line.sourceBalanceId) && same(item.details.toLocationId, line.toLocationId));
+    const old = previous.find(item => same(item.details.sourceBalanceId, line.sourceBalanceId) && same(item.details.toLocationId, line.toLocationId) && item.details.packagingState === line.packagingState);
     const item = await makeItem({ ...line, productId: ctx.product._id, lotId: ctx.batch._id }, index + 1, session, { lineKind: 'WAREHOUSE_TASK', previous: old });
     if (!exact(item.qtyBase).isInteger()) throw validationError('Số thùng hoặc viên phải là số nguyên');
     const portions = packaging.get(String(ctx.balance._id)) ?? ctx.balance.packagingPortions;
-    packaging.set(String(ctx.balance._id), splitPortions(portions, item.qtyBase, user._id).kept);
+    const inPool = portion => !line.packagingState || portion.packagingState === line.packagingState;
+    const split = splitPortions(portions.filter(inPool), item.qtyBase, user._id, { allowLooseSplit: line.packagingState === 'LOOSE' });
+    const kept = new Map(split.kept.map(portion => [String(portion._id), portion]));
+    packaging.set(String(ctx.balance._id), portions.flatMap(portion => inPool(portion) ? kept.has(String(portion._id)) ? [kept.get(String(portion._id))] : [] : [portion]));
     const total = (totals.get(String(ctx.balance._id)) ?? exact('0')).plus(item.qtyBase); totals.set(String(ctx.balance._id), total);
     const pending = await pendingTaskQuantity(ctx.balance._id, session, excludeTaskId);
     if (total.plus(pending).gt(String(ctx.balance.quantityBase))) throw validationError('Tồn nguồn đã được lập lệnh khác');
     result.push({ ...item, details: { sourceBalanceId: ctx.balance._id, sourceBalanceVersion: ctx.balance.version,
       fromLocationId: ctx.location._id, toLocationId: line.toLocationId, qualityCode: ctx.balance.qualityStatus,
-      ownerType: ctx.balance.ownerType, ownerId: ctx.balance.ownerId } });
+      ownerType: ctx.balance.ownerType, ownerId: ctx.balance.ownerId, ...(line.packagingState && { packagingState: line.packagingState }) } });
   }
   await guardLocations(result.flatMap(item => [item.details.fromLocationId, item.details.toLocationId]), session);
   return result;
@@ -105,9 +108,8 @@ export async function locationMovementOptions(user, warehouseId) {
   requireWarehouseAccess(user, warehouseId);
   const locations = await WarehouseLocation.find({ warehouseId, isActive: true }).select(optionFields.location).lean();
   const points = await StockHoldingPoint.find({ locationId: { $in: locations.map(row=>row._id) } }).select(optionFields.point).lean();
-  // Locations being counted are frozen and their balances equal the blind book quantity, so they are not offered.
   const blind = await blindCountScope(user);
-  const balances = (await InventoryBalance.find({ holdingPointId: { $in: points.map(row=>row._id) }, quantityBase: { $gt: 0 } }).select(optionFields.balance).lean()).filter(row => !blind.has(row._id));
+  const balances = (await InventoryBalance.find({ holdingPointId: { $in: points.map(row=>row._id) }, quantityBase: { $gt: 0 } }).select(optionFields.balance+' packagingPortions.sealedPackCount packagingPortions.quantityBase').lean()).filter(row => !blind.has(row._id));
   const batches = await ProductBatch.find({ _id: { $in: balances.map(row=>row.batchId) } }).select(optionFields.batch).lean();
   const products = await Product.find({ _id: { $in: batches.map(row=>row.productId) } }).select(optionFields.product).lean();
   const [units,conversions] = await Promise.all([Uom.find({isActive:true}).select('_id code name isCarton').lean(),
@@ -160,7 +162,7 @@ export function confirmLocationMovement(user,id,input) {
     for (const { item, quantity } of selected) {
       const ctx = await sourceContext(item.details.sourceBalanceId, session);
       const destination = await balanceAt({ type: 'LOCATION', locationId: item.details.toLocationId }, ctx.balance, ctx.balance.qualityStatus, session);
-      await moveStock(ctx.balance._id, destination._id, quantity, item._id, posting, actor, session, { preserveReservations: true, excludeTaskId: id });
+      await moveStock(ctx.balance._id, destination._id, quantity, item._id, posting, actor, session, { preserveReservations: true, excludeTaskId: id, packagingState: item.details.packagingState });
     }
     await verifyCapacity(locations, session); await posting.save({ session });
     const after = await InventoryBalance.find({ _id: { $in: before.map(b => b._id) } }).select('_id version').session(session);
