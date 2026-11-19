@@ -42,8 +42,9 @@ export function slotCorners(zone,slot) {
 }
 export function containmentIssues(layout) {
   const issues=[];
+  const stagingIds=new Set((layout.functions||[]).filter(({name})=>['khu tập kết','tập kết'].includes(name.trim().normalize('NFC').toLocaleLowerCase('vi'))).map(({id})=>id));
   for(const zone of layout.zones||[]){
-    if(!containsPolygon(layout.points,corners(zone)))issues.push(`Khu vực ${zone.name} nằm ngoài kho.`);
+    if(!stagingIds.has(zone.functionId)&&!containsPolygon(layout.points,corners(zone)))issues.push(`Khu vực ${zone.name} nằm ngoài kho.`);
     for(const slot of zone.slots||[])if(slot.x<0||slot.y<0||slot.x+slot.width>zone.width+EPS||slot.y+slot.length>zone.length+EPS)issues.push(`Ô ${slot.name} nằm ngoài khu vực ${zone.name}.`);
   }
   return issues;

@@ -1,6 +1,8 @@
 # Dữ liệu mô phỏng cửa hàng gạch ốp lát
 
-Bản seed BE `wmsd-tile-shop-20261114-v11` dựng 58 collection dữ liệu mẫu. Các tên, giá và số đo là dữ liệu tổng hợp. Bằng chứng là PNG test và SMTP không gửi thật. [Sản phẩm, lô và thùng](../03_thiet_ke/DB_Rebuild_Review/39_San_pham_va_lo_dang_chot.md).
+Bản seed BE `wmsd-tile-shop-20261119-v12` dựng 58 collection dữ liệu mẫu. Các tên, giá và số đo là dữ liệu tổng hợp. Bằng chứng là PNG test và SMTP không gửi thật. [Sản phẩm, lô và thùng](../03_thiet_ke/DB_Rebuild_Review/39_San_pham_va_lo_dang_chot.md).
+
+`RR-202610-001` lưu lượng duyệt 120 viên. `PO-202610-001` đặt 120 viên với đơn giá 35.000 VNĐ/viên và thành tiền 4.200.000 VNĐ. Quy đổi thùng của seed nằm ở cấp lô để sử dụng khi nhận hàng.
 
 ## Mở trong Compass
 
@@ -8,16 +10,11 @@ Bản seed BE `wmsd-tile-shop-20261114-v11` dựng 58 collection dữ liệu m�
 mongodb://localhost:27017/wmsd_api_test_6aedf823b3e33975e06c07d1
 ```
 
-Sau reset test, database trên phải chưa tồn tại cho đến khi người dùng chạy `npm run seed` từ BE với URI loopback. Để bổ sung dữ liệu vào Atlas, dùng lệnh seed riêng dưới đây.
+Sau reset test, database trên phải chưa tồn tại cho đến khi người dùng chạy `npm run seed` từ BE với URI loopback.
 
-## Bổ sung dữ liệu demo trên Atlas
+## Dữ liệu demo Atlas đã nạp
 
-[Seed bổ sung](../../../src/seeds/atlas-demo.seed.js) dùng `MONGODB_URI` đã cấu hình cho `wmsd_database`. Chạy từ thư mục backend. Lệnh đầu lập kế hoạch và kiểm khóa với dữ liệu đang có. Lệnh sau ghi toàn bộ bản ghi trong một transaction và đối chiếu ID đã ghi. Khi đã nạp, cả hai lệnh trả `ALREADY_SEEDED`.
-
-```powershell
-node src/seeds/atlas-demo.seed.js --database=wmsd_database
-node src/seeds/atlas-demo.seed.js --database=wmsd_database --apply
-```
+Ngày 17/11/2026, theo yêu cầu người dùng, đã xoá `src/seeds/atlas-demo.seed.js` và test riêng `test/atlas-demo.integration.test.js`. Không còn lệnh chạy seed demo Atlas này. Việc xoá file không xoá hoặc thay đổi dữ liệu đã nạp trong `wmsd_database`; các seed khác được giữ nguyên. Phần dưới mô tả bộ dữ liệu đã nạp trước khi xoá script, không phải xác minh lại dữ liệu đang chạy.
 
 Bộ mẫu `wmsd-demo-261116-v1` có 4.016 bản ghi, chia thành tám nhóm `DM01` đến `DM08` tại `K-GACH-01` và `K-GACH-02`. Tìm theo tiền tố trên SKU, mã vị trí hoặc ghi chú phiếu. So sánh trạng thái và lọc theo ngày có thể dùng các chứng từ trải qua nhiều kỳ. Các nhóm có lô, tồn, bút toán và chứng từ nguồn riêng.
 
@@ -78,6 +75,16 @@ npm run test:db-rebuild
 npm run db:local:seed
 npm run db:local:verify
 npm run docs:check
+```
+
+Các lệnh dưới đây đã nạp và xác minh seed trên MongoDB cục bộ bằng một database riêng. Đối soát ghi nhận 1 PO, 1 phiếu nhập và 0 lỗi.
+
+```powershell
+$env:MONGODB_URI = 'mongodb://127.0.0.1:27017/admin?replicaSet=rs0'
+npm run db:demo -- --apply --target wmsd_demo_rr_po_quantity_20261119
+npm run db:demo -- --verify --target wmsd_demo_rr_po_quantity_20261119
+$env:MONGODB_URI = 'mongodb://127.0.0.1:27017/wmsd_demo_rr_po_quantity_20261119?replicaSet=rs0'
+npm run purchase:reconcile
 ```
 
 Lệnh xem trước không cần MongoDB. Lệnh seed tạo target mới hoặc xác minh đúng target đã seed cùng version. Khi bộ đã seed bị sửa, công cụ từ chối ghi đè. Khi thay nội dung seed, tăng version và chọn một target local mới hoặc chuẩn bị kế hoạch chuyển rõ ràng. Không drop DB để làm test pass.

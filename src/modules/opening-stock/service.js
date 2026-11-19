@@ -1,5 +1,5 @@
 import * as m from '../../models/runtime.js';
-import { exact } from '../../models/model-utils.js';
+import { exact, ExactDecimal } from '../../models/model-utils.js';
 import { checkBinCapacity } from '../../models/capacity.js';
 import { dto } from '../../shared/utils/persistence.js';
 import { command, scopedDocument, same, checkVersion, saveVersion, newId } from '../../shared/utils/document-command.js';
@@ -39,13 +39,15 @@ export async function get(user, id) {
   const document = dto(await replay(id, user));
   const [products, batches, locations, warehouse] = await Promise.all([
     m.Product.find({ _id: { $in: document.items.map(i => i.productId) } }).select('_id sku').lean(),
-    m.ProductBatch.find({ _id: { $in: document.items.map(i => i.lotId) } }).select('_id manufacturerLot').lean(),
+    m.ProductBatch.find({ _id: { $in: document.items.map(i => i.lotId) } }).select('_id manufacturerLot tone calibre').lean(),
     m.WarehouseLocation.find({ warehouseId: document.header.warehouseId }).select('_id code name').lean(),
     m.Warehouse.findById(document.header.warehouseId).select('code name').lean(),
   ]);
   return { ...document, header: { ...document.header, warehouseName: warehouse?.name }, items: document.items.map(item => ({ ...item,
     sku: products.find(p => same(p._id, item.productId))?.sku,
     manufacturerLot: batches.find(b => same(b._id, item.lotId))?.manufacturerLot,
+    tone: batches.find(b => same(b._id, item.lotId))?.tone,
+    calibre: batches.find(b => same(b._id, item.lotId))?.calibre,
     locationCode: locations.find(l => same(l._id, item.locationId))?.code,
   })) };
 }
@@ -65,16 +67,46 @@ async function unusedWarehouse(user, warehouseId, session, lock = false) {
   return locations;
 }
 
+async function openingReceiving(user, warehouseId, locations, session, persist) {
+  const existing = locations.find(location => location.code === 'TONDAU-NHAN');
+  if (existing) {
+    if (existing.locationType !== 'RECEIVING' || !existing.isActive) {
+      throw validationError('Mã vị trí TONDAU-NHAN đã dùng cho vị trí khác loại hoặc đã ngừng; hãy đổi mã vị trí đó.');
+    }
+    return existing;
+  }
+  const warehouse = await m.Warehouse.findById(warehouseId).select('lengthMm widthMm clearHeightMm').session(session);
+  if (!warehouse?.lengthMm || !warehouse.widthMm || !warehouse.clearHeightMm) {
+    throw validationError('Kho chưa khai báo dài, rộng và chiều cao; cập nhật kho trước khi nhập tồn đầu.');
+  }
+  const location = new m.WarehouseLocation({
+    warehouseId, code: 'TONDAU-NHAN', name: 'Khu tiếp nhận tồn đầu', areaCode: 'TONDAU',
+    locationType: 'RECEIVING', isPickable: false, isActive: true, version: 1,
+    usableLengthMm: warehouse.lengthMm, usableWidthMm: warehouse.widthMm,
+  });
+  await location.validate();
+  if (persist) {
+    try {
+      await location.save({ session });
+    } catch (error) {
+      if (error.code === 11000) throw validationError('Khu tiếp nhận vừa được tạo bởi thao tác khác; hãy thử lại.');
+      throw error;
+    }
+    await appendAudit({ actorId: user._id, action: 'IMPORT_LOCATION', entityType: 'warehouse_locations', entityId: location._id, session });
+  }
+  locations.push(location);
+  return location;
+}
+
 // Resolve only explicit catalogue identities. Preview never writes to the database.
 async function resolveRows(user, input, session, persist = false) {
   if (new Date(input.openingAt) > new Date()) throw validationError('Mốc tồn đầu không được ở tương lai.');
   const locations = await unusedWarehouse(user, input.warehouseId, session);
+  const location = input.rows.length ? await openingReceiving(user, input.warehouseId, locations, session, persist) : undefined;
   const rows = [], errors = [], products = new Map(), batches = new Map();
+  let lineNo = 0;
   for (const [index, row] of input.rows.entries()) {
     try {
-      const location = locations.find(l => l.code === row.locationCode && l.isActive);
-      if (!location) throw validationError('Mã vị trí không thuộc kho đang hoạt động.');
-      if (row.qualityStatus === 'DAMAGED' && location.locationType !== 'QUARANTINE') throw validationError('Hàng hỏng phải ở vị trí cách ly.');
       const identity = { sku: row.sku, manufacturerCode: row.manufacturerCode, color: row.color };
       const productKey = JSON.stringify(identity);
       let product = products.get(productKey) || await m.Product.findOne(identity).collation({ locale: 'vi', strength: 2 }).session(session);
@@ -85,7 +117,7 @@ async function resolveRows(user, input, session, persist = false) {
         const unit = await m.Uom.findOne({ code: row.baseUnit, isActive: { $ne: false } }).session(session);
         if (!category || !unit) throw validationError('Sản phẩm mới cần mã nhóm và đơn vị gốc đang hoạt động.');
         product = new m.Product({ ...identity, name: row.name, categoryId: category._id, baseUnit: unit.code,
-          lengthMm: row.lengthMm, widthMm: row.widthMm, heightMm: row.heightMm, wholeBaseUnits: row.wholeBaseUnits !== 'false', isActive: true });
+          lengthMm: row.lengthMm, widthMm: row.widthMm, heightMm: row.heightMm, wholeBaseUnits: true, isActive: true });
         await product.validate();
         newProduct = true;
         if (persist) {
@@ -95,17 +127,16 @@ async function resolveRows(user, input, session, persist = false) {
         }
       }
       if (!product.isActive) throw validationError('Sản phẩm đã ngừng hoạt động.');
-      if (row.wholeBaseUnits && product.wholeBaseUnits !== (row.wholeBaseUnits === 'true')) throw validationError('Quy tắc nguyên đơn vị gốc khác danh mục.');
-      for (const field of ['baseUnit', 'lengthMm', 'widthMm', 'heightMm']) {
-        if (row[field] && String(product[field]) !== row[field] && (field === 'baseUnit' || !exact(product[field]).eq(row[field]))) throw validationError('Thông số sản phẩm trong file khác danh mục: ' + field);
-      }
-      products.set(productKey, product);
       const batchKey = String(product._id) + ':' + row.manufacturerLot;
       let batch = batches.get(batchKey) || (!newProduct && await m.ProductBatch.findOne({ productId: product._id, manufacturerLot: row.manufacturerLot }).session(session));
       let newBatch = false;
       if (!batch) {
         requirePermission(user, 'product_lot:create');
+        if (!/^\d+$/.test(row.piecesPerCarton || '') || !row.cartonLengthMm || !row.cartonWidthMm || !row.cartonHeightMm) throw validationError('Lô mới cần số viên mỗi thùng (số nguyên) và ba kích thước thùng.');
+        // Same rule as the lot screens: a VERIFIED lot needs the tone and calibre printed on the box.
+        if (!row.tone || !row.calibre) throw validationError('Lô mới cần tone và calibre in trên vỏ hộp.');
         batch = new m.ProductBatch({ productId: product._id, manufacturerLot: row.manufacturerLot, identificationStatus: 'VERIFIED',
+          tone: row.tone, calibre: row.calibre, verifiedAt: new Date(), verifiedBy: user._id,
           piecesPerCarton: Number(row.piecesPerCarton), cartonLengthMm: row.cartonLengthMm, cartonWidthMm: row.cartonWidthMm, cartonHeightMm: row.cartonHeightMm });
         await batch.validate(); newBatch = true;
         if (persist) {
@@ -114,25 +145,47 @@ async function resolveRows(user, input, session, persist = false) {
         }
       }
       if (batch.identificationStatus !== 'VERIFIED') throw validationError('Lô chưa xác minh.');
+      if (!Number.isSafeInteger(batch.piecesPerCarton) || batch.piecesPerCarton < 1) throw validationError('Lô thiếu số lượng hợp lệ mỗi thùng.');
       for (const field of ['piecesPerCarton', 'cartonLengthMm', 'cartonWidthMm', 'cartonHeightMm']) {
         if (row[field] && !exact(String(batch[field])).eq(row[field])) throw validationError('Quy cách lô trong file khác danh mục: ' + field);
       }
+      for (const field of ['tone', 'calibre']) {
+        if (row[field] && row[field] !== batch[field]) throw validationError(`${field === 'tone' ? 'Tone' : 'Calibre'} trong file khác lô trong danh mục (${batch[field] || 'chưa có'}).`);
+      }
       batches.set(batchKey, batch);
-      // Files use base units or complete cartons; never round area into additional stock.
-      const unit = await m.Uom.findOne({ code: row.enteredUnit, isActive: { $ne: false } }).session(session);
-      if (!unit || (unit.code !== product.baseUnit && !unit.isCarton)) throw validationError('Tồn đầu chỉ nhận đơn vị gốc hoặc đơn vị thùng đã cấu hình.');
-      const factor = unit.code === product.baseUnit ? exact('1') : exact(String(batch.piecesPerCarton));
-      const qty = exact(row.enteredQty).mul(factor);
-      if (qty.gte('100000000000000') || qty.decimalPlaces() > 6 || (product.wholeBaseUnits && !qty.isInteger())) throw validationError('Số lượng phải quy đổi chính xác, không tạo viên phân số.');
-      if (row.packagingState === 'SEALED' && !qty.mod(String(batch.piecesPerCarton)).isZero()) throw validationError('Hàng nguyên thùng cần đủ số viên mỗi thùng.');
-      if (row.packagingState !== 'SEALED' && (!/^\d{1,14}(\.\d{1,3})?$/.test(row.measuredVolumeMm3 || '') || !exact(row.measuredVolumeMm3).gt(0))) throw validationError('Hàng mở/lẻ cần thể tích thực đo (mm³).');
-      rows.push({ rowNumber: index + 2, sku: product.sku, product: product.name, batch: batch.manufacturerLot, location: location.code,
-        quantityBase: qty.toFixed(), unit: product.baseUnit, newProduct, newBatch,
-        item: { _id: newId(), lineNo: index + 1, lineKind: 'STANDARD', productId: product._id, lotId: batch._id,
-          productNameSnapshot: product.name, enteredUnit: unit.code, baseUnitSnapshot: product.baseUnit, baseUnitsPerUnit: factor.toFixed(),
-          enteredQty: row.enteredQty, qtyBase: qty.toFixed(), packagingSnapshot: { packageUnit: 'Thùng', baseUnitsPerPackage: String(batch.piecesPerCarton), outerLengthMm: batch.cartonLengthMm, outerWidthMm: batch.cartonWidthMm, outerHeightMm: batch.cartonHeightMm },
-          locationId: location._id, ownerType: 'STORE', qualityStatus: row.qualityStatus,
-          packagingState: row.packagingState, measuredVolumeMm3: row.measuredVolumeMm3 || undefined } });
+      const qty = exact(row.enteredQty);
+      if (qty.gte('100000000000000') || qty.decimalPlaces() > 6 || (product.wholeBaseUnits && !qty.isInteger())) throw validationError('Số lượng tồn phải hợp lệ theo đơn vị gốc của sản phẩm.');
+      const perCarton = exact(batch.piecesPerCarton);
+      const sealed = qty.dividedToIntegerBy(perCarton).mul(perCarton);
+      const loose = qty.minus(sealed);
+      let measuredVolumeMm3;
+      if (loose.gt(0)) {
+        const { lengthMm, widthMm, heightMm } = product;
+        if ([lengthMm, widthMm, heightMm].some(size => size == null || !exact(size).gt(0))) {
+          throw validationError('Sản phẩm thiếu kích thước để tính thể tích hàng lẻ.');
+        }
+        const volume = loose.mul(exact(lengthMm)).mul(exact(widthMm)).mul(exact(heightMm)).toDecimalPlaces(3, ExactDecimal.ROUND_CEIL);
+        // The inventory portion has a smaller integer range than the draft item.
+        if (volume.gte('100000000000000')) throw validationError('Thể tích hàng lẻ vượt giới hạn lưu tồn.');
+        measuredVolumeMm3 = volume.toFixed();
+      }
+      for (const field of ['baseUnit', 'lengthMm', 'widthMm', 'heightMm']) {
+        if (row[field] && String(product[field]) !== row[field] && (field === 'baseUnit' || product[field] == null || !exact(product[field]).eq(row[field]))) throw validationError('Thông số sản phẩm trong file khác danh mục: ' + field);
+      }
+      products.set(productKey, product);
+      const packagingSnapshot = { packageUnit: 'Thùng', baseUnitsPerPackage: String(batch.piecesPerCarton),
+        outerLengthMm: batch.cartonLengthMm, outerWidthMm: batch.cartonWidthMm, outerHeightMm: batch.cartonHeightMm };
+      const items = [
+        { packagingState: 'SEALED', quantity: sealed },
+        { packagingState: 'LOOSE', quantity: loose, measuredVolumeMm3 },
+      ].filter(({ quantity }) => quantity.gt(0)).map(({ quantity, ...packaging }) => {
+        const qtyBase = quantity.toFixed();
+        return { _id: newId(), lineNo: ++lineNo, lineKind: 'STANDARD', productId: product._id, lotId: batch._id,
+          productNameSnapshot: product.name, enteredUnit: product.baseUnit, baseUnitSnapshot: product.baseUnit, baseUnitsPerUnit: '1',
+          enteredQty: qtyBase, qtyBase, packagingSnapshot, locationId: location._id, ownerType: 'STORE', qualityStatus: 'GOOD', ...packaging };
+      });
+      rows.push({ rowNumber: index + 2, sku: product.sku, product: product.name, batch: batch.manufacturerLot, tone: batch.tone ?? null, calibre: batch.calibre ?? null, location: location.code,
+        quantityBase: qty.toFixed(), unit: product.baseUnit, newProduct, newBatch, items });
     } catch (error) {
       if (persist) throw error;
       if (![400, 403, 409, 422].includes(error.statusCode ?? error.status) && error.name !== 'ValidationError') throw error;
@@ -144,7 +197,7 @@ async function resolveRows(user, input, session, persist = false) {
       const warehouse = await m.Warehouse.findById(input.warehouseId).session(session);
       checkBinCapacity({ warehouses: [warehouse], warehouse_locations: locations, product_batches: [...batches.values()],
         stock_holding_points: locations.map(l => ({ _id: l._id, type: 'LOCATION', locationId: l._id })),
-        inventory_balances: rows.map(r => ({ holdingPointId: r.item.locationId, batchId: r.item.lotId, quantityBase: r.item.qtyBase, packagingPortions: [portionFor(r.item)] })) });
+        inventory_balances: rows.flatMap(r => r.items.map(item => ({ holdingPointId: item.locationId, batchId: item.lotId, quantityBase: item.qtyBase, packagingPortions: [portionFor(item)] }))) });
     } catch (error) {
       if (persist) throw validationError('Không đủ sức chứa hoặc thiếu quy cách: ' + error.message);
       errors.push({ rowNumber: 0, message: 'Không đủ sức chứa hoặc thiếu quy cách: ' + error.message });
@@ -155,7 +208,7 @@ async function resolveRows(user, input, session, persist = false) {
 export async function preview(user, input) {
   allowed(user, 'opening_stock:create');
   const result = await resolveRows(user, input);
-  return { rows: result.rows.map(({ item, ...row }) => row), errors: result.errors, valid: !result.errors.length };
+  return { rows: result.rows.map(({ items, ...row }) => row), errors: result.errors, valid: !result.errors.length };
 }
 export function create(user, input) {
   return command(user, 'CREATE_OPENING_STOCK', 'opening_stock:create', null, input, replay, async (session, actor) => {
@@ -165,7 +218,7 @@ export function create(user, input) {
       workflowStatus: 'DRAFT', version: 1, createdBy: actor._id, occurredAt: input.openingAt,
       header: { warehouseId: input.warehouseId, openingImportSource: 'FILE', cutoverKey: input.cutoverKey, openingAt: input.openingAt,
         coveredLocationIds: result.locations.map(l => l._id), sourceDescription: input.sourceDescription, preparedBy: actor._id, preparedAt: new Date() },
-      items: result.rows.map(r => r.item) }).save({ session });
+      items: result.rows.flatMap(r => r.items) }).save({ session });
     return { document };
   });
 }

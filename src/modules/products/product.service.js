@@ -33,10 +33,15 @@ import {
   updateCatalogue,
 } from "../../shared/utils/persistence.js";
 
-const dto = (row) => {
+const dto = (row, categoryMap = null) => {
   const value = nativeDto(row);
+  const categoryName =
+    (value.categoryId ? categoryMap?.get(String(value.categoryId)) : null) ??
+    value.category ??
+    null;
   return {
     ...value,
+    category: categoryName,
     imageUrls: value.imageUrls ?? [],
     nominalSize:
       value.lengthMm && value.widthMm
@@ -44,6 +49,21 @@ const dto = (row) => {
         : null,
   };
 };
+async function loadCategoryMap(rows, session = null) {
+  const ids = [
+    ...new Set(
+      rows
+        .map((row) => row?.categoryId)
+        .filter(Boolean)
+        .map(String),
+    ),
+  ];
+  if (!ids.length) return new Map();
+  const q = Category.find({ _id: { $in: ids } }).select("_id name").lean();
+  if (session) q.session(session);
+  const categories = await q;
+  return new Map(categories.map((item) => [String(item._id), item.name]));
+}
 async function planningOperation(user, row, input, code, session, warehouseId) {
   const operation = await new OperationRecord({
     actorType: "USER",
@@ -84,8 +104,13 @@ const editableFields = [
   "description",
 ];
 async function category(id, session) {
-  if (!(await Category.exists({ _id: id, isActive: true }).session(session)))
+  const found = await Category.findOne({ _id: id, isActive: true })
+    .select("_id name")
+    .session(session)
+    .lean();
+  if (!found)
     throw validationError("Nhóm sản phẩm không tồn tại hoặc đã ngừng sử dụng");
+  return found;
 }
 async function product(id, session) {
   const row = await Product.findById(id).session(session);
@@ -106,7 +131,11 @@ export async function listProducts(user, query) {
     ];
   }
   const result = await page(Product, filter, query);
-  return { ...result, items: result.items.map(dto) };
+  const categoryMap = await loadCategoryMap(result.items);
+  return {
+    ...result,
+    items: result.items.map((item) => dto(item, categoryMap)),
+  };
 }
 async function currentConversions(productId, productBatchId, asOf) {
   const rows = await Conversion.aggregate([
@@ -170,8 +199,9 @@ export async function getProduct(user, id) {
   if (productBatchId && !conversions.length) {
     conversions = await currentConversions(row._id, null, asOf);
   }
+  const categoryMap = await loadCategoryMap([row]);
   return {
-    ...dto(row),
+    ...dto(row, categoryMap),
     currentConversions: conversions,
   };
 }
@@ -191,7 +221,7 @@ export async function createProduct(user, input) {
   requirePermission(user, "product:create");
   try {
     return await transaction(async (session) => {
-      await category(input.categoryId, session);
+      const cat = await category(input.categoryId, session);
       if (
         !(await Uom.exists({ code: input.baseUnit, isActive: true }).session(
           session,
@@ -285,7 +315,10 @@ export async function createProduct(user, input) {
         entityId: row._id,
         session,
       });
-      return { ...dto(row), conversions: createdConversions };
+      return {
+        ...dto(row, new Map([[String(cat._id), cat.name]])),
+        conversions: createdConversions,
+      };
     });
   } catch (error) {
     if (error.code === 11000)
@@ -307,7 +340,7 @@ export async function updateProduct(user, id, input) {
         identityErrors.map(({ field, message }) => ({ path: `body.${field}`, message })),
       );
     }
-    await category(input.categoryId, session);
+    const cat = await category(input.categoryId, session);
     if (
       input.baseUnit !== before.baseUnit ||
       input.wholeBaseUnits !== before.wholeBaseUnits
@@ -348,7 +381,7 @@ export async function updateProduct(user, id, input) {
       changes: changedFields(before, row, auditFields),
       session,
     });
-    return dto(row);
+    return dto(row, new Map([[String(cat._id), cat.name]]));
   });
 }
 export async function changeProductStatus(user, id, input) {
@@ -377,7 +410,8 @@ export async function changeProductStatus(user, id, input) {
       details: { reason: input.reason },
       session,
     });
-    return dto(row);
+    const categoryMap = await loadCategoryMap([row], session);
+    return dto(row, categoryMap);
   });
 }
 export async function listPolicies(user, id) {

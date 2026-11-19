@@ -149,12 +149,15 @@ export function buildTileShopScenario(data) {
       item.packagingSnapshot={...spec.packaging};
       const q=exact(item.qtyBase),wholeBoxes=q.mod(spec.perBox).isZero();
       // Physically full cartons are entered as cartons. Inspection splits may be loose pieces.
-      if(['ARRIVAL','INSPECTION','GR_PURCHASE','PO'].includes(doc.documentKind)&&wholeBoxes) {
+      if(['ARRIVAL','INSPECTION','GR_PURCHASE'].includes(doc.documentKind)&&wholeBoxes) {
         item.enteredUnit='Thùng';item.baseUnitsPerUnit=decimalValue(spec.perBox);item.enteredQty=decimalValue(q.div(spec.perBox));
       } else if(String(item.baseUnitsPerUnit)==='1') item.enteredUnit=spec.baseUnit;
       if(doc.documentKind==='PO') {
-        item.unitPurchasePrice=decimalValue(exact(item.baseUnitsPerUnit).mul(spec.buy));
-        item.lineAmount=decimalValue(exact(item.enteredQty).mul(String(item.unitPurchasePrice)));
+        // Seeded cartons have only lot-level conversions, so purchase in the base unit.
+        Object.assign(item, { enteredUnit: spec.baseUnit, baseUnitsPerUnit: decimalValue(1), enteredQty: item.qtyBase,
+          unitPurchasePrice: decimalValue(spec.buy), lineAmount: decimalValue(q.mul(spec.buy)) });
+        delete item.lotId;
+        delete item.packagingSnapshot;
       }
     }
     if(doc.documentKind==='PO')doc.totalAmount=decimalValue(doc.items.reduce((s,x)=>s.plus(String(x.lineAmount)),exact(0)));
