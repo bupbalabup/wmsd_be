@@ -1,4 +1,10 @@
-## 18 November 2026 — Stocktake differences explained by reason; broken tiles become damaged stock
+## 19 November 2026 — Correct erroneous empty-location confirmation
+
+User requested a recoverable BF-05 flow after a Warehouse Staff member confirms a location empty by mistake. Added `POST /stocktakes/:id/correct-empty-location`, requiring the latest `EMPTY_LOCATION` count, a correction reason and ATTACHED evidence. The original count remains append-only; the command adds a linked `DISCOVERED` snapshot and `STOCK` count through `correctsEmptyCountId`. No balance is posted, no lock/cutoff is changed, and repeat correction of the same empty count is refused. Frontend exposes the action on the empty-location row and keeps the correction in history. No collection or index was added; old counts remain readable.
+
+Backend `npm test`: 271 passed, 1 mock-only movement options case failed, and 133 opt-in cases were skipped; `movement-projections.test.js` needs a `Stocktake.find()` fixture for the blind-count lookup. The isolated lifecycle and resolution suites passed 5/5 and 7/7 respectively. Frontend `pnpm ui:check` remains blocked by two native `<button>` mocks in unrelated tests. The correction smoke covered assignment/evidence guards, unchanged state after rejection, append-only history, linked snapshot/count, idempotent replay, duplicate rejection and subsequent discovery. Frontend `pnpm typecheck`, full lint with zero errors and one existing `Scene.tsx` warning, focused lint, and direct Vitest stocktake suite 116/116 passed. Browser synthetic correction flow was checked at 1440×900 and 390×844 with no page errors; existing Ant Design deprecation warnings remain. The independent reviewer returned OK with notes; correction-specific concurrency remains a residual risk because project policy forbids adding test files without an explicit request.
+
+
 
 Source: user request (18/11/2026): "thủ kho sẽ nhập số hàng bị chênh lệch, chênh lệch bao nhiêu, lý do là gì, ví dụ chênh −30 viên thì vỡ 27 viên và mất 3 viên, sau đó sẽ gửi lại yêu cầu cho chủ cửa hàng, chủ cửa hàng sẽ phê duyệt". Decisions: broken tiles move to `DAMAGED` quality at the same location (not written off); counters count only good tiles into the good row.
 
@@ -11,6 +17,9 @@ Verification: backend stocktake suites 19/19 on the isolated 27018 replica set (
 ## 18 November 2026 — Stocktake plans must resolve every difference at submission
 
 Source: user reported a session stuck at close ("nhập sai thì nó phải xử lý cả 3 viên vỡ nữa", 18/11/2026): a −173 difference was planned as "Giảm 170", approved and executed, then close refused with "Phương án chưa giải quyết đúng toàn bộ chênh lệch". Submission only checked that no line exceeded its difference; completeness was first checked at close, after which the session could neither be cancelled nor given a new plan. `submitResolutionPlan` now runs the close projection (book + DELTA, minus/plus for RECLASS/RELOCATE) and refuses any plan that leaves a group off its selected count. The frontend plan form (redesigned as a table with pre-paired quality/location changes and per-group coverage) blocks the same case before sending. Docs: STOCKTAKE_LIFECYCLE.
+
+FE: the plan form lists one line per reason with a "+" to split a group (e.g. 27 Vỡ/hỏng + 3 Mất/thất lạc) and a note column; the stock action follows from the reason. Plan lines on the stocktake and the owner's adjustment request show the reason. The count form now says to count only good tiles and note broken ones.
+
 
 Verification: `RUN_STOCKTAKE_RESOLUTION_TESTS=1` 7/7 and `RUN_STOCKTAKE_LIFECYCLE_TESTS=1` 5/5 on the isolated 27018 replica set; frontend stocktake suites 116/116 (one existing test changed from "partial line accepted" to "partial line refused, full line sent"). No backend test was added. Reviewer follow-up: submission also refuses opposite `DELTA` lines of one lot and owner (close already did), with the same message.
 

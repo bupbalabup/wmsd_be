@@ -927,6 +927,8 @@ Model: [stocktake-count.model.js](../../../../src/models/stocktake-count.model.j
 | `baseUnitSnapshot` | String | false |  |
 | `conditionNote` | String | false |  |
 | `evidenceIds` | Array | false |  |
+| `correctsEmptyCountId` | ObjectId | false | StocktakeCount (EMPTY_LOCATION lần bị sửa; append-only self-reference) |
+| `correctionReason` | String | false | Bắt buộc khi `correctsEmptyCountId` có giá trị |
 | `countedBy` | ObjectId | true | User |
 | `countedAt` | Date | true |  |
 | `recordedAt` | Date | true |  |

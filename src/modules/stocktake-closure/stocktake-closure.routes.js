@@ -33,6 +33,7 @@ const updateBody = operation.extend({ reason: text.optional(), plannedAt: z.iso.
 const activateBody = operation.strict();
 const entry = z.object({ enteredQty: nonnegative, enteredUnit: text.max(60), baseUnitsPerUnit: qty, quantityBase: nonnegative }).strict();
 const discovered = z.object({ locationId: oid, batchId: oid, ownerType: z.enum(['STORE', 'SUPPLIER', 'CUSTOMER']), ownerId: oid.optional(), qualityStatus: z.enum(QUALITY_CODES) }).strict();
+const correctionBody = operation.extend({ emptyCountId: oid, discovered, countedQtyBase: nonnegative, quantityEntries: z.array(entry).max(100).optional(), correctionReason: text, conditionNote: z.string().max(2000).optional(), evidenceIds: z.array(oid).min(1).max(50) }).strict();
 const countBody = operation.extend({ targetType: z.enum(['STOCK', 'EMPTY_LOCATION']), snapshotId: oid.optional(), discovered: discovered.optional(), locationId: oid.optional(), countedQtyBase: nonnegative, quantityEntries: z.array(entry).max(100).optional(), previousCountId: oid.optional(), recountReason: text.optional(), conditionNote: z.string().max(2000).optional(), evidenceIds: z.array(oid).max(50).optional() }).strict()
     .refine(v => v.targetType === 'STOCK' ? !!v.snapshotId !== !!v.discovered && !v.locationId : !!v.locationId && !v.snapshotId && !v.discovered, 'Chọn mốc tồn, hàng phát hiện ngoài sổ hoặc vị trí trống');
 const selectedCount = z.object({ snapshotId: oid, countId: oid }).strict();
@@ -47,6 +48,7 @@ router.post('/', catchAsync(async (req, res) => formatApiResponse(res, { data: a
 router.post('/:id/update', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.updateStocktake(req.user, parse(documentIdentifier, req.params.id), parse(updateBody, req.body)) })));
 router.post('/:id/activate', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.activateStocktake(req.user, parse(documentIdentifier, req.params.id), parse(activateBody, req.body)) })));
 router.post('/:id/counts', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.recordCount(req.user, parse(documentIdentifier, req.params.id), parse(countBody, req.body)) })));
+router.post('/:id/correct-empty-location', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.correctEmptyLocation(req.user, parse(documentIdentifier, req.params.id), parse(correctionBody, req.body)) })));
 router.post('/:id/cancel', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.cancelStocktake(req.user, parse(documentIdentifier, req.params.id), parse(operation.extend({ reason: text }).strict(), req.body)) })));
 router.post('/:id/reopen-counting', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.reopenCounting(req.user, parse(documentIdentifier, req.params.id), parse(operation.extend({ reason: text }).strict(), req.body)) })));
 router.post('/:id/reconcile', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.reconcileStocktake(req.user, parse(documentIdentifier, req.params.id), parse(operation.strict(), req.body)) })));

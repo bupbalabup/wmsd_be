@@ -76,17 +76,18 @@ export async function listLots(user, query) {
     };
   const result = await page(ProductBatch, filter, query);
   const ids = result.items.map((row) => row.id);
-  const [products, stocked] = await Promise.all([
+  const scopedPointIds = await scopedPoints(user);
+  const [products, balances] = await Promise.all([
     Product.find({ _id: { $in: result.items.map((row) => row.productId) } })
       .select("sku name")
       .lean(),
     InventoryBalance.find({
-      batchId: { $in: ids },
-      holdingPointId: { $in: await scopedPoints(user) },
-      quantityBase: { $gt: 0 },
-    }).distinct("batchId"),
+      batchId: { $in: ids }, holdingPointId: { $in: scopedPointIds },
+    }).select("_id batchId quantityBase").lean(),
   ]);
-  const stockedIds = new Set(stocked.map(String));
+  const blind = await blindCountScope(user);
+  const blindBatchIds = new Set(balances.filter((balance) => blind.has(balance._id)).map((balance) => String(balance.batchId)));
+  const stockedIds = new Set(balances.filter((balance) => !blind.has(balance._id) && exact(balance.quantityBase).gt(0)).map((balance) => String(balance.batchId)));
   return {
     ...result,
     items: result.items.map((row) => {
@@ -98,6 +99,7 @@ export async function listLots(user, query) {
           sku: product.sku,
           name: product.name,
         },
+        ...(blindBatchIds.has(row.id) && { blindCount: true }),
         hasScopedStock: stockedIds.has(row.id),
       };
     }),
@@ -129,7 +131,7 @@ export async function getLot(user, id) {
   const ref = (r) => r && { id: String(r._id), code: r.code, name: r.name };
   const blind = await blindCountScope(user);
   const stock = balances
-    .filter((b) => !/^0(\.0+)?$/.test(String(b.quantityBase)))
+    .filter((b) => blind.has(b._id) || !/^0(\.0+)?$/.test(String(b.quantityBase)))
     .map((b) => {
       const location = byId(locations, byId(points, b.holdingPointId)?.locationId);
       const hidden = blind.has(b._id);

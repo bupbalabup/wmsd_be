@@ -1,3 +1,7 @@
+## 19 November 2026 — Append-only correction of an empty-location count
+
+`stocktake_counts` adds optional `correctsEmptyCountId` (ref to the superseded `StocktakeCount`) and `correctionReason` (String ≤ 2000). A correction records a new discovered `STOCK` count with evidence; the original `EMPTY_LOCATION` attempt remains unchanged. Optional fields are compatible with existing documents; no collection or index change, migration, or backfill.
+
 18/11/2026: thêm `reasonCode` (tùy chọn, `DAMAGED`/`LOST`/`MISPLACED`/`FOUND`/`RECORD_ERROR`/`OTHER`) và `reasonNote` (≤ 500) vào `stocktakes.resolutionPlans[].items[].details`; phương án mới luôn gửi lý do, phương án cũ không cần sửa dữ liệu.
 
 19/11/2026. Gỡ `approvedEnteredQty` khỏi `replenishment_requests.items[]` và `approval_history.itemDecisions[]`. Lượng duyệt được ghi theo đơn vị gốc ở `approvedQtyBase`. Các bản ghi cũ vẫn đọc được qua lượng gốc. Áp dụng quy tắc chuẩn hóa diện tích ở lớp nghiệp vụ.
