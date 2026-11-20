@@ -1,4 +1,4 @@
-import { ProductBatch, GoodsArrival, GoodsInspection, PurchaseReceipt, CustodyReceipt, SupplierReturn, AuditLog, StockTransaction, Supplier, User, Warehouse, PurchaseOrder, InventoryBalance, StockHoldingPoint, WarehouseLocation } from '../../models/runtime.js';
+import { GoodsArrival, GoodsInspection, PurchaseReceipt, CustodyReceipt, SupplierReturn, AuditLog, StockTransaction, Supplier, User, Warehouse, PurchaseOrder, InventoryBalance, StockHoldingPoint, WarehouseLocation } from '../../models/runtime.js';
 import { freeQuantity } from '../../shared/utils/stock.js';
 import { requirePermission, hasPermission, canAccessWarehouse } from '../../shared/utils/access.js';
 import { currentRole } from '../../shared/utils/userRole.js';
@@ -6,6 +6,7 @@ import { dto, serialize } from '../../shared/utils/persistence.js';
 import { escapeRegex } from '../../shared/utils/domain.js';
 import { exact } from '../../models/model-utils.js';
 import { same } from '../../shared/utils/document-command.js';
+import { enrichLineItems } from '../../shared/utils/document-items.js';
 import { findPurchase, purchaseModels, purchaseWarehouseFilter as warehouseFilter } from './purchase-core.js';
 import { getPurchaseOrder } from '../purchase-orders/purchase-order.service.js';
 import { redactPrices } from '../sales-orders/sales-read.service.js';
@@ -48,7 +49,7 @@ async function custodyMetadata(document, value) {
       item.custodyBalanceId = String(balance._id);
       const committed = returns.reduce((total, request) => request.items.filter(row => same(row.details.originLineId, item._id)).reduce((n, row) => n.plus(String(request.workflowStatus === 'COMPLETED' ? row.details.agreedQty ?? '0' : row.qtyBase)), total), exact('0'));
       const remaining = exact(item.qtyBase).minus(committed);
-      const free = await freeQuantity(balance, null);
+      const free = document.workflowStatus === 'REVERSED' ? exact('0') : await freeQuantity(balance, null);
       item.returnAvailableQty = remaining.gt(0) && free.gt(0) ? (remaining.lt(free) ? remaining : free).toFixed() : '0';
     }
     const location = locationByLine.get(item._id);
@@ -57,17 +58,9 @@ async function custodyMetadata(document, value) {
     item.holdingLocationCode = locations.find(row => same(row._id, location))?.code;
   }
 }
-// Inspection items do not snapshot the lot label; resolve it so the UI never shows a raw lot id.
-async function addLotLabels(items = []) {
-  const missing = items.filter(item => item?.lotId && !item.lotLabelSnapshot);
-  if (!missing.length) return;
-  const lots = await ProductBatch.find({ _id: { $in: [...new Set(missing.map(item => item.lotId))] } }).select('manufacturerLot').lean();
-  const labels = new Map(lots.map(lot => [String(lot._id), lot.manufacturerLot]));
-  for (const item of missing) item.lotLabelSnapshot = labels.get(String(item.lotId));
-}
 async function enriched(user,document){
   const value=dto(document),kind=document.documentKind;
-  await addLotLabels(value.items);
+  await enrichLineItems(value.items);
   let warehouseId = document.header?.warehouseId;
   if(kind==='INSPECTION'){
     const arrivalId = document.header?.arrivalId ?? document.sources?.find(s => s.subjectCollection === 'goods_arrivals')?.documentId;
@@ -92,12 +85,18 @@ async function enriched(user,document){
     warehouseId = warehouseId ?? value.arrival?.header?.warehouseId;
     value.receipts=(await PurchaseReceipt.find({'items.inspectionId':document._id})).map(dto).filter(Boolean);
     value.custodyReceipts=(await CustodyReceipt.find({sources:{$elemMatch:{subjectCollection:'goods_inspections',documentId:document._id}}})).map(dto).filter(Boolean);
+    const replacement = await GoodsInspection.findOne({ 'header.previousInspectionId': document._id, workflowStatus: { $ne: 'CANCELLED' } })
+      .select('_id documentNo workflowStatus').lean();
+    value.replacedBy = replacement
+      ? { _id: String(replacement._id), documentNo: replacement.documentNo, workflowStatus: replacement.workflowStatus }
+      : null;
   }
   const writeWarehouse = canAccessWarehouse(user, warehouseId);
   const draft = document.workflowStatus === 'DRAFT';
   const posted = document.workflowStatus === 'POSTED';
   const canUpdate = writeWarehouse && hasPermission(user, 'goods_receipt_inspection:update');
   const canPost = writeWarehouse && hasPermission(user, 'goods_receipt_inspection:post');
+  const supplierCustody = kind === 'CUSTODY_RECEIPT' && document.header?.ownerType === 'SUPPLIER';
   if (kind === 'PURCHASE') {
     value.header.postedAt = value.postedAt;
     value.reversed = document.workflowStatus === 'REVERSED' ||
@@ -115,11 +114,12 @@ async function enriched(user,document){
     writeWarehouse,
     edit: draft && canUpdate,
     confirm: kind === 'INSPECTION' && draft && canUpdate,
+    correct: kind === 'INSPECTION' && document.workflowStatus === 'CONFIRMED' && !value.replacedBy && canUpdate,
     post: draft && canPost && (kind === 'PURCHASE'
       ? (!document.custodyDecisionId || hasPermission(user, 'purchase_custody:execute'))
-      : kind === 'CUSTODY_RECEIPT' && document.header?.ownerType === 'SUPPLIER'),
-    cancel: draft && canUpdate,
-    reversePreflight: kind === 'PURCHASE' && posted && canPost && hasPermission(user, 'goods_receipt_inspection:reverse'),
+      : supplierCustody),
+    cancel: draft && canUpdate && (kind !== 'CUSTODY_RECEIPT' || supplierCustody),
+    reversePreflight: (kind === 'PURCHASE' || supplierCustody) && posted && canPost && hasPermission(user, 'goods_receipt_inspection:reverse'),
     relocate: kind === 'PURCHASE' && posted && writeWarehouse && !value.reversed && hasPermission(user, 'stock_relocation:create'),
   };
   if(['PURCHASE','CUSTODY_RECEIPT'].includes(kind)){
@@ -139,7 +139,7 @@ export async function getDocument(user, id, kind) {
   if (document.documentKind !== 'PURCHASE') return enriched(user, document);
 
   const { supplierId, warehouseId, arrivalId, purchaseOrderId } = document.header;
-  const [value, supplier, warehouse, poster, arrival] = await Promise.all([
+  const [value, supplier, warehouse, poster, arrival, po] = await Promise.all([
     enriched(user, document),
     supplierId && Supplier.findById(supplierId).select('name').lean(),
     warehouseId && Warehouse.findById(warehouseId).select('name').lean(),
@@ -149,13 +149,33 @@ export async function getDocument(user, id, kind) {
       'header.warehouseId': warehouseId,
       ...(purchaseOrderId && { 'header.purchaseOrderId': purchaseOrderId }),
     }).select('header.arrivedAt header.deliveredBy header.deliveryReference items._id items.lotId items.lotLabelSnapshot').lean(),
+    purchaseOrderId && PurchaseOrder.findById(purchaseOrderId)
+      .select('documentNo items._id items.unitPurchasePrice items.lineAmount items.enteredUnit items.enteredQty items.qtyBase items.baseUnitsPerUnit items.baseUnitSnapshot items.note')
+      .lean(),
   ]);
 
   value.header.supplierName = supplier?.name;
   value.header.warehouseName = warehouse?.name;
+  if (po?.documentNo) value.header.purchaseOrderNo = po.documentNo;
   value.header.postedAt = value.postedAt;
   value.header.postedBy = value.postedBy;
   value.header.postedByName = poster?.fullName;
+  const poItems = new Map((po?.items ?? []).map(row => [String(row._id), row]));
+  for (const item of value.items) {
+    const poItem = item.purchaseOrderItemId ? poItems.get(String(item.purchaseOrderItemId)) : null;
+    if (!poItem) continue;
+    item.poLineNote = poItem.note ?? null;
+    if (financial(user) && poItem.unitPurchasePrice != null) {
+      const unitPrice = exact(poItem.unitPurchasePrice);
+      item.unitPurchasePrice = unitPrice.toFixed();
+      item.poEnteredUnit = poItem.enteredUnit ?? poItem.baseUnitSnapshot ?? null;
+      if (exact(item.qtyBase).eq(exact(poItem.qtyBase)) && poItem.lineAmount != null) {
+        item.receivedLineAmount = exact(poItem.lineAmount).toFixed();
+      } else if (poItem.baseUnitsPerUnit && exact(poItem.baseUnitsPerUnit).gt(0)) {
+        item.receivedLineAmount = unitPrice.mul(exact(item.qtyBase).div(exact(poItem.baseUnitsPerUnit))).toDecimalPlaces(6).toFixed();
+      }
+    }
+  }
   if (arrival) {
     value.arrival = { header: serialize(arrival.header) };
     const arrivalItems = new Map((arrival.items ?? []).map(item => [String(item._id), item]));

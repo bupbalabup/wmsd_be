@@ -88,6 +88,8 @@ Trường nguồn tùy loại được Mongoose header discriminator và service
 
 ## Sửa sai và dữ liệu mẫu
 
-`OTHER` nháp có thể hủy. Phiếu đã ghi được giữ tại `REVERSED` sau một bút toán ngược; nếu số dư, đặt giữ, lệnh, kiểm kê hoặc chứng từ phụ thuộc đã thay đổi, Bỏ ghi trả lý do chặn. Phiếu thay thế cùng nội dung ghi tồn được ghi lại theo duyệt trước; đổi sản phẩm, lô, kho, vị trí, số lượng, chất lượng hoặc quy cách cần Owner duyệt lại. Mua hàng tiếp tục đảo nhận và trả NCC theo điều kiện hiện hành. Ba loại nhận từ luồng khách trả/giao thất bại/điều chuyển chưa có lệnh đảo độc lập.
+`OTHER` nháp có thể hủy. Đảo phiếu `OTHER` và phiếu nhập mua kiểm phần đóng gói của giao dịch gốc cùng lượng khả dụng trên số dư. Sau bút toán đảo, phiếu gốc ở `REVERSED`. Phiếu `OTHER` thay thế cùng nội dung ghi tồn có thể ghi lại theo duyệt trước. Đổi sản phẩm, lô, kho, vị trí, số lượng, chất lượng hoặc quy cách cần Owner duyệt lại. Lệnh đảo độc lập áp dụng cho phiếu mua và phiếu nhập khác trong collection này. [Điều kiện và quyền](../../08_api/GOODS_RECEIPTS.md#hủy-nháp-và-đảo-phiếu).
+
+`custody_receipts` có thể chuyển từ `DRAFT` sang `CANCELLED` cho hàng giữ hộ nhà cung cấp. Lệnh hủy lưu `cancelledBy`, `cancelledAt` và `cancelReason` trên phiếu. Đảo phiếu `POSTED` trừ phần tồn giữ hộ bằng một bút toán và chuyển phiếu sang `REVERSED`. `stockTransactionId` vẫn trỏ giao dịch nhập gốc. Phiếu đảo trỏ `header.sourceDocument.documentType` về `custody_receipts`. Cả hai lệnh áp dụng quyền và phạm vi kho trong [hợp đồng nhận hàng](../../08_api/GOODS_RECEIPTS.md#hủy-nháp-và-đảo-phiếu).
 
 Seed lịch sử chỉ là đầu vào dựng bộ dữ liệu mẫu. Sau bước dựng, bốn mảng phiếu được chuyển sang `goods_receipts`, giữ nguyên ID, dòng, chứng cứ, số Decimal128, các mảng lịch sử và liên kết. Chạy `npm run docs:check`, `npm test` và kiểm thử HTTP có MongoDB tạm trước khi reset DB test đích; người dùng tự chạy seed sau.

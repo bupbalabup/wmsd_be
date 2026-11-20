@@ -20,6 +20,7 @@ const wh='a'.repeat(24);
 const actor={_id:'u',isActive:true,warehouseIds:[wh],roleId:{code:'WAREHOUSE',isActive:true,permissionIds:[{code:'stock_relocation:create'},{code:'stock_relocation:read'},{code:'stock_transfer:read'}]}};
 function catalogue(){
   const unused='x'.repeat(20000);
+  mock.method(m.Stocktake,'find',()=>query([])); // blindCountScope runs for non-Owner readers
   mock.method(m.Warehouse,'find',()=>query([{_id:wh,code:'WH',name:'Warehouse',isActive:true,layout3d:{unused}}]));
   mock.method(m.WarehouseLocation,'find',()=>query([{_id:'loc',warehouseId:wh,code:'A1',name:'Bin',locationType:'STORAGE',isActive:true,isAllocatable:true,unused}]));
   mock.method(m.StockHoldingPoint,'find',()=>query([{_id:'point',locationId:'loc',type:'LOCATION',unused}]));

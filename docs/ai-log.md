@@ -35,6 +35,44 @@ Validation performed / not performed:
 
 ## Log entries
 
+### 2026-11-20 — Link a replaced inspection to its replacement (UC-37)
+
+- Date: 2026-11-20
+- Work item / change: inspection detail returns `replacedBy`, and `capabilities.correct` is false once a non-cancelled replacement exists.
+- Tool and model: Claude Code (Claude Opus 5.5)
+- Prompt summary: the user asked to mark an old inspection as replaced and to link it to the replacement.
+- Result used: `purchase-read.service.js`, a focused integration assertion, the API contract and the change log.
+- Intervention: Adopted
+- Human changes: the user chose to add the link after reviewing how corrections keep the old inspection.
+- Files affected: `src/modules/po-receiving/purchase-read.service.js`, `test/native-api.integration.test.js`, `git_doc/docs/08_api/GOODS_RECEIPTS.md`, `git_doc/change_logs.md`, `docs/rtm.md`.
+- Validation: the `inspection correction` case passed with `RUN_NATIVE_API_TESTS=1` on a temporary local database; `npm run docs:check`. Other native API cases were not run.
+
+### 2026-11-20 — Analysis and plan: receipt reversal, custody receipt cancel/reverse, inspection correction blockers (UC-15, UC-37)
+
+- **Work item:** Analysis and implementation plan only. No code changed.
+  - **Review comments checked:** (1) a purchase receipt is hard to reverse because receipts of the same lot share one balance at the receiving bay; (2) cancelling a draft receipt does not let the goods be received again, because the inspection stays CONFIRMED and changing it needs the correction command. Both were confirmed in the code.
+  - **Findings:**
+    - `eligible()` in `purchase-correction.service.js` blocks on any later transaction touching the balance (line 23), any reservation on it (25), and a balance different from `toAfter` (28-29). The CONFIRMED branch of line 26 also blocks after any confirmed relocation from the balance. `eligible()` is shared with the OTHER receipt reversal.
+    - `transferCustodyStock` already removes only this receipt's packaging portions (`packagingPortionIds`) and checks `freeQuantity`, but `eligible()` blocks before it runs.
+    - Custody receipts have no cancel or reverse route; a custody receipt that is not CANCELLED blocks `replaceInspection` forever. Capabilities already return `cancel` for a draft custody receipt.
+    - A cancelled draft GR frees PO headroom, because PO quantities count only DRAFT/POSTED receipts.
+    - The FE has no inspection correction UI and no cancel/reverse action on the custody page.
+  - **Decision (user):**
+    - reversal: drop lines 23, 25, 28-29 and the CONFIRMED branch of 26; block only when this receipt's own portions were moved, issued or opened;
+    - cancelling a draft GR keeps the current behaviour;
+    - custody receipts behave like receipts (cancel a DRAFT, reverse a POSTED one);
+    - `replaceInspection` returns the full list of blocking documents and gets a preflight API;
+    - evidence becomes optional for purchase receipt reversal, OTHER receipt reversal, custody reversal and inspection correction; the reason stays required;
+    - return workflows (supplier returns, custody releases) are out of scope.
+  - **Rejected options:** reopening a confirmed inspection to DRAFT (bypasses the evidence rule), cancelling the inspection together with the draft GR, recreating a GR from a confirmed inspection, relying on custody reinspection (no FE).
+- **Tool and model:** Claude Code (Claude Opus 5.5).
+- **Prompt summary:** Check the two review comments; compare with MISA, Odoo and SAP Business One; evaluate options for cancelling a draft GR and for correcting an inspection that has custody lines; check how packaging portions are stored and reversed; write a detailed plan for another agent.
+- **Result used:** Plan file `PLAN_dao_phieu_nhap_va_giu_ho.md` in the workspace root, outside the `be/` and `fe/` repositories.
+- **Intervention:** Edited.
+- **Human changes:** The user chose every rule listed under Decision, removed the evidence requirement, and limited the scope to receipts, custody receipts and the purchase/receiving flow.
+- **Files affected:** `be/docs/ai-log.md`, `be/docs/rtm.md`. Planned BE scope: `src/modules/po-receiving/{purchase-correction.service,po-receiving.service,po-receiving.routes,purchase-read.service}.js`, `src/modules/goods-receipts/{goods-receipt.routes,other-receipt.service}.js`, `src/shared/utils/ApiError.js`, `test/native-api.integration.test.js`, `test/goods-receipt.integration.test.js`, `git_doc/docs/08_api/GOODS_RECEIPTS.md`, `git_doc/change_logs.md`. No model change.
+- **Validation:** Code reading only. No tests run, because no code changed.
+
 ### 2026-11-18 - PO line in the RR unit may not exceed the approved amount (UC-09)
 
 - **Work item:** Stop a PO from ordering more than the approved amount when it uses the same unit as the replenishment request (RR).
