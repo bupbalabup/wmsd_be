@@ -87,7 +87,7 @@ GET receipt/custody bổ sung inspectionResult trên từng item để hiển th
 
 Phiếu nhập mua kết thúc ở `POSTED` và cập nhật lượng đã nhận của PO ngay trong luồng ghi nhập. Kho chuyển hàng từ bãi tiếp nhận lên kệ bằng TransferOrder `RELOCATE`. Xem [DTO số dư và quyền trên phiếu](GOODS_RECEIPTS.md#chi-tiết-phiếu-nhập-mua) và [hợp đồng BF03](location-movements/README.md).
 
-Preflight đảo nhập so `toAfter` của bút toán cuối vào mỗi số dư. Warehouse đảo nhập mua trực tiếp qua /goods-receipts/purchase/:id/reverse, tạo StockReversal POSTED và bút toán ngược một lần, khôi phục hạn mức PO; không yêu cầu duyệt độc lập. GR từ giữ hộ đảo STORE về SUPPLIER gốc. `OTHER` có Bỏ ghi trực tiếp theo điều kiện. Không đảo khi đã có nghiệp vụ phụ thuộc. Bằng chứng là Attachment riêng tư, kiểm nội dung JPEG/PNG/PDF, quyền tải và hạn dùng.
+Preflight đảo nhập đối chiếu phần đóng gói của giao dịch gốc và lượng khả dụng cộng dồn trên từng số dư. Warehouse đảo nhập mua trực tiếp, tạo `StockReversal POSTED` và khôi phục hạn mức PO. GR từ giữ hộ đảo `STORE` về số dư `SUPPLIER` gốc. Warehouse có thể hủy phiếu giữ hộ NCC `DRAFT` hoặc đảo phiếu `POSTED` theo quyền tại kho. Sửa kiểm nhận đã xác nhận trả danh sách chứng từ cần xử lý trước. Bằng chứng tùy chọn cho các lệnh đảo nhập mua, nhập khác, giữ hộ NCC và sửa kết quả kiểm. [Điều kiện, quyền và API](GOODS_RECEIPTS.md#hủy-nháp-và-đảo-phiếu).
 
 ## Chuyển kho và bán
 

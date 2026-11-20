@@ -336,7 +336,7 @@ export function reverseOtherReceipt(user, id, input) {
       staff(actor);
       const doc = await scoped(id, actor, session);
       checkVersion(doc, input.expectedVersion);
-      await evidenceFor(actor, doc, input.evidenceIds, session, true);
+      await evidenceFor(actor, doc, input.evidenceIds, session);
       const { original, locations } = await eligible(doc, actor, session);
       await guardLocations(locations, session);
       const posting = beginStock(doc, actor, "OTHER_REVERSAL", input);
@@ -346,7 +346,7 @@ export function reverseOtherReceipt(user, id, input) {
         await transferCustodyStock(
           move.toBalanceId,
           null,
-          item,
+          { ...item.toObject(), qtyBase: String(move.quantityBase) },
           posting,
           actor,
           session,
@@ -359,7 +359,7 @@ export function reverseOtherReceipt(user, id, input) {
       doc.note = [doc.note, `Bỏ ghi: ${input.reason}`]
         .filter(Boolean)
         .join("\n");
-      doc.evidenceIds.addToSet(...input.evidenceIds);
+      if (input.evidenceIds?.length) doc.evidenceIds.addToSet(...input.evidenceIds);
       return {
         document: await saveVersion(doc, input.expectedVersion, session),
         versionBefore: input.expectedVersion,

@@ -46,6 +46,8 @@ The runtime uses one registry: `src/models/index.js` exports `registerModels(con
 
 [Hợp đồng GoodsReceipt BE](docs/08_api/GOODS_RECEIPTS.md) là nguồn hiện hành cho năm loại phiếu nhập, quyền tách riêng khách trả/giao thất bại, phiếu `OTHER`, Bỏ ghi và API đã gỡ. FE dùng danh sách phiếu nhập gộp, chi tiết theo loại và form ghi tồn từ chứng từ nguồn. Kiểm hàng và tạm giữ có màn hình riêng. Nhập mua hoàn tất ở `POSTED`. Kho dùng Chuyển vị trí (BF03) để đưa hàng từ RECEIVING lên STORAGE, với quyền `stock_relocation:read/create/confirm` theo từng thao tác. Bán hàng chọn tồn tại STORAGE có `isPickable`. Xếp hàng điều chuyển liên kho thực hiện qua ITR (BF04).
 
+Warehouse có thể hủy phiếu giữ hộ nhà cung cấp còn nháp với quyền cập nhật kiểm nhận. Đảo phiếu giữ hộ đã ghi cần cả quyền đảo và ghi nhập tại kho. Đảo phiếu nhập hoặc giữ hộ dựa vào phần đóng gói của phiếu tại vị trí gốc. Khi kiểm nhận đã xác nhận cần sửa, preflight liệt kê phiếu nhập, phiếu giữ hộ và các chứng từ liên quan phải xử lý trước. [Điều kiện hủy, đảo và sửa kiểm nhận](docs/08_api/GOODS_RECEIPTS.md#hủy-nháp-và-đảo-phiếu).
+
 ## 2. Thứ tự dùng nguồn
 
 1. Quyết định trực tiếp mới nhất của người dùng trong phạm vi công việc.
