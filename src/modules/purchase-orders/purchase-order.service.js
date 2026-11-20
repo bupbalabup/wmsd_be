@@ -5,6 +5,7 @@ import { currentRole } from '../../shared/utils/userRole.js';
 import { dto, serialize } from '../../shared/utils/persistence.js';
 import { escapeRegex, calendarDateRange } from '../../shared/utils/domain.js';
 import { same } from '../../shared/utils/document-command.js';
+import { enrichLineItems } from '../../shared/utils/document-items.js';
 import { findPurchase } from '../po-receiving/purchase-core.js';
 import { redactPrices } from '../sales-orders/sales-read.service.js';
 export async function purchaseOrderQuantities(po,session){
@@ -94,6 +95,7 @@ export async function getPurchaseOrder(user,id){
   const cancellable=['DRAFT','OPEN'].includes(po.workflowStatus)&&!(await cancelBlocker(po));
   const result={...dto(po),warehouse:mappedWarehouse,draftEdit,cancellable,hasOpenReceivingWork:(await openReceivingWorkIds([po])).has(String(po._id)),quantities,arrivals:arrivals.map(dto),receipts:receipts.map(dto),
     ...(financial(user)&&{history:history.map(dto),approvals:approvals.map(dto)})};
+  await enrichLineItems(result.items);
   return financial(user)?result:redactPrices(result);
 }
 function purchaseOrderScope(user, warehouseId) {
@@ -139,6 +141,7 @@ export async function listPurchaseOrders(user,query){
     const value={...dto(order),warehouse:warehouseMap.get(String(order.header?.warehouseId))||null,quantities};items.push(financial(user)?value:redactPrices(value));
   }
   const pageItems=items.slice((query.page-1)*query.limit,query.page*query.limit);
+  await enrichLineItems(pageItems.flatMap(row => row.items || []));
   const working=await openReceivingWorkIds(pageItems);
   return {items:pageItems.map(row=>({...row,hasOpenReceivingWork:working.has(String(row.id))})),total:items.length,page:query.page,limit:query.limit};
 }

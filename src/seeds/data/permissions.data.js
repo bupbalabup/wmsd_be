@@ -54,10 +54,10 @@ export const PERMISSION_CATALOGUE = [
 
   { code: 'goods_receipt_inspection:read', description: 'Xem phiếu nhập/kiểm nhận', uc: ['UC-14', 'UC-15'], roles: [OWNER, ACCOUNTANT, WAREHOUSE] },
   { code: 'goods_receipt_inspection:create', description: 'Tạo phiếu nhập từ PO tại kho được giao', uc: ['UC-16'], roles: [WAREHOUSE] },
-  { code: 'goods_receipt_inspection:update', description: 'Ghi kết quả kiểm nhận', uc: ['UC-37'], roles: [WAREHOUSE] },
+  { code: 'goods_receipt_inspection:update', description: 'Ghi và sửa kết quả kiểm nhận, hủy phiếu nháp nhận mua và giữ hộ NCC', uc: ['UC-37'], roles: [WAREHOUSE] },
   { code: 'goods_receipt_inspection:post', description: 'Post nhập kho (GR) sau kiểm nhận', uc: ['UC-37'], roles: [WAREHOUSE] },
   { code: 'stock_reversal:approve', description: 'Duyệt độc lập và ghi đảo giao dịch tồn', uc: ['UC-37'], roles: [OWNER] },
-  { code: 'goods_receipt_inspection:reverse', description: 'Warehouse đảo phiếu nhập ghi nhầm, có chứng cứ và kiểm phụ thuộc', uc: ['UC-37'], roles: [WAREHOUSE] },
+  { code: 'goods_receipt_inspection:reverse', description: 'Đảo phiếu nhập mua và giữ hộ NCC đã ghi sổ', uc: ['UC-37'], roles: [WAREHOUSE] },
   { code: 'purchase_order:approve_exception', description: 'Duyệt chốt thiếu PO đúng phiên bản', uc: ['UC-13'], roles: [OWNER] },
 
 

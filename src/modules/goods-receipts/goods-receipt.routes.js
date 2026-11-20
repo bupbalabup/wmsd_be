@@ -9,12 +9,13 @@ import { requirePermission, requireWarehouseAccess, isOwner, hasPermission } fro
 import { currentRole } from '../../shared/utils/userRole.js';
 import { notFoundError } from '../../shared/utils/ApiError.js';
 import { dto } from '../../shared/utils/persistence.js';
-import { GoodsReceipt, Warehouse, WarehouseLocation, ProductBatch, Supplier, TransferDispatch, StockTransaction, InventoryBalance, StockHoldingPoint, PurchaseReceipt, CustomerReturnReceipt, FailedDeliveryReceipt, TransferReceipt, OtherGoodsReceipt, CustomerReturn, WarehouseTransferRequest, SalesGoodsIssue, SalesOrder } from '../../models/runtime.js';
-import { receiptRouter as purchaseRouter, empty, schema, pagination, ver, key, qty, reason, evidenceIds, handle } from '../po-receiving/po-receiving.routes.js';
+import { GoodsReceipt, Warehouse, Supplier, TransferDispatch, StockTransaction, InventoryBalance, StockHoldingPoint, PurchaseReceipt, CustomerReturnReceipt, FailedDeliveryReceipt, TransferReceipt, OtherGoodsReceipt, CustomerReturn, WarehouseTransferRequest, SalesGoodsIssue, SalesOrder } from '../../models/runtime.js';
+import { receiptRouter as purchaseRouter, empty, schema, pagination, ver, key, qty, reason, optionalEvidenceIds, handle } from '../po-receiving/po-receiving.routes.js';
 import { GOODS_RECEIPT_KINDS } from '../../models/goods-receipt.model.js';
 import { databaseId } from '../../models/document-identity.js';
 import { exact } from '../../models/model-utils.js';
 import { validDateRange, escapeRegex } from '../../shared/utils/movement-list.js';
+import { enrichLineItems } from '../../shared/utils/document-items.js';
 import { getDocument } from '../po-receiving/purchase-read.service.js';
 import * as other from './other-receipt.service.js';
 
@@ -93,7 +94,7 @@ for (const [path, , Model, permission] of definitions) {
         sealedPackCount: z.number().int().nonnegative().optional(), measuredVolumeMm3: qty.optional(),
         extraOccupiedVolumeMm3: qty.optional(), packagingSnapshot: z.object({ packageUnit: z.string().min(1).max(60),
           baseUnitsPerPackage: qty, outerLengthMm: qty, outerWidthMm: qty, outerHeightMm: qty }).strict().optional() }).strict()).min(1).max(100) }).strict()).max(100).optional() }).strict())), handle((u,v) => other.postOtherReceipt(u,v.params.id,v.body)));
-    scoped.post('/:id/reverse', validate(schema(z.object({ ...command, reason, evidenceIds }).strict())), handle((u,v) => other.reverseOtherReceipt(u,v.params.id,v.body)));
+    scoped.post('/:id/reverse', validate(schema(z.object({ ...command, reason, evidenceIds: optionalEvidenceIds }).strict())), handle((u,v) => other.reverseOtherReceipt(u,v.params.id,v.body)));
     scoped.post('/:id/cancel', validate(schema(z.object({ ...command, reason }).strict())), handle((u,v) => other.cancelOtherReceipt(u,v.params.id,v.body)));
     scoped.get('/:id/reversal-preflight', validate(schema()), handle((u,v) => other.otherReversalPreflight(u,v.params.id)));
   }
@@ -147,15 +148,7 @@ async function scopedDetail(user, receipt) {
       if (balance) item.qualityCode = balance.qualityStatus;
     }
   }
-  const [locations, lots] = await Promise.all([
-    WarehouseLocation.find({ _id: { $in: value.items.map(item => item.destinationLocationId ?? item.details?.receivingLocationId).filter(Boolean) } }).select('code').lean(),
-    ProductBatch.find({ _id: { $in: value.items.map(item => item.lotId).filter(Boolean) } }).select('manufacturerLot').lean(),
-  ]);
-  for (const item of value.items) {
-    const locationId = item.destinationLocationId ?? item.details?.receivingLocationId;
-    item.destinationLocationCode = locations.find(location => String(location._id) === locationId)?.code;
-    item.lotLabelSnapshot ??= lots.find(lot => String(lot._id) === item.lotId)?.manufacturerLot;
-  }
+  await enrichLineItems(value.items);
   return value;
 }
 

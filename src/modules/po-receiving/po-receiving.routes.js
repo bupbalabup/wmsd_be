@@ -21,6 +21,7 @@ export const ver = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER);
 export const qty = decimalStringSchema({ positive: true });
 export const reason = z.string().trim().min(1).max(2000);
 export const evidenceIds = z.array(oid).min(1).max(20).refine(a => new Set(a).size === a.length);
+export const optionalEvidenceIds = z.array(oid).max(20).refine(a => new Set(a).size === a.length).optional();
 const optionalText = max => z.string().trim().min(1).max(max).optional();
 const searchText = optionalText(100);
 const iso = z.string().datetime({ offset: true }).refine(v => Date.parse(v) <= Date.now(), 'Thời điểm đến không được ở tương lai');
@@ -33,10 +34,12 @@ const query = status => paged({ purchaseOrderId: documentIdentifier.optional(), 
 export const schema = (body = empty, params = z.object({ id: documentIdentifier }).strict(), query = empty) => z.object({ body, params, query });
 export const handle = fn => catchAsync(async (req, res) => { const data = await fn(req.user, req.validated); formatApiResponse(res, { data }); });
 export const commandBody = { expectedVersion: ver, operationKey: key };
+const reversalBody = { ...commandBody, reason, evidenceIds: optionalEvidenceIds };
 export const inspectionRouter = Router(); inspectionRouter.use(authenticate);
 inspectionRouter.get('/:id/history', validate(schema(empty, undefined, paged({}))), handle((u,v) => reads.receivingHistory(u,v.params.id,v.query)));
 inspectionRouter.post('/:id/cancel', validate(schema(z.object({ ...commandBody, reason }).strict())), handle((u,v) => service.cancelDraft(u,v.params.id,'INSPECTION',v.body)));
-inspectionRouter.post('/:id/corrections', validate(schema(z.object({ ...form, ...commandBody, reason, evidenceIds }).strict())), handle((u,v) => correction.replaceInspection(u,v.params.id,v.body)));
+inspectionRouter.get('/:id/correction-preflight', validate(schema()), handle((u,v) => correction.correctionPreflight(u,v.params.id)));
+inspectionRouter.post('/:id/corrections', validate(schema(z.object({ ...form, ...reversalBody }).strict())), handle((u,v) => correction.replaceInspection(u,v.params.id,v.body)));
 inspectionRouter.get('/', validate(schema(empty,empty,query(['DRAFT','CONFIRMED','CANCELLED']))), handle((u,v) => reads.listDocuments(u,'INSPECTION',v.query)));
 inspectionRouter.get('/:id', validate(schema()), handle((u,v) => reads.getDocument(u,v.params.id,'INSPECTION')));
 inspectionRouter.put('/:id', validate(schema(z.object({ ...form, ...commandBody }).strict())), handle((u,v) => service.updateInspection(u,v.params.id,v.body)));
@@ -47,7 +50,7 @@ export const receiptRouter = Router(); receiptRouter.use(authenticate);
 receiptRouter.post('/:id/cancel', validate(schema(z.object({ ...commandBody, expectedPoVersion: ver, reason }).strict())), handle((u,v) => service.cancelDraft(u,v.params.id,'GR_PURCHASE',v.body)));
 receiptRouter.patch('/:id/destinations', validate(schema(z.object({ ...commandBody, reason, lines: z.array(z.object({ lineId: oid, receivingLocationId: oid }).strict()).min(1).max(100) }).strict())), handle((u,v) => service.changeDestinations(u,v.params.id,v.body)));
 receiptRouter.get('/:id/reversal-preflight', validate(schema()), handle((u,v) => correction.reversalPreflight(u,v.params.id)));
-receiptRouter.post('/:id/reverse', validate(schema(z.object({ ...commandBody, expectedPoVersion: ver, reason, evidenceIds }).strict())), handle((u,v) => correction.reverseReceipt(u,v.params.id,v.body)));
+receiptRouter.post('/:id/reverse', validate(schema(z.object({ ...reversalBody, expectedPoVersion: ver }).strict())), handle((u,v) => correction.reverseReceipt(u,v.params.id,v.body)));
 receiptRouter.get('/', validate(schema(empty,empty,query(['DRAFT','POSTED','REVERSED','CANCELLED']))), handle((u,v) => reads.listDocuments(u,'GR_PURCHASE',v.query)));
 receiptRouter.get('/:id', validate(schema()), handle((u,v) => reads.getDocument(u,v.params.id,'GR_PURCHASE')));
 receiptRouter.post('/:id/post', validate(schema(z.object({ ...commandBody, expectedPoVersion: ver, packaging }).strict())), handle((u,v) => service.postReceipt(u,v.params.id,v.body)));
@@ -75,8 +78,11 @@ purchaseDocumentRouter.get('/:id/evidence/:evidenceId/download', validate(schema
 export const reversalRouter=Router();reversalRouter.use(authenticate);
 reversalRouter.get('/:id',validate(schema()),handle((u,v)=>correction.getReversal(u,v.params.id)));
 export const custodyRouter=Router();custodyRouter.use(authenticate);
-custodyRouter.get('/', validate(schema(empty, empty, query(['DRAFT', 'POSTED', 'CLOSED']))),
+custodyRouter.get('/', validate(schema(empty, empty, query(['DRAFT', 'POSTED', 'CLOSED', 'CANCELLED', 'REVERSED']))),
   handle((u, v) => reads.listDocuments(u, 'CUSTODY_RECEIPT', v.query)));
+custodyRouter.post('/:id/cancel', validate(schema(z.object({ ...commandBody, reason }).strict())), handle((u,v) => service.cancelDraft(u,v.params.id,'CUSTODY_RECEIPT',v.body)));
+custodyRouter.get('/:id/reversal-preflight', validate(schema()), handle((u,v) => correction.reversalPreflight(u,v.params.id,'CUSTODY_RECEIPT')));
+custodyRouter.post('/:id/reverse', validate(schema(z.object(reversalBody).strict())), handle((u,v) => correction.reverseReceipt(u,v.params.id,v.body,'CUSTODY_RECEIPT')));
 custodyRouter.get('/:id',validate(schema()),handle((u,v)=>reads.getDocument(u,v.params.id,'CUSTODY_RECEIPT')));
 custodyRouter.post('/:id/post',validate(schema(z.object({...commandBody,handedOverBy:z.string().trim().max(160).nullish(),destinations:z.array(z.object({lineId:oid,locationId:oid}).strict()).min(1).max(100),packaging}).strict())),handle((u,v)=>service.postCustodyReceipt(u,v.params.id,v.body)));
 
