@@ -26,6 +26,8 @@ PurchaseReceipt và CustodyRelease có custodyDecisionId → ApprovalHistory. GR
 
 Các POST dưới /api/custody-receipts/:id đều có expectedVersion,operationKey.
 
+Hợp đồng hiện hành bổ sung hủy phiếu giữ hộ NCC `DRAFT` và đảo phiếu `POSTED`. Xem [quyền và payload](GOODS_RECEIPTS.md#hủy-nháp-và-đảo-phiếu).
+
 | Đường dẫn | Body bổ sung | Quyền |
 |---|---|---|
 | reinspections | reason,evidenceIds,lines[{custodyItemId,qtyBase,qualityCode}] | goods_receipt_inspection:update |
@@ -41,9 +43,9 @@ GR từ giữ hộ trừ SUPPLIER và cộng STORE trong một transaction, gi�
 
 ### Đảo nhập
 
-POST /api/purchase-receipts/:id/reverse: expectedVersion,expectedPoVersion,operationKey,reason,evidenceIds; Warehouse có reverse và post trong kho thực hiện nguyên tử, tạo StockReversal POSTED. Không tạo PENDING_APPROVAL mới. Endpoint review chỉ còn hồ sơ lịch sử; endpoint post cũ từ chối dùng cho API mua mới.
+`POST /api/goods-receipts/purchase/:id/reverse` nhận `expectedVersion`, `expectedPoVersion`, `operationKey`, `reason` và `evidenceIds?`. Warehouse cần cả quyền đảo và ghi nhận tại kho. Lệnh tạo `StockReversal POSTED` trong cùng transaction.
 
-Đảo nhập trực tiếp giảm STORE ra ngoài; đảo nhập từ giữ hộ chuyển STORE về balance SUPPLIER gốc. Hoàn hạn mức PO đúng một lần; unique reversedTransactionId và operation key chặn ghi lặp. Chặn khi có putaway, giữ hàng, giao dịch hoặc kiểm kê phụ thuộc. Trường approvalDecision giữ cho hồ sơ lịch sử.
+Đảo nhập trực tiếp giảm `STORE`. Đảo nhập từ giữ hộ chuyển `STORE` về số dư `SUPPLIER` gốc. Unique index trên `reversedTransactionId` và khóa thao tác bảo vệ hạn mức PO khỏi ghi lặp. Điều kiện hiện hành kiểm phần đóng gói của phiếu, lượng khả dụng và chứng từ phụ thuộc. Trường `approvalDecision` giữ cho hồ sơ lịch sử. [Điều kiện chi tiết và API](GOODS_RECEIPTS.md#hủy-nháp-và-đảo-phiếu).
 
 ## Mapping FE đợt sau
 
