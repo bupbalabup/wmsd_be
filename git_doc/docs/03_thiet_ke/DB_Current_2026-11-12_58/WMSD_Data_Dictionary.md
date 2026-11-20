@@ -499,7 +499,7 @@ Model: [inventory-balance.model.js](../../../../src/models/inventory-balance.mod
 | `packagingPortions[].createdAt` | Date | false |  |
 | `packagingPortions[].updatedAt` | Date | false |  |
 | `packagingPortions[].measuredVolumeMm3` | Decimal128 | false | Thể tích chiếm chỗ thực đo hoặc BE ước tính (mm³). |
-| `packagingPortions[].volumeUpperBoundMm3` | Decimal128 | false | mm³; conservative known-volume bound on outbound OPEN/LOOSE fragments, not a measurement; absent on historical rows; capacity fallback after measuredVolumeMm3 |
+| `packagingPortions[].volumeUpperBoundMm3` | Decimal128 | false | mm³; conservative bound for a known-volume OPEN/LOOSE fragment, including a partial DIRECT return receipt; not a measurement. Capacity uses it when `measuredVolumeMm3` is absent. |
 | `packagingPortions[].extraOccupiedVolumeMm3` | Decimal128 | false |  |
 
 Indexes:
@@ -826,6 +826,8 @@ Indexes:
 ## return_quantity_claims
 
 Model: [return-quantity-claim.model.js](../../../../src/models/return-quantity-claim.model.js).
+
+20 November 2026: events[].kind uses RECEIVED, RELEASED and REACQUIRED. REACQUIRED restores only previously released allowance after service-level source locking and cumulative-cap checks. Remaining = claimedQtyBase - RECEIVED - RELEASED + REACQUIRED; the source charge excludes RELEASED and includes RECEIVED/REACQUIRED. Model validation checks each event prefix: reacquisition never exceeds release and resolved quantity net of reacquisition never exceeds the original claim. Existing event arrays remain readable; no collection/index change or backfill.
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
 |---|---|---|---|
@@ -5101,6 +5103,14 @@ Model: [customer-return.model.js](../../../../src/models/customer-return.model.j
 | `inspections[].portions` | Array | false |  |
 | `inspections[].portions[].quantityBase` | Decimal128 | true |  |
 | `inspections[].portions[].packagingCondition` | String | true |  |
+| `inspections[].portions[].packagingState` | String | false | Actual SEALED, OPEN or LOOSE state saved for DIRECT inspection. Older portions derive it from `packagingCondition`. |
+| `inspections[].portions[].measuredVolumeMm3` | Decimal128 | false | Positive measured volume in mm³ (up to six decimal places) for an OPEN/LOOSE portion; no default. |
+| `inspections[].portions[].packagingSnapshot` | Embedded | false | Fixed verified carton specification used for SEALED DIRECT portions; no new reference or index. |
+| `inspections[].portions[].packagingSnapshot.packageUnit` | String | true | Required when a snapshot exists. |
+| `inspections[].portions[].packagingSnapshot.baseUnitsPerPackage` | Decimal128 | true | Required when a snapshot exists. |
+| `inspections[].portions[].packagingSnapshot.outerLengthMm` | Decimal128 | false | Service requires all three dimensions for new SEALED portions. |
+| `inspections[].portions[].packagingSnapshot.outerWidthMm` | Decimal128 | false | Service requires all three dimensions for new SEALED portions. |
+| `inspections[].portions[].packagingSnapshot.outerHeightMm` | Decimal128 | false | Service requires all three dimensions for new SEALED portions. |
 | `inspections[].portions[].installationStatus` | String | true |  |
 | `inspections[].portions[].damageCause` | String | true |  |
 | `inspections[].portions[].deadlineStatus` | String | true |  |

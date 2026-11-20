@@ -229,7 +229,8 @@ export async function receiveStock(balance, item, portions, posting, user, sessi
   const batch = await ProductBatch.findById(balance.batchId).session(session);
   const product = batch && await Product.findById(batch.productId).session(session);
   const amount = exact(item.qtyBase);
-  if ((!batch || !product) && (!portions?.length || portions.some(row => row.packagingState !== 'SEALED' && row.measuredVolumeMm3 == null))) {
+  const lacksVolume = row => row.packagingState !== 'SEALED' && (row.measuredVolumeMm3 ?? row.volumeUpperBoundMm3) == null;
+  if ((!batch || !product) && (!portions?.length || portions.some(lacksVolume))) {
     throw validationError(missingVolumeDimensions);
   }
   if (!batch || batch.identificationStatus !== 'VERIFIED' || !product?.isActive || !same(batch.productId, item.productId) || (product.wholeBaseUnits && !amount.isInteger())) throw validationError('Lô hoặc lượng nhập không hợp lệ');
@@ -259,7 +260,7 @@ export async function receiveStock(balance, item, portions, posting, user, sessi
   if (!packaging.reduce((sum,row) => sum.plus(String(row.quantityBase)), exact('0')).eq(amount)) throw validationError('Tổng quy cách khác lượng thực nhập');
   const received = packaging.map(row => ({
     ...row,
-    ...(row.packagingState !== 'SEALED' && row.measuredVolumeMm3 == null
+    ...(lacksVolume(row)
       ? { measuredVolumeMm3: estimateVolume(row.packagingState, row.quantityBase, batch, product) }
       : {}),
     _id: newId(),

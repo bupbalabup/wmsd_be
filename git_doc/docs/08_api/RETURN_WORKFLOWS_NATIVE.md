@@ -59,6 +59,18 @@ All routes below are under `/api`, require active authentication, and recheck th
 
 The older 19-UC assignment is covered by these functions; split UCs are shown separately. Retired supplier Owner approval is not restored.
 
+## Reassessment claim and packaging correction — 20 November 2026
+
+CR approval keeps already RECEIVED quantity charged to its source. A reduction appends RELEASED for the unresolved reduction only; an increase appends REACQUIRED after taking the same source-item lock used by creation and checking the current cumulative source allowance. This applies to issue and verified historical sources and to split lines. Reductions are applied before increases, which are checked and saved sequentially. Approval cannot fall below quantity already received.
+
+For each return_quantity_claims record, remaining = claimedQtyBase - RECEIVED - RELEASED + REACQUIRED; cumulative source charge = claimedQtyBase - RELEASED + REACQUIRED. Every event prefix must keep remaining nonnegative and reacquisition within the released allowance. Events remain append-only; the original claimed quantity and event history are not rewritten. Existing claims without REACQUIRED retain their meaning.
+
+DIRECT inspections save the observed packaging state and optional OPEN/LOOSE measurement on each inspection portion without posting stock. Explicit portions must sum to the inspected quantity and match the declared condition when known. Without explicit portions, SEALED maps to SEALED, LOOSE to LOOSE, and OPENED/TORN/UNKNOWN to OPEN. Reassessment retains compatible recorded portions when no replacement is supplied.
+
+SEALED inspection, approval and receipt require complete cartons. The server prefers the saved item or inspection snapshot and checks it against the verified lot of that product. For a historical return without a snapshot, the server uses the verified lot's fixed carton size and dimensions and saves the snapshot on the new inspection and receipt. Missing or incompatible carton specifications are rejected; client packaging does not replace them.
+
+Partial receipts consume the remaining inspected portions in order, skipping quantities already posted. A whole measured portion keeps the original measurement. A fragment without its own measurement uses the original measurement as `volumeUpperBoundMm3`, not as an actual measurement; several fragments can therefore reserve more space than the original portion. Receipt-supplied portions must match inspected quantities and states, and cannot override a whole portion's measurement. Unmeasured OPEN/LOOSE portions keep the existing estimation path. Old inspection records remain readable and cannot recover a measurement that was never saved. No new collection, index, migration or backfill is required.
+
 ## Nhập kho từ chứng từ nguồn
 
 Kho dùng **Lập phiếu nhập** trên hồ sơ khách trả hoặc giao thất bại, hoặc tìm nguồn từ **Phiếu nhập kho**. API danh sách nhận `status` phân tách bằng dấu phẩy và `receivable=true`. Khách trả lọc `ACCEPTED,PARTIAL` và có tham chiếu quyết định. Giao thất bại lọc `INSPECTED,PARTIAL`. Chi tiết trả `receivableLines` theo dòng gốc, gồm lượng còn được nhập và phẩm cấp hợp lệ. Giao thất bại có thêm tình trạng bao bì đã kiểm.

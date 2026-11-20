@@ -1,3 +1,9 @@
+## 20 November 2026 — Preserve customer-return claims and inspection packaging
+
+`return_quantity_claims.events` uses the existing kind field for REACQUIRED. Model validation checks event prefixes against the original claim and released allowance; RECEIVED remains charged to the source. Services lock and recheck source allowance before reassessment increases, preserving existing events.
+
+`customer_returns.inspections[].portions` adds optional `packagingState`, `measuredVolumeMm3` and `packagingSnapshot` for new DIRECT inspections. Whole measured portions keep the measurement at receipt; partial fragments can use the existing inventory volume bound. Sealed packaging is checked against the fixed verified lot, not against a client-provided replacement. Existing documents remain readable; no collection, relationship, index, migration or backfill changed.
+
 ## 19 November 2026 — Append-only correction of an empty-location count
 
 `stocktake_counts` adds optional `correctsEmptyCountId` (ref to the superseded `StocktakeCount`) and `correctionReason` (String ≤ 2000). A correction records a new discovered `STOCK` count with evidence; the original `EMPTY_LOCATION` attempt remains unchanged. Optional fields are compatible with existing documents; no collection or index change, migration, or backfill.

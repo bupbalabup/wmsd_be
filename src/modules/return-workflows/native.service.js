@@ -1,4 +1,4 @@
-import { receiveDirect } from './direct-customer-return.js';
+import { directInspectionPortions, directReceiptPortions, receiveDirect } from './direct-customer-return.js';
 import { nextDocumentFields } from '../../shared/utils/document-number.js';
 import { attachStored } from './native.read.js';
 import * as s from './native.shared.js';
@@ -102,8 +102,12 @@ export const inspectCustomerReturn=(user,id,input,reassess=false)=>operation(m.C
  let receipt,posting;if(!reassess&&doc.header.intakeMode!=='DIRECT'){await s.locationAt(input.custodyLocationId,doc.header.warehouseId,['CUSTODY'],session);receipt=await envelope(m.CustodyReceipt,actor,{warehouseId:doc.header.warehouseId,ownerType:'CUSTOMER',ownerId:doc.header.customerId,receivedAt:new Date(),receivedBy:actor._id},[],'DRAFT',input.note);posting=beginStock(receipt,actor,'CR_CUSTODY',input);}
  for(const row of input.lines){const item=rowOf(doc,row.returnLineId),quantity=exact(row.qtyReceived);await s.assertWholeQuantity(item.productId,row.qtyReceived,session);if(quantity.gt(String(item.qtyBase)))throw validationError('Vượt lượng yêu cầu');
   const old=doc.inspections.filter(i=>same(i.returnLineId,item._id)).at(-1);if(reassess&&(!old||!quantity.eq(sum(old.portions,'quantityBase'))))throw validationError('Kiểm lại không được nhận vật lý lần nữa');
+  const facts={packagingCondition:row.packagingCondition,installationStatus:row.installationStatus,damageCause:row.damageCause,deadlineStatus:row.deadlineStatus,deadlineReference:row.deadlineReference,eligibilityStatus:eligibility(row),reason:row.assessmentReason,evidenceIds:input.evidenceIds};
+  if(doc.header.intakeMode==='DIRECT'&&quantity.isZero()&&row.portions?.length)throw validationError('Không khai quy cách khi không có hàng thực đến');
+  const savedPortions=quantity.isZero()?[]:doc.header.intakeMode==='DIRECT'
+   ? await directInspectionPortions(item,row,quantity,old,facts,session) : [{...facts,quantityBase:quantity.toFixed()}];
   if(receipt&&quantity.gt(0)){const r=copy(item,quantity,receipt.items.length+1,{sources:[source(doc,item,'CUSTOMER_CUSTODY',quantity)]});receipt.items.push(r);await postIn(receipt,receipt.items.at(-1),actor,session,posting,{locationId:input.custodyLocationId,qualityCode:'PENDING',ownerType:'CUSTOMER',ownerId:doc.header.customerId,portions:row.portions});}
-  doc.inspections.push({_id:newId(),returnLineId:item._id,inspectionNo:(old?.inspectionNo??0)+1,returnVersion:doc.version+1,warehouseId:doc.header.warehouseId,inspectedBy:actor._id,inspectedAt:new Date(),portions:quantity.gt(0)?[{quantityBase:quantity.toFixed(),packagingCondition:row.packagingCondition,installationStatus:row.installationStatus,damageCause:row.damageCause,deadlineStatus:row.deadlineStatus,deadlineReference:row.deadlineReference,eligibilityStatus:eligibility(row),reason:row.assessmentReason,evidenceIds:input.evidenceIds}]:[]});
+  doc.inspections.push({_id:newId(),returnLineId:item._id,inspectionNo:(old?.inspectionNo??0)+1,returnVersion:doc.version+1,warehouseId:doc.header.warehouseId,inspectedBy:actor._id,inspectedAt:new Date(),portions:savedPortions});
  }
  if(receipt?.items.length){receipt.evidenceIds=input.evidenceIds;await savePosted(receipt,posting,actor,session);}
  doc.workflowStatus='INSPECTED';attached(doc,input.evidenceIds);return {stockTransactionId:receipt?.items.length?posting._id:undefined};
@@ -113,12 +117,33 @@ export const decideCustomerReturn=(user,id,input,exception=false)=>operation(m.C
  for(const item of doc.items){const inspection=doc.inspections.filter(i=>same(i.returnLineId,item._id)).at(-1);if(!inspection)throw validationError('Chưa kiểm hàng');const request=input.lines?.find(r=>same(r.lineId,item._id));const approved=exact(input.decision==='REJECT'?'0':request?.qtyBase??sum(inspection.portions,'quantityBase'));
   await s.assertWholeQuantity(item.productId,approved,session);if(approved.gt(sum(inspection.portions,'quantityBase')))throw validationError('Vượt lượng đã kiểm');
   if(approved.gt(0)&&(!inspection.portions.length||inspection.portions.some(p=>p.eligibilityStatus!=='CASE_REVIEW')||(!exception&&inspection.portions.some(p=>p.damageCause!=='NONE'))))throw validationError('Điều kiện không cho phép chấp nhận theo quyền này');
+  if(doc.header.intakeMode==='DIRECT'&&approved.gt(0))await directReceiptPortions(item,inspection,approved,session);
   decisions.push({...item.toObject(),approvedQtyBase:approved.toFixed(),inspection:serialize(inspection)});
+ }
+ // Release reductions before reacquiring increases, including split lines sharing one source.
+ for(const item of decisions){
+  const claim=await m.ReturnQuantityClaim.findOne({requestLineId:item._id}).session(session);
+  if(!claim)throw validationError('Thiếu hạn mức nguồn trả');
+  const received=sum(claim.events.filter(event=>event.kind==='RECEIVED'),'quantityBase');
+  const target=exact(item.approvedQtyBase).minus(received);
+  if(target.lt(0))throw validationError('Lượng duyệt không được thấp hơn lượng đã nhập');
+  const release=s.remainingClaim(claim).minus(target);
+  if(release.gt(0))await s.resolveClaim(item._id,release,'RELEASED',doc,actor,session);
+ }
+ for(const item of decisions){
+  const claim=await m.ReturnQuantityClaim.findOne({requestLineId:item._id}).session(session);
+  const received=sum(claim.events.filter(event=>event.kind==='RECEIVED'),'quantityBase');
+  const needed=exact(item.approvedQtyBase).minus(received).minus(s.remainingClaim(claim));
+  if(!needed.gt(0))continue;
+  const current=doc.items.id(item._id);
+  const source=await returnSource({historicalExternalLineId:current.details.historicalExternalLineId,salesIssueLineId:current.details.originalIssueLineId},actor,session);
+  if(!same(source.item._id,claim.sourceLineId)||needed.plus(await s.claimTotal(source.item._id,'CR',session)).gt(source.allowance))
+   throw validationError('Lượng duyệt vượt hạn mức nguồn trả còn hiệu lực');
+  await s.reacquireClaim(item._id,needed,doc,actor,session);
  }
  const approval=await decision(doc,exception?'EXCEPTION_APPROVAL':'STANDARD_ACCEPTANCE',{items:decisions},actor,session,input);
  doc.decisions.push({decisionId:approval._id,revision:doc.version+1,reviewedBy:actor._id,reviewedAt:new Date(),decision:input.decision??'APPROVE',reason:input.reason});
  doc.workflowStatus=decisions.some(i=>exact(i.approvedQtyBase).gt(0))?'ACCEPTED':'REJECTED';
- for(const item of decisions){const claim=await m.ReturnQuantityClaim.findOne({requestLineId:item._id}).session(session);const release=s.remainingClaim(claim).minus(item.approvedQtyBase);if(release.gt(0))await s.resolveClaim(item._id,release,'RELEASED',doc,actor,session);}
  return {decisionId:approval._id};
 });
 async function custodyBalance(doc,item,session){

@@ -38,7 +38,7 @@ export async function listTransfers(user,query){
 }
 const dispatchWarehouseFields = ['header.sourceWarehouseId', 'header.destinationWarehouseId'];
 
-async function dispatchScope(user) {
+export async function transferDispatchScope(user) {
   const requestScope = await scope(user);
   const requestIds = await WarehouseTransferRequest.find(requestScope).distinct('_id');
   return { 'header.requestId': { $in: requestIds } };
@@ -49,7 +49,7 @@ export async function listDispatches(user, query) {
   const receivable = query.receivable === 'true';
   const sales = currentRole(user)?.code === 'SALES';
   if (receivable) requirePermission(user, 'stock_transfer:receive');
-  const filter = await dispatchScope(user);
+  const filter = await transferDispatchScope(user);
   if (receivable) {
     const requestIds = await WarehouseTransferRequest.find({
       _id: filter['header.requestId'],
