@@ -1,5 +1,9 @@
 18/11/2026 — BF03 theo yêu cầu người dùng: tùy chọn chuyển thùng nguyên + viên rời, ô viên rời xuống dòng 2. Lưu từng phần SEALED/LOOSE trên hai item để xác nhận từng chuyến đúng loại; không tự mở thùng, không dùng OPEN thay hàng rời. Chỉ explicit LOOSE được tách phần có thể tích biết trước bằng giới hạn bảo thủ. Schema thêm optional details.packagingState, không collection/index/migration. [Hợp đồng](docs/08_api/location-movements/README.md#mixed-sealed-cartons-and-loose-pieces--18-november-2026).
 
+## Receiving corrections — 20 November 2026
+
+Receiving fixes preserve source claims across CR reassessment, inspected packaging and measured volume on direct returns, and usable defect holds on damaged transfer receipts. Sales sees only linked TRANSFER receipt status within warehouse scope and owned direct FAILED_DELIVERY receipts. OTHER reversal is available in the receipt UI; evidence cannot invalidate an approved receipt. Purchase inspection creation contends with cancellation on its source PO without changing its version. See [receipt contract](docs/08_api/GOODS_RECEIPTS.md) and [return contract](docs/08_api/RETURN_WORKFLOWS_NATIVE.md). No historical record repair or shared-database rollout is included.
+
 ## Phạm vi chức năng hiện hành
 
 Quyết định người dùng ngày 17/11/2026: bỏ danh mục/quản lý khách hàng và quy trình delivery riêng; giữ đơn bán và khách trả. Luồng bán dùng SO -> phiếu xuất trực tiếp. Thông tin người mua nằm trên chứng từ; bằng chứng khách nhận và nhận lại hàng chưa giao gắn phiếu xuất.

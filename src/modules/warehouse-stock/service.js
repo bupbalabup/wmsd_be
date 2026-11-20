@@ -109,7 +109,7 @@ async function verifyLocationVolume(location,warehouse,balances) {
   if(!location.usableLengthMm||!location.usableWidthMm||!warehouse?.clearHeightMm)return null;
   const capacity=exact(location.usableLengthMm).mul(String(location.usableWidthMm)).mul(String(warehouse.clearHeightMm));
   let used=exact('0');
-  for(const b of balances)for(const p of b.packagingPortions??[]){if(p.measuredVolumeMm3!=null)used=used.plus(String(p.measuredVolumeMm3));else if(p.packagingState==='SEALED'&&p.packagingSnapshot?.outerLengthMm)used=used.plus(exact(p.packagingSnapshot.outerLengthMm).mul(String(p.packagingSnapshot.outerWidthMm)).mul(String(p.packagingSnapshot.outerHeightMm)).mul(p.sealedPackCount));else if(exact(p.quantityBase).gt(0))return {capacityMm3:capacity.toFixed(),occupiedMm3:null};used=used.plus(String(p.extraOccupiedVolumeMm3??'0'));}
+  for(const b of balances)for(const p of b.packagingPortions??[]){const volume=p.measuredVolumeMm3??p.volumeUpperBoundMm3;if(volume!=null)used=used.plus(String(volume));else if(p.packagingState==='SEALED'&&p.packagingSnapshot?.outerLengthMm)used=used.plus(exact(p.packagingSnapshot.outerLengthMm).mul(String(p.packagingSnapshot.outerWidthMm)).mul(String(p.packagingSnapshot.outerHeightMm)).mul(p.sealedPackCount));else if(exact(p.quantityBase).gt(0))return {capacityMm3:capacity.toFixed(),occupiedMm3:null};used=used.plus(String(p.extraOccupiedVolumeMm3??'0'));}
   return {capacityMm3:capacity.toFixed(),occupiedMm3:used.toFixed()};
 }
 async function bindLocationSlots(actor, location, binding, session) {

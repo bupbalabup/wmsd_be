@@ -59,11 +59,29 @@ export async function lockSource(doc,item,session) {
  const sourceKey=`${doc.constructor.collection.name}:${doc._id}:${item._id}`;
  await m.ReturnSourceLock.updateOne({sourceKey},{$setOnInsert:{sourceKind:doc.constructor.collection.name,sourceDocumentId:doc._id,sourceItemId:item._id},$inc:{version:1}},{session,upsert:true});
 }
-export const remainingClaim = claim => exact(claim.claimedQtyBase).minus(sum(claim.events.filter(e=>['RECEIVED','RELEASED'].includes(e.kind)),'quantityBase'));
+export const remainingClaim = claim => exact(claim.claimedQtyBase)
+  .minus(sum(claim.events.filter(e => e.kind === 'RECEIVED' || e.kind === 'RELEASED'), 'quantityBase'))
+  .plus(sum(claim.events.filter(e => e.kind === 'REACQUIRED'), 'quantityBase'));
 export async function claimTotal(sourceId,kind,session) {
  const claims=await m.ReturnQuantityClaim.find({sourceLineId:sourceId,claimKind:kind}).session(session);
- // Received claims remain charged to the original source; released portions do not.
- return claims.reduce((n,c)=>n.plus(exact(c.claimedQtyBase).minus(sum(c.events.filter(e=>e.kind==='RELEASED'),'quantityBase'))),exact('0'));
+  // Received claims remain charged to the original source; released portions can only be used again after reacquisition.
+ return claims.reduce((n,c)=>n.plus(exact(c.claimedQtyBase)
+  .minus(sum(c.events.filter(e=>e.kind==='RELEASED'),'quantityBase'))
+  .plus(sum(c.events.filter(e=>e.kind==='REACQUIRED'),'quantityBase'))),exact('0'));
+}
+export async function reacquireClaim(itemId,quantity,document,user,session) {
+ const claim=await m.ReturnQuantityClaim.findOne({requestLineId:itemId}).session(session);
+ if(!claim||!exact(quantity).gt(0))throw validationError('Không có hạn mức đã giải phóng để cấp lại');
+ const released=sum(claim.events.filter(e=>e.kind==='RELEASED'),'quantityBase');
+ const reacquired=sum(claim.events.filter(e=>e.kind==='REACQUIRED'),'quantityBase');
+ if(exact(quantity).gt(released.minus(reacquired)))throw validationError('Hạn mức đã giải phóng không còn đủ để cấp lại');
+ const before=claim.version;
+ claim.events.push({kind:'REACQUIRED',quantityBase:String(quantity),sourceRef:ref(document),performedBy:user._id,performedAt:new Date()});
+ claim.version++;
+ await claim.validate();
+ const result=await m.ReturnQuantityClaim.updateOne({_id:claim._id,version:before},{$set:{events:claim.events},$inc:{version:1}},{session});
+ if(result.matchedCount!==1)throw versionConflict();
+ return claim;
 }
 export async function resolveClaim(itemId,quantity,kind,document,user,session) {
  const claim=await m.ReturnQuantityClaim.findOne({requestLineId:itemId}).session(session);

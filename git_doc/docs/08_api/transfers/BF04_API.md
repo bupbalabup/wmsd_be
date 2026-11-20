@@ -36,6 +36,8 @@ user's assignments. `sourceWarehouseIds` lists warehouses the caller may operate
 Only those warehouses expose locations and balances. Sales read scope remains
 restricted to its linked demand documents. Sales options return warehouse catalogue only, with empty operational source IDs, locations, balances, products, units and conversions. `conversions` is a selection aid keyed by `productId`, optional `productBatchId`, and `uom`; the write command resolves the conversion again inside its transaction.
 
+`GET /api/goods-receipts/transfer/:id` and the unified receipt detail use destination warehouse scope. Sales also needs the linked-demand scope above and receives status metadata and the linked request reference only. Both receipt lists apply that scope before pagination. See [GoodsReceipt API](../GOODS_RECEIPTS.md#receiving-corrections--20-november-2026).
+
 Bộ lọc `status` của danh sách yêu cầu và phiếu xuất nhận một hoặc nhiều trạng thái phân tách bằng dấu phẩy. Trong **Đơn phiếu**, nút **Xem** của phiếu nhận mở đúng `/receipts/:receiptId?kind=TRANSFER`; phiếu nháp đủ quyền hiển thị form kiểm nhận với phiếu xuất điền sẵn. Form gọi `POST /dispatches/:id/receipts` và mở phiếu nhập theo `data.id`. Các dòng hư hỏng cần vị trí cách ly và lý do.
 
 ## Main flow
@@ -72,7 +74,7 @@ in the same transaction. The task initially has no item destinations; the source
 receipt retains the exact product/lot/quantity/stock links. Destination staff open
 `/transfer-tasks/:id`, select a STORAGE location for every GOOD receipt line, and
 confirm the TO once. Planning and stock posting happen atomically on confirmation.
-An all-DAMAGED receipt needs no PUTAWAY; its quarantine/defect records remain.
+An all-DAMAGED receipt needs no PUTAWAY; its quarantine/defect records remain. Since 20 November 2026, each generated damage report also creates an ACTIVE hold for its own report item, destination balance and received quantity in the same receipt transaction. The quantity is blocked until its evidenced disposition resolves that hold; progress and proposal commands use the existing hold workflow. This corrects newly created reports and does not backfill historical reports.
 
 Per user decision on 17 November, the request page groups dispatches/receipts under
 **Đơn phiếu**, picking/putaway under **Nhiệm vụ**, and discrepancy handling under
