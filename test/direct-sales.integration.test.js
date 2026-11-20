@@ -11,6 +11,7 @@ import * as sales from '../src/modules/sales-orders/sales-execution.service.js';
 import { lookup } from '../src/modules/return-workflows/native.lookup.js';
 import { getSalesOrder } from '../src/modules/sales-orders/sales-read.service.js';
 import * as returns from '../src/modules/return-workflows/native.service.js';
+import { processNotificationEvent } from '../src/modules/notifications/worker.js';
 const key = () => new mongoose.Types.ObjectId().toString();
 test('direct SO issue, customer receipt, undelivered receipt and return without custody', {skip: process.env.RUN_GOODS_ISSUE_TESTS !== '1'}, async () => {
  await mongoose.connect(`mongodb://127.0.0.1:${process.env.MONGODB_TEST_PORT || 27018}/direct_sales_test_${key()}?replicaSet=${process.env.MONGODB_TEST_REPLICA_SET || 'hieudt-test'}`);
@@ -128,5 +129,28 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
  assert.equal((await http(seller,'/goods-issues/'+encodeURIComponent(issue._id))).status,200);
  const lookupEvidence=await http(seller,'/return-workflows/lookup?kind=evidence&documentId='+encodeURIComponent(issue._id)+'&page=1&limit=10');assert.equal(lookupEvidence.status,200);
  assert.equal((await http(worker,'/goods-issues?salesOrderId='+encodeURIComponent(so._id))).status,200);
+ const cutoff = new Date(0);
+ assert.equal(await processNotificationEvent(new Date(Date.now() + 60_000)), false);
+ while (await processNotificationEvent(cutoff)) {}
+ const inbox = await http(seller, '/notifications');
+ assert.equal(inbox.status, 200);
+ const notices = inbox.body.data.items.filter(item => item.href === '/goods-issues/' + issue._id);
+ assert.equal(notices.length, 2);
+ const notice = notices[0];
+ const countBefore = (await http(seller, '/notifications/unread-count')).body.data.count;
+ const markRead = actor => fetch('http://127.0.0.1:' + server.address().port + '/api/notifications/' + notice.id + '/read', {
+   method: 'POST', headers: { authorization: 'Bearer ' + jwt.sign({userId:String(actor._id)},process.env.JWT_SECRET) },
+ });
+ assert.equal((await markRead(worker)).status, 404);
+ assert.equal((await markRead(seller)).status, 200);
+ assert.equal((await http(seller, '/notifications/unread-count')).body.data.count, countBefore - 1);
+ const persisted = await m.Notification.findById(notice.id);
+ await m.SystemEvent.updateOne({ eventKey: persisted.eventKey }, { $set: { status: 'PENDING' } });
+ assert.equal(await processNotificationEvent(cutoff), true);
+ assert.equal(await m.Notification.countDocuments({ dedupKey: persisted.dedupKey }), 1);
+ assert.equal(+(await m.Notification.findById(notice.id)).readAt, +persisted.readAt);
+ await m.User.updateOne({ _id: seller._id }, { $set: { warehouseIds: [] } });
+ assert.equal((await http(seller, '/notifications/unread-count')).body.data.count, 0);
+ assert.equal((await markRead(seller)).status, 404);
  } finally { if(server) await new Promise(resolve=>server.close(resolve)); await mongoose.connection.dropDatabase(); await mongoose.disconnect(); }
 });
