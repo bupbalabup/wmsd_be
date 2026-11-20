@@ -26,5 +26,6 @@ export function createNotificationSchema() {
     options("notifications"),
   );
   notifications.index({ recipientId: 1, readAt: 1, createdAt: -1 });
+  notifications.index({ recipientId: 1, archivedAt: 1, occurredAt: -1, _id: -1 });
   return notifications;
 }

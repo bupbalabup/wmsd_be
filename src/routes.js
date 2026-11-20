@@ -1,6 +1,7 @@
 import warehouseStockRouter from './modules/warehouse-stock/routes.js';
 import openingStockRouter from './modules/opening-stock/routes.js';
 import { Router } from "express";
+import notificationsRouter from './modules/notifications/routes.js';
 import stocktakeClosureRouter from './modules/stocktake-closure/stocktake-closure.routes.js';
 import operationalReportsRouter from './modules/operational-reports/operational-reports.routes.js';
 import locationMovementRouter from "./modules/location-movements/location-movement.routes.js";
@@ -33,6 +34,7 @@ import goodsReceiptRouter from './modules/goods-receipts/goods-receipt.routes.js
 import goodsIssueRouter from './modules/goods-issues/goods-issue.routes.js';
 
 const router = Router();
+router.use('/notifications', notificationsRouter);
 router.use('/opening-stocks', openingStockRouter);
 router.use(warehouseStockRouter);
 router.use('/stocktakes',stocktakeClosureRouter);
