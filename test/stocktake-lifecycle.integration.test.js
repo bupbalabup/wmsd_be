@@ -5,7 +5,8 @@ import jwt from 'jsonwebtoken';
 import * as m from '../src/models/runtime.js';
 import { PERMISSION_CATALOGUE, ROLE_PERMISSIONS } from '../src/seeds/data/permissions.data.js';
 import * as st from '../src/modules/stocktake-closure/stocktake-commands.service.js';
-import { closeStocktake, getStocktake } from '../src/modules/stocktake-closure/stocktake-closure.service.js';
+import { getStocktake } from '../src/modules/stocktake-closure/stocktake-closure.service.js';
+import { approveStocktakeDifferences, recountStocktake } from '../src/modules/stocktake-closure/stocktake-reconciliation.service.js';
 import { newId } from '../src/shared/utils/document-command.js';
 
 // BF-05 stocktake lifecycle on an isolated local replica set (never shared/remote data).
@@ -71,7 +72,7 @@ test.after(async () => { if (enabled && mongoose.connection.readyState) {
     await mongoose.disconnect();
 } });
 
-run('Owner plans, assigned Staff freezes; counts stay blind-append-only; full flow with an approved discrepancy and found-not-in-book stock posts once', async () => {
+run('Owner plans, assigned Staff freezes; counts stay append-only; full flow with approved differences and found-not-in-book stock posts once', async () => {
     const book = await bookedLocation('12'), empty = await location('EM');
     // Planning is Owner-only, changes no stock and locks nothing.
     await assert.rejects(st.createStocktake(worker, { idempotencyKey: key(), warehouseId: String(warehouse._id), reason: 'x', assignedCounterIds: [String(worker._id)], scope: { locationIds: [String(book.loc._id)] } }), /quyền/i);
@@ -118,8 +119,10 @@ run('Owner plans, assigned Staff freezes; counts stay blind-append-only; full fl
     assert.equal(String(discovered.bookQtyBase), '0');
     assert.equal(String(discovered.discoveredBy), String(worker._id));
     assert.equal(String((await m.InventoryBalance.findById(discovered.sourceBalanceId)).quantityBase), '0');
-    // The reader exposes both snapshots; counting UIs hide book values client-side (documented limitation).
-    assert.equal((await getStocktake(worker, id)).snapshots.length, 2);
+    // Blind count was removed (22 Nov 2026): the assigned counter receives both snapshots with their book quantity.
+    const counterView = await getStocktake(worker, id);
+    assert.equal(counterView.snapshots.length, 2);
+    assert.ok(counterView.snapshots.every(row => row.bookQtyBase != null));
     // Reconcile selects the latest counts and reports differences without posting stock.
     const reconciled = await reconcile(id);
     assert.equal(reconciled.workflowStatus, 'RECONCILING');
@@ -136,41 +139,22 @@ run('Owner plans, assigned Staff freezes; counts stay blind-append-only; full fl
     assert.equal(String((await m.InventoryBalance.findById(book.balance._id)).quantityBase), '12');
     // No counts after reconcile without reopening.
     await assert.rejects(count(id, { targetType: 'STOCK', snapshotId: String(snapshot._id), countedQtyBase: '12' }), /không còn ở bước đếm/);
-    // Plan: Staff proposes DELTA -2 (book) and +4 (found), bound to the current selected counts.
-    const header = (await m.Stocktake.findById(id)).header;
-    const latest = async snap => (await m.StocktakeCount.find({ stocktakeId: id, snapshotId: snap._id }).sort({ attemptNo: -1 }))[0];
-    const selected = [{ snapshotId: String(snapshot._id), countId: String((await latest(snapshot))._id) }, { snapshotId: String(discovered._id), countId: String((await latest(discovered))._id) }];
-    const items = [{ snapshotId: selected[0].snapshotId, countId: selected[0].countId, actionKind: 'DELTA', qtyBase: '4', deltaQty: '-4', reasonCode: 'LOST' }, { snapshotId: selected[1].snapshotId, countId: selected[1].countId, actionKind: 'DELTA', qtyBase: '4', deltaQty: '4', reasonCode: 'FOUND' }];
-    const planBody = { idempotencyKey: key(), expectedVersion: await version(id), scopeVersion: header.scopeVersion, selectedCounts: selected, items, reason: 'Four missing, four found' };
-    await assert.rejects(st.submitResolutionPlan(owner, id, planBody), /quyền/i);
-    await assert.rejects(st.submitResolutionPlan(worker, id, { ...planBody, idempotencyKey: key(), items: [{ ...items[0], deltaQty: '4' }, items[1]] }), /chiều chênh lệch/);
-    await assert.rejects(st.submitResolutionPlan(worker, id, { ...planBody, idempotencyKey: key(), items: [{ ...items[0], qtyBase: '5', deltaQty: '-5' }, items[1]] }), /vượt/);
-    const submitted = await st.submitResolutionPlan(worker, id, planBody);
-    assert.equal(submitted.workflowStatus, 'PENDING_APPROVAL');
-    const planDoc = (await m.Stocktake.findById(id)).resolutionPlans[0];
-    // Independent review: Staff and the proposer cannot approve; an Owner can.
-    const review = async (user, decision = 'APPROVE') => st.reviewResolutionPlan(user, id, planDoc._id, { idempotencyKey: key(), expectedVersion: await version(id), expectedPlanVersion: 1, decision, reason: 'Reviewed' });
-    await assert.rejects(review(worker), /quyền/i);
-    await assert.rejects(closeStocktake(owner, id, { idempotencyKey: key(), expectedVersion: await version(id), planId: String(planDoc._id), expectedPlanVersion: 1, reason: 'Too early' }), /không còn hiệu lực/);
-    await review(owner);
-    assert.equal((await m.Stocktake.findById(id)).resolutionPlans[0].workflowStatus, 'APPROVED');
-    assert.equal(String((await m.InventoryBalance.findById(book.balance._id)).quantityBase), '12');
-    // Execution evidence per item; excess is rejected; records do not post inventory.
-    const exec = async (item, qty, user = worker, ids) => st.recordExecution(user, id, planDoc._id, { idempotencyKey: key(), expectedVersion: await version(id), expectedPlanVersion: 1, itemId: String(item._id), quantityBase: qty, evidenceIds: ids ?? [String((await evidence(id, user))._id)] });
-    const planItems = (await m.Stocktake.findById(id)).resolutionPlans[0].items;
-    await assert.rejects(exec(planItems[0], '5'), /vượt/);
-    await assert.rejects(exec(planItems[0], '4', worker, [String((await evidence(id, owner))._id)]), /bằng chứng/i);
-    await exec(planItems[0], '4');
-    await assert.rejects(closeStocktake(owner, id, { idempotencyKey: key(), expectedVersion: await version(id), planId: String(planDoc._id), expectedPlanVersion: 1, reason: 'Missing execution' }), /đủ lượng thực hiện/);
+    // Owner recounts the book line; only the Owner may, and the earlier attempt stays as history.
+    const bookLine = (await getStocktake(owner, id)).lines.find(row => row.snapshotId === String(snapshot._id));
+    await assert.rejects(recountStocktake(worker, id, { idempotencyKey: key(), expectedVersion: await version(id), snapshotIds: [String(snapshot._id)] }), /quyền/i);
+    await recountStocktake(owner, id, { idempotencyKey: key(), expectedVersion: await version(id), snapshotIds: [String(snapshot._id)], note: 'Check again' });
+    assert.equal((await m.Stocktake.findById(id)).workflowStatus, 'COUNTING');
     assert.equal(await locked(id), 2);
-    await exec(planItems[1], '4');
+    await count(id, { targetType: 'STOCK', snapshotId: String(snapshot._id), countedQtyBase: '8', previousCountId: bookLine.latestCountId, recountReason: 'Owner requested recount' });
+    await reconcile(id);
+    // Approve both differences: the staff counter cannot; the Owner posts once and the locks release with the last line.
+    const approveBody = async () => ({ idempotencyKey: key(), expectedVersion: await version(id), all: true });
+    await assert.rejects(approveStocktakeDifferences(worker, id, await approveBody()), /quyền/i);
     assert.equal(String((await m.InventoryBalance.findById(book.balance._id)).quantityBase), '12');
-    // Owner closes: stock posts once, locks release atomically; replay is safe.
-    const closeBody = { idempotencyKey: key(), expectedVersion: await version(id), planId: String(planDoc._id), expectedPlanVersion: 1, reason: 'Close audit' };
-    await assert.rejects(closeStocktake(worker, id, closeBody), /quyền/i);
-    const closed = await closeStocktake(owner, id, closeBody);
+    const body = await approveBody();
+    const closed = await approveStocktakeDifferences(owner, id, body);
     assert.equal(closed.workflowStatus, 'COMPLETED');
-    assert.equal((await closeStocktake(owner, id, closeBody)).replayed, true);
+    assert.equal((await approveStocktakeDifferences(owner, id, body)).replayed, true);
     assert.equal(await locked(id), 0);
     assert.equal(String((await m.InventoryBalance.findById(book.balance._id)).quantityBase), '8');
     assert.equal(String((await m.InventoryBalance.findById(discovered.sourceBalanceId)).quantityBase), '4');
@@ -178,43 +162,17 @@ run('Owner plans, assigned Staff freezes; counts stay blind-append-only; full fl
     assert.equal(await m.StockTransaction.countDocuments({ sourceId: id }), 1);
 });
 
-run('independent approval: proposer cannot approve; rejection preserves history and allows a revision', async () => {
-    const book = await bookedLocation('8');
-    const { id } = await plan([book.loc._id], [dual]);
-    await activate(id, dual);
-    const snapshot = await m.StocktakeSnapshot.findOne({ stocktakeId: id });
-    await count(id, { targetType: 'STOCK', snapshotId: String(snapshot._id), countedQtyBase: '4' }, dual);
-    await reconcile(id, dual);
-    const countRow = await m.StocktakeCount.findOne({ stocktakeId: id });
-    const body = async () => ({ idempotencyKey: key(), expectedVersion: await version(id), scopeVersion: 1, selectedCounts: [{ snapshotId: String(snapshot._id), countId: String(countRow._id) }], items: [{ snapshotId: String(snapshot._id), countId: String(countRow._id), actionKind: 'DELTA', qtyBase: '4', deltaQty: '-4', reasonCode: 'LOST' }], reason: 'Four missing' });
-    await st.submitResolutionPlan(dual, id, await body());
-    const planDoc = (await m.Stocktake.findById(id)).resolutionPlans[0];
-    await assert.rejects(st.reviewResolutionPlan(dual, id, planDoc._id, { idempotencyKey: key(), expectedVersion: await version(id), expectedPlanVersion: 1, decision: 'APPROVE', reason: 'self' }), /không tự duyệt/);
-    await assert.rejects(st.reviewResolutionPlan(owner, id, planDoc._id, { idempotencyKey: key(), expectedVersion: await version(id), expectedPlanVersion: 7, decision: 'APPROVE', reason: 'stale' }), /không còn hiệu lực/);
-    await st.reviewResolutionPlan(owner, id, planDoc._id, { idempotencyKey: key(), expectedVersion: await version(id), expectedPlanVersion: 1, decision: 'REJECT', reason: 'Recount first' });
-    const rejected = await m.Stocktake.findById(id);
-    assert.equal(rejected.resolutionPlans[0].workflowStatus, 'REJECTED');
-    assert.equal(rejected.workflowStatus, 'RECONCILING');
-    assert.equal(await m.ApprovalHistory.countDocuments({ subjectId: planDoc._id, decision: 'REJECT' }), 1);
-    await st.submitResolutionPlan(dual, id, await body());
-    assert.equal((await m.Stocktake.findById(id)).resolutionPlans.length, 2);
-    assert.equal(await locked(id), 1);
-});
-
-run('no-variance close needs reconciliation, writes no adjustment and releases locks; no plan is accepted', async () => {
+run('no-variance approval needs reconciliation, writes no adjustment and releases locks', async () => {
     const book = await bookedLocation('8');
     const { id } = await plan([book.loc._id]);
     await activate(id);
     const snapshot = await m.StocktakeSnapshot.findOne({ stocktakeId: id });
     await count(id, { targetType: 'STOCK', snapshotId: String(snapshot._id), countedQtyBase: '8' });
-    const countRow = await m.StocktakeCount.findOne({ stocktakeId: id });
-    const selectedCounts = [{ snapshotId: String(snapshot._id), countId: String(countRow._id) }];
-    const closeBody = async () => ({ idempotencyKey: key(), expectedVersion: await version(id), reason: 'Matched', selectedCounts });
-    await assert.rejects(closeStocktake(owner, id, await closeBody()), /chưa được đối chiếu/);
+    const approveBody = async () => ({ idempotencyKey: key(), expectedVersion: await version(id), all: true });
+    await assert.rejects(approveStocktakeDifferences(owner, id, await approveBody()), /chưa đối chiếu/);
     await reconcile(id);
-    await assert.rejects(st.submitResolutionPlan(worker, id, { idempotencyKey: key(), expectedVersion: await version(id), scopeVersion: 1, selectedCounts, items: [{ ...selectedCounts[0], actionKind: 'DELTA', qtyBase: '1', deltaQty: '1', reasonCode: 'FOUND' }], reason: 'None needed' }), /khớp sổ/);
     const adjustments = await m.StockAdjustment.countDocuments();
-    assert.equal((await closeStocktake(owner, id, await closeBody())).workflowStatus, 'COMPLETED');
+    assert.equal((await approveStocktakeDifferences(owner, id, await approveBody())).workflowStatus, 'COMPLETED');
     assert.equal(await m.StockAdjustment.countDocuments(), adjustments);
     assert.equal(await locked(id), 0);
     assert.equal(String((await m.InventoryBalance.findById(book.balance._id)).quantityBase), '8');

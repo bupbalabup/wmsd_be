@@ -169,6 +169,13 @@ export function createInspection(user, id, input) {
     replayPurchase,
     async (session, actor) => {
       const po = await activePo(actor, id, input.expectedPoVersion, session);
+      // Contend with PO cancellation without changing its public version token.
+      const updatedAt = new Date(Math.max(Date.now(), (po.updatedAt?.getTime() ?? 0) + 1));
+      const locked = await PurchaseOrder.updateOne(
+        { _id: po._id, version: po.version, workflowStatus: { $in: ['OPEN', 'PARTIAL'] } },
+        { $set: { updatedAt } }, { session, timestamps: false },
+      );
+      if (locked.matchedCount !== 1) throw validationError('PO không còn mở để nhận hàng');
       const arrival = await newDocument(GoodsArrival, "ARR", actor, {
         purchaseOrderId: po._id,
         warehouseId: po.header.warehouseId,

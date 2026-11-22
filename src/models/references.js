@@ -16,7 +16,7 @@ export function configureReferences(schema, seen = new Set()) {
     schema.add({_id:{type:DocumentIdentity,default:function(){return isDocumentId(this.documentNo)?this.documentNo:new mongoose.Types.ObjectId();}}});
     schema.pre('validate',function(){if(isDocumentId(this._id)&&this.documentNo!==this._id)this.invalidate('documentNo','Mã chứng từ phải khớp _id bất biến');});
   }
-  const documentModels=new Set([...Object.values(workflowModelNames),'GoodsReceipt','OtherGoodsReceipt','SalesInvoice','Handover','SalesOrderCancellation']);
+  const documentModels=new Set([...Object.values(workflowModelNames),'GoodsReceipt','OtherGoodsReceipt','SalesInvoice','StocktakePlan','Handover','SalesOrderCancellation']);
   const genericDocumentFields=new Set(['documentId','sourceId','subjectId','entityId','sourceDocumentId','relatedDocumentId','resolutionDocumentId']);
   const replacements=[];
   schema.eachPath((name,path) => {

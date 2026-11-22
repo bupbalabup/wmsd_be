@@ -4,7 +4,6 @@ import { command, checkVersion, saveVersion, same, newId } from '../../shared/ut
 import { requirePermission, requireWarehouseAccess, hasPermission } from '../../shared/utils/access.js';
 import { validationError, notFoundError } from '../../shared/utils/ApiError.js';
 import { nextDocumentFields } from '../../shared/utils/document-number.js';
-import { approvalContent } from './stocktake-closure.service.js';
 import { dto } from '../../shared/utils/persistence.js';
 import { remainingReservation, pendingTaskQuantity, heldQuantity } from '../../shared/utils/stock.js';
 
@@ -41,13 +40,13 @@ async function stockedProductIdsByLocation(locationIds) {
     }
     return Object.fromEntries(Object.entries(byLocation).map(([locationId, ids]) => [locationId, [...ids]]));
 }
-async function scoped(user, id, session) { const document = await m.Stocktake.findById(id).session(session); if (!document)
+export async function scoped(user, id, session) { const document = await m.Stocktake.findById(id).session(session); if (!document)
     throw notFoundError(); requireWarehouseAccess(user, document.header.warehouseId); return document; }
-function assigned(document, actor) {
+export function assigned(document, actor) {
     if (!document.header.assignedCounterIds.some(id => same(id, actor._id)))
         throw validationError('Bạn không được phân công trong đợt kiểm kê này');
 }
-const dedupe = ids => [...new Set(ids.map(id => String(id)))];
+export const dedupe = ids => [...new Set(ids.map(id => String(id)))];
 async function loadCounter(session, warehouseId, counterId) {
     const counter = await m.User.findById(counterId).populate({ path: 'roleId', populate: { path: 'permissionIds' } }).session(session);
     if (!counter || !counter.isActive)
@@ -58,11 +57,11 @@ async function loadCounter(session, warehouseId, counterId) {
         throw validationError('Người đếm thiếu quyền ghi kết quả kiểm kê');
     return counter;
 }
-async function validateCounters(session, warehouseId, counterIds) {
+export async function validateCounters(session, warehouseId, counterIds) {
     for (const counterId of dedupe(counterIds))
         await loadCounter(session, warehouseId, counterId);
 }
-async function validateScope(session, warehouseId, scope) {
+export async function validateScope(session, warehouseId, scope) {
     const locations = await m.WarehouseLocation.find({ _id: { $in: scope.locationIds }, warehouseId, isActive: true }).session(session);
     if (new Set(locations.map(row => String(row._id))).size !== new Set(scope.locationIds.map(String)).size)
         throw validationError('Vị trí không thuộc kho hoặc đã ngừng hoạt động');
@@ -77,46 +76,54 @@ async function validateScope(session, warehouseId, scope) {
             throw validationError('Sản phẩm trong bộ lọc không tồn tại');
     }
 }
-const scopeRows = scope => ({
+export const scopeRows = scope => ({
     locationIds: dedupe(scope.locationIds),
     batchIds: scope.batchIds ? dedupe(scope.batchIds) : [],
     productIds: scope.productIds ? dedupe(scope.productIds) : [],
+    areaCodes: scope.areaCodes ? [...new Set(scope.areaCodes)] : [],
 });
 const scopeChanged = (next, current) => next.locationIds.join('|') !== current.locationIds.map(String).join('|')
     || next.batchIds.join('|') !== (current.batchIds || []).map(String).join('|')
     || next.productIds.join('|') !== (current.productIds || []).map(String).join('|');
 
+// Shared by POST /stocktakes (ad-hoc slip) and POST /stocktake-plans/:id/generate. Both run the same
+// warehouse, counter and scope validation inside the caller's transaction; `plan` only stamps the header.
+export async function createStocktakeSlip(session, actor, input, plan) {
+    const warehouse = await m.Warehouse.findOne({ _id: input.warehouseId, isActive: true }).session(session);
+    if (!warehouse)
+        throw validationError('Kho không hoạt động hoặc không tồn tại');
+    requireWarehouseAccess(actor, warehouse._id);
+    await validateCounters(session, warehouse._id, input.assignedCounterIds);
+    await validateScope(session, warehouse._id, input.scope);
+    const scope = scopeRows(input.scope);
+    if (!scope.locationIds.length)
+        throw validationError('Phạm vi phải có ít nhất một vị trí');
+    const fields = await nextDocumentFields(m.Stocktake, 'ST', warehouse._id, session);
+    return new m.Stocktake({
+        ...fields,
+        workflowStatus: 'PLANNED',
+        version: 1,
+        createdBy: actor._id,
+        occurredAt: new Date(),
+        ...(input.note != null && { note: input.note }),
+        header: {
+            warehouseId: warehouse._id,
+            reason: input.reason,
+            ...(input.plannedAt && { plannedAt: input.plannedAt }),
+            ...(input.cutoffAt && { cutoffAt: input.cutoffAt }),
+            mode: 'FROZEN',
+            scopeVersion: 1,
+            scope,
+            scopeLocationIds: scope.locationIds,
+            assignedCounterIds: dedupe(input.assignedCounterIds),
+            ...(plan && { planId: plan.planId, planPeriodNo: plan.periodNo, planPeriodDueAt: plan.dueAt }),
+        },
+    }).save({ session });
+}
+
 export function createStocktake(user, input) {
     return command(user, 'CREATE_STOCKTAKE', 'stocktake:create', null, input, (id, actor, session) => scoped(actor, id, session), async (session, actor) => {
-        const warehouse = await m.Warehouse.findOne({ _id: input.warehouseId, isActive: true }).session(session);
-        if (!warehouse)
-            throw validationError('Kho không hoạt động hoặc không tồn tại');
-        requireWarehouseAccess(actor, warehouse._id);
-        await validateCounters(session, warehouse._id, input.assignedCounterIds);
-        await validateScope(session, warehouse._id, input.scope);
-        const scope = scopeRows(input.scope);
-        if (!scope.locationIds.length)
-            throw validationError('Phạm vi phải có ít nhất một vị trí');
-        const fields = await nextDocumentFields(m.Stocktake, 'ST', warehouse._id, session);
-        const document = await new m.Stocktake({
-            ...fields,
-            workflowStatus: 'PLANNED',
-            version: 1,
-            createdBy: actor._id,
-            occurredAt: new Date(),
-            ...(input.note != null && { note: input.note }),
-            header: {
-                warehouseId: warehouse._id,
-                reason: input.reason,
-                ...(input.plannedAt && { plannedAt: input.plannedAt }),
-                ...(input.cutoffAt && { cutoffAt: input.cutoffAt }),
-                mode: 'FROZEN',
-                scopeVersion: 1,
-                scope,
-                scopeLocationIds: scope.locationIds,
-                assignedCounterIds: dedupe(input.assignedCounterIds),
-            },
-        }).save({ session });
+        const document = await createStocktakeSlip(session, actor, input);
         return { document, reason: input.reason };
     });
 }
@@ -363,6 +370,11 @@ function recordCountCommand(user, id, input, operationCode) {
             ...(snapshot ? { snapshotId: snapshot._id } : { locationId, targetType: 'EMPTY_LOCATION' }),
         }).sort({ attemptNo: -1 }).session(session);
         const attemptNo = (latest?.attemptNo ?? 0) + 1;
+        if (snapshot && header.settledLines.some(row => same(row.snapshotId, snapshot._id)))
+            throw validationError('Dòng đã được duyệt xử lý chênh lệch; không thể đếm lại');
+        // After "recount" only the lines the Owner sent back accept new attempts; a line first seen now (found stock) is new.
+        if (snapshot && latest && header.recountLines.length && !header.recountLines.some(row => same(row.snapshotId, snapshot._id)))
+            throw validationError('Đợt đang đếm lại: chỉ nhận kết quả cho các dòng được yêu cầu đếm lại');
         if (attemptNo > 1) {
             if (!input.previousCountId || !input.recountReason)
                 throw validationError('Đếm lại cần chọn lần đếm trước và ghi lý do');
@@ -431,6 +443,13 @@ export function reconcileStocktake(user, id, input) {
             if (!snapshots.some(snapshot => same(snapshot.locationId, locationId))
                 && !counts.some(count => same(count.locationId, locationId) && count.targetType === 'EMPTY_LOCATION' && exact(count.countedQtyBase).isZero()))
                 throw validationError('Vị trí trống trong phạm vi chưa được xác nhận đã kiểm');
+        // Every line sent back by "recount" needs a newer attempt before the session can be reconciled again.
+        for (const row of header.recountLines) {
+            const newest = latest.get(String(row.snapshotId));
+            if (!newest || newest.attemptNo <= row.afterAttemptNo)
+                throw validationError('Còn dòng được yêu cầu đếm lại chưa có kết quả mới');
+        }
+        header.recountLines = [];
         const selectedCounts = snapshots.map(snapshot => ({ snapshotId: snapshot._id, countId: latest.get(String(snapshot._id))._id }));
         // Differences are derived by readers from snapshots, selected counts and book quantities.
         header.selectedCounts = selectedCounts;
@@ -438,216 +457,6 @@ export function reconcileStocktake(user, id, input) {
         header.lastReconciledAt = new Date();
         document.workflowStatus = 'RECONCILING';
         return { document: await saveVersion(document, input.expectedVersion, session), versionBefore: input.expectedVersion, resultRefs: [], reason: 'Đối chiếu kiểm kê' };
-    });
-}
-
-const sameIdentity = (a, b) => same(a.locationId, b.locationId) && same(a.batchId, b.batchId) && a.ownerType === b.ownerType && String(a.ownerId ?? '') === String(b.ownerId ?? '');
-
-export function submitResolutionPlan(user, id, input) {
-    return command(user, 'SUBMIT_STOCKTAKE_PLAN', 'stock_adjustment:create', id, input, (sid, actor, session) => scoped(actor, sid, session), async (session, actor) => {
-        const document = await scoped(actor, id, session);
-        checkVersion(document, input.expectedVersion);
-        if (document.workflowStatus !== 'RECONCILING')
-            throw validationError('Đợt không ở bước xử lý chênh lệch');
-        assigned(document, actor);
-        const header = document.header;
-        if (input.scopeVersion !== header.scopeVersion)
-            throw validationError('Phương án phải theo phiên bản phạm vi hiện tại');
-        const scope = { stocktakeId: document._id, scopeVersion: header.scopeVersion };
-        const snapshots = await m.StocktakeSnapshot.find(scope).session(session);
-        const counts = await m.StocktakeCount.find(scope).session(session);
-        if (!header.lastReconciledAt || header.selectedCounts?.length !== snapshots.length)
-            throw validationError('Hãy đối chiếu đầy đủ trước khi lập phương án');
-        if (document.resolutionPlans.some(plan => ['PENDING_APPROVAL', 'APPROVED', 'EXECUTED'].includes(plan.workflowStatus) && plan.header.scopeVersion === header.scopeVersion && plan.selectedCounts.length === header.selectedCounts.length && plan.selectedCounts.every(row => header.selectedCounts.some(current => same(row.snapshotId, current.snapshotId) && same(row.countId, current.countId)))))
-            throw validationError('Phương án hiện tại chưa được xử lý; không thể trình phương án mới');
-        const current = header.selectedCounts.map(row => ({ snapshotId: String(row.snapshotId), countId: String(row.countId) }));
-        const submitted = input.selectedCounts.map(row => ({ snapshotId: String(row.snapshotId), countId: String(row.countId) }));
-        if (new Set(current.map(row => row.snapshotId)).size !== snapshots.length
-            || submitted.length !== current.length
-            || new Set(submitted.map(row => row.snapshotId)).size !== snapshots.length
-            || submitted.some(row => !current.some(item => item.snapshotId === row.snapshotId && item.countId === row.countId)))
-            throw validationError('Tập kết quả không còn là lần chọn hiện tại; hãy đối chiếu lại');
-        const bySnapshot = new Map(snapshots.map(snapshot => [String(snapshot._id), snapshot]));
-        const byCount = new Map(counts.map(count => [String(count._id), count]));
-        const selected = new Map();
-        for (const row of current) {
-            const snapshot = bySnapshot.get(row.snapshotId), count = byCount.get(row.countId);
-            if (!snapshot || !count)
-                throw validationError('Tập kết quả đối chiếu không còn hợp lệ');
-            selected.set(row.snapshotId, { snapshot, count });
-        }
-        if (![...selected.values()].some(({ snapshot, count }) => !exact(count.countedQtyBase).eq(String(snapshot.bookQtyBase))))
-            throw validationError('Kết quả khớp sổ; chốt theo kết quả đếm, không cần phương án');
-        const products = new Map();
-        const productOf = async batchId => {
-            let row = products.get(String(batchId));
-            if (!row) {
-                const batch = await m.ProductBatch.findById(batchId).session(session);
-                const product = batch && await m.Product.findById(batch.productId).session(session);
-                if (!product)
-                    throw validationError('Phương án thiếu sản phẩm của lô');
-                row = { batch, product };
-                products.set(String(batchId), row);
-            }
-            return row;
-        };
-        const endpointOf = balanceId => {
-            const snapshot = snapshots.find(row => same(row.sourceBalanceId, balanceId));
-            if (!snapshot)
-                throw validationError('Nhóm tồn của phương án phải thuộc mốc trong phạm vi');
-            return snapshot;
-        };
-        const items = [];
-        let lineNo = 0;
-        for (const row of input.items) {
-            lineNo += 1;
-            const chosen = selected.get(String(row.snapshotId));
-            const count = byCount.get(String(row.countId));
-            if (!chosen || !count || !same(count.snapshotId, chosen.snapshot._id) || !same(count._id, chosen.count._id))
-                throw validationError('Dòng phương án phải theo mốc và lần đếm đã chọn');
-            const { batch, product } = await productOf(chosen.snapshot.batchId);
-            if (product.wholeBaseUnits && !exact(row.qtyBase).isInteger())
-                throw validationError('Lượng xử lý phải nguyên theo đơn vị gốc');
-            const diff = exact(chosen.count.countedQtyBase).minus(String(chosen.snapshot.bookQtyBase));
-            const item = {
-                lineNo,
-                lineKind: 'ST_RESOLUTION',
-                productId: batch.productId,
-                lotId: batch._id,
-                enteredUnit: product.baseUnit,
-                baseUnitSnapshot: product.baseUnit,
-                baseUnitsPerUnit: '1',
-                enteredQty: row.qtyBase,
-                qtyBase: row.qtyBase,
-                productNameSnapshot: product.name,
-                details: {
-                    countId: count._id,
-                    actionKind: row.actionKind,
-                    ...(row.holdId && { holdId: row.holdId }),
-                    reasonCode: row.reasonCode,
-                    ...(row.reasonNote && { reasonNote: row.reasonNote }),
-                },
-            };
-            const short = diff.lt(0);
-            if (row.reasonCode === 'OTHER' && !row.reasonNote)
-                throw validationError('Lý do "Khác" cần ghi chú cụ thể');
-            if (row.actionKind === 'DELTA') {
-                if (!(short ? ['LOST', 'RECORD_ERROR', 'OTHER'] : ['FOUND', 'RECORD_ERROR', 'OTHER']).includes(row.reasonCode))
-                    throw validationError(row.reasonCode === 'DAMAGED' ? 'Hàng vỡ/hỏng phải chuyển sang hàng lỗi, không ghi giảm tồn' : 'Lý do không phù hợp với chiều chênh lệch của dòng');
-                const delta = exact(row.deltaQty);
-                if (diff.gt(0) ? !delta.gt(0) : !delta.lt(0))
-                    throw validationError('Lượng điều chỉnh không khớp chiều chênh lệch của mốc');
-                if (delta.abs().gt(diff.abs()))
-                    throw validationError('Lượng điều chỉnh vượt chênh lệch đếm/sổ của mốc');
-                if (!exact(row.qtyBase).eq(delta.abs()))
-                    throw validationError('Lượng dòng phải bằng lượng điều chỉnh');
-                item.qtyBase = delta.abs().toFixed();
-                item.details.deltaQty = delta.toFixed();
-                item.details[delta.gt(0) ? 'toBalanceId' : 'fromBalanceId'] = chosen.snapshot.sourceBalanceId;
-            }
-            else if (row.actionKind === 'RECLASS' && row.reasonCode === 'DAMAGED' && !row.toBalanceId) {
-                // Broken tiles left out of the count of a group that has no damaged counterpart in the session:
-                // they stay in the location as damaged stock instead of being written off.
-                const source = chosen.snapshot;
-                if (!short)
-                    throw validationError('Hàng vỡ/hỏng chỉ giải trình cho phần thiếu');
-                if (source.qualityStatus === 'DAMAGED')
-                    throw validationError('Nhóm tồn đã là hàng lỗi');
-                if (!source.sourceBalanceId || !same(row.fromBalanceId, source.sourceBalanceId))
-                    throw validationError('Hàng vỡ/hỏng phải chuyển từ chính nhóm tồn bị thiếu');
-                if (exact(row.qtyBase).gt(diff.abs()))
-                    throw validationError('Lượng xử lý vượt chênh lệch đếm/sổ của nhóm');
-                if (snapshots.some(other => other.qualityStatus === 'DAMAGED' && sameIdentity(other, source)))
-                    throw validationError('Vị trí đã có dòng hàng lỗi cùng lô trong đợt: hàng vỡ phải được đếm vào dòng đó và chuyển sang dòng đó');
-                // No target yet: close finds or creates the damaged balance, so a rejected plan leaves nothing behind.
-                item.details.fromBalanceId = source.sourceBalanceId;
-            }
-            else {
-                const from = endpointOf(row.fromBalanceId), to = endpointOf(row.toBalanceId);
-                if (!['MISPLACED', 'RECORD_ERROR', 'OTHER', ...(row.actionKind === 'RECLASS' && to.qualityStatus === 'DAMAGED' ? ['DAMAGED'] : [])].includes(row.reasonCode))
-                    throw validationError('Lý do không phù hợp với dòng đổi chất lượng/vị trí');
-                if (!same(from.batchId, to.batchId) || from.ownerType !== to.ownerType || String(from.ownerId ?? '') !== String(to.ownerId ?? ''))
-                    throw validationError('Chỉ chuyển giữa các nhóm cùng lô và chủ hàng');
-                if (row.actionKind === 'RECLASS' && (!same(from.locationId, to.locationId) || from.qualityStatus === to.qualityStatus))
-                    throw validationError('RECLASS phải đổi chất lượng tại cùng vị trí');
-                if (row.actionKind === 'RELOCATE' && (same(from.locationId, to.locationId) || from.qualityStatus !== to.qualityStatus))
-                    throw validationError('RELOCATE chỉ chuyển vị trí');
-                const destination = selected.get(String(to._id));
-                if (!destination || !same(chosen.snapshot._id, from._id))
-                    throw validationError('Chuyển hàng phải theo mốc và lần đếm đã chọn ở cả hai nhóm');
-                const toDiff = exact(destination.count.countedQtyBase).minus(String(to.bookQtyBase));
-                if (!short || !toDiff.gt(0))
-                    throw validationError('Chuyển hàng cần nhóm nguồn bị thiếu và nhóm đích dư');
-                const quantity = exact(row.qtyBase);
-                if (quantity.gt(diff.abs()) || quantity.gt(toDiff))
-                    throw validationError('Lượng xử lý vượt chênh lệch đếm/sổ của nhóm');
-                item.qtyBase = row.qtyBase;
-                item.details.fromBalanceId = from.sourceBalanceId;
-                item.details.toBalanceId = to.sourceBalanceId;
-            }
-            items.push(item);
-        }
-        // Refuse an incomplete plan here rather than at close: once approved it cannot be replaced, so a plan
-        // that leaves any group off its selected count would block the session. Same projection as close.
-        const projected = new Map(snapshots.map(snapshot => [String(snapshot.sourceBalanceId), exact(String(snapshot.bookQtyBase))]));
-        const shift = (balanceId, quantity) => {
-            const key = String(balanceId);
-            if (!projected.has(key))
-                throw validationError('Nhóm tồn của phương án phải thuộc mốc trong phạm vi');
-            projected.set(key, projected.get(key).plus(quantity));
-        };
-        // Close refuses opposite adjustments of one lot and owner (they must be RECLASS/RELOCATE); refuse them now too.
-        const deltaSigns = new Map();
-        for (const item of items) {
-            if (item.details.actionKind !== 'DELTA')
-                continue;
-            const snapshot = snapshots.find(row => same(row.sourceBalanceId, item.details.toBalanceId ?? item.details.fromBalanceId));
-            const group = [String(item.lotId), snapshot?.ownerType, String(snapshot?.ownerId ?? '')].join(':');
-            const signs = deltaSigns.get(group) ?? new Set();
-            signs.add(exact(item.details.deltaQty).gt(0) ? 1 : -1);
-            deltaSigns.set(group, signs);
-            if (signs.size > 1)
-                throw validationError('Đổi chất lượng/vị trí phải dùng RECLASS/RELOCATE, không tạo hai điều chỉnh bù nhau');
-        }
-        for (const item of items) {
-            if (item.details.actionKind === 'DELTA')
-                shift(item.details.toBalanceId ?? item.details.fromBalanceId, item.details.deltaQty);
-            else {
-                shift(item.details.fromBalanceId, exact(item.qtyBase).negated());
-                // A new damaged group (no target until close) is not part of the count, so only its source is checked.
-                if (item.details.toBalanceId)
-                    shift(item.details.toBalanceId, item.qtyBase);
-            }
-        }
-        if ([...selected.values()].some(({ snapshot, count }) => !projected.get(String(snapshot.sourceBalanceId))?.eq(String(count.countedQtyBase))))
-            throw validationError('Phương án phải xử lý đủ toàn bộ chênh lệch của mọi nhóm tồn');
-        const plans = document.resolutionPlans ?? [];
-        const planVersion = plans.reduce((max, plan) => Math.max(max, plan.header?.planVersion ?? 0), 0) + 1;
-        const previousPlanId = plans.length ? plans[plans.length - 1]._id : null;
-        const plan = {
-            _id: newId(),
-            documentKind: 'ST_RESOLUTION',
-            workflowStatus: 'PENDING_APPROVAL',
-            version: planVersion,
-            createdBy: actor._id,
-            occurredAt: new Date(),
-            ...(input.reason != null && { note: input.reason }),
-            header: {
-                stocktakeId: document._id,
-                planVersion,
-                scopeVersion: header.scopeVersion,
-                ...(previousPlanId && { previousPlanId }),
-                ...(input.reason != null && { reason: input.reason }),
-                proposedBy: actor._id,
-                proposedAt: new Date(),
-            },
-            items,
-            selectedCounts: submitted.map(row => ({ snapshotId: row.snapshotId, countId: row.countId })),
-        };
-        plan.documentNo = (await nextDocumentFields(m.Stocktake, 'ST_PLAN', header.warehouseId, session, new Date(), 'resolutionPlans')).documentNo;
-        document.resolutionPlans.push(plan);
-        document.workflowStatus = 'PENDING_APPROVAL';
-        return { document: await saveVersion(document, input.expectedVersion, session), versionBefore: input.expectedVersion, resultRefs: [{ documentType: 'stocktake_resolution_plans', documentId: plan._id, revision: planVersion }], reason: input.reason ?? 'Trình phương án xử lý chênh lệch' };
     });
 }
 
@@ -664,6 +473,9 @@ export function cancelStocktake(user, id, input) {
         // Defensive for legacy data: a pending or approved plan must be decided, not cancelled with the session.
         if (document.resolutionPlans.some(plan => ['PENDING_APPROVAL', 'APPROVED', 'EXECUTED'].includes(plan.workflowStatus)))
             throw validationError('Đợt có phương án đang chờ duyệt hoặc đã duyệt; không thể hủy');
+        // Adjustments already posted for approved lines cannot be undone by cancelling the session.
+        if (document.header.settledLines?.length)
+            throw validationError('Đợt đã duyệt xử lý chênh lệch một phần; hãy duyệt hoặc đếm lại các dòng còn lại thay vì hủy');
         const now = new Date();
         const locks = await m.StocktakeLocationLock.find({ stocktakeId: document._id, status: 'LOCKED' }).session(session);
         for (const lock of locks) {
@@ -686,127 +498,4 @@ export function cancelStocktake(user, id, input) {
         document.cancelReason = input.reason;
         return { document: await saveVersion(document, input.expectedVersion, session), versionBefore: input.expectedVersion, reason: input.reason };
     });
-}
-
-// Owner reopens counting (decision 18/11/2026) when a count proves wrong after reconciliation, e.g. damaged
-// tiles left out. Allowed until close: nothing has been posted to stock yet (approval and execution records
-// do not post), so open plans are cancelled as history, the reconciliation is cleared and locks stay in place.
-// Staff then record a recount (a new attempt with a reason) and the session is reconciled again.
-const REOPENABLE = ['RECONCILING', 'PENDING_APPROVAL', 'APPROVED', 'IN_PROGRESS'];
-export function reopenCounting(user, id, input) {
-    return command(user, 'REOPEN_STOCKTAKE_COUNTING', 'stocktake:create', id, input, (sid, actor, session) => scoped(actor, sid, session), async (session, actor) => {
-        const document = await scoped(actor, id, session);
-        checkVersion(document, input.expectedVersion);
-        if (!REOPENABLE.includes(document.workflowStatus))
-            throw validationError('Chỉ mở lại bước đếm khi đợt đã đối chiếu và chưa chốt');
-        const now = new Date();
-        for (const plan of document.resolutionPlans)
-            if (!FINAL_PLAN.includes(plan.workflowStatus)) {
-                plan.workflowStatus = 'CANCELLED';
-                plan.cancelledBy = actor._id;
-                plan.cancelledAt = now;
-                plan.cancelReason = `Mở lại bước đếm: ${input.reason}`;
-            }
-        document.header.selectedCounts = [];
-        document.header.lastReconciledAt = null;
-        document.header.lastReconciledBy = null;
-        document.workflowStatus = 'COUNTING';
-        return { document: await saveVersion(document, input.expectedVersion, session), versionBefore: input.expectedVersion, resultRefs: [], reason: input.reason };
-    });
-}
-
-export function reviewResolutionPlan(user, id, planId, input) {
-    return command(user, 'REVIEW_STOCKTAKE_PLAN', 'stock_adjustment:approve', id, input, (sid, actor, session) => scoped(actor, sid, session), async (session, actor) => {
-        const document = await scoped(actor, id, session);
-        checkVersion(document, input.expectedVersion);
-        if (document.workflowStatus !== 'PENDING_APPROVAL')
-            throw validationError('Đợt không ở bước xử lý chênh lệch');
-        const plan = document.resolutionPlans.id(planId);
-        if (!plan)
-            throw validationError('Không có phương án thuộc đợt');
-        if (plan.version !== input.expectedPlanVersion)
-            throw validationError('Phiên bản phương án không còn hiệu lực');
-        if (plan.workflowStatus !== 'PENDING_APPROVAL')
-            throw validationError('Phương án không còn chờ duyệt');
-        if (same(plan.createdBy, actor._id))
-            throw validationError('Người lập phương án không tự duyệt');
-        const decision = await new m.ApprovalHistory({
-            decisionKey: String(newId()),
-            subjectType: 'stocktake_resolution_plans',
-            subjectId: plan._id,
-            subjectRevision: plan.version,
-            decisionScope: 'STOCKTAKE',
-            reviewedContent: serializePlan(plan),
-            decision: input.decision,
-            reason: input.reason,
-            requestedBy: plan.createdBy,
-            decidedBy: actor._id,
-            decidedAt: new Date(),
-            recordedAt: new Date(),
-        }).save({ session });
-        plan.workflowStatus = input.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED';
-        document.workflowStatus = input.decision === 'APPROVE' ? 'APPROVED' : 'RECONCILING';
-        plan.header.approvalId = decision._id;
-        plan.reviewDecisions.push({
-            decisionId: decision._id,
-            revision: plan.version,
-            reviewedBy: actor._id,
-            reviewedAt: new Date(),
-            decision: input.decision,
-            reason: input.reason,
-        });
-        return { document: await saveVersion(document, input.expectedVersion, session), versionBefore: input.expectedVersion, decisionId: decision._id, resultRefs: [{ documentType: 'stocktake_resolution_plans', documentId: plan._id, revision: plan.version }], reason: input.reason };
-    });
-}
-
-export function recordExecution(user, id, planId, input) {
-    return command(user, 'RECORD_STOCKTAKE_EXECUTION', 'stock_adjustment:update', id, input, (sid, actor, session) => scoped(actor, sid, session), async (session, actor) => {
-        const document = await scoped(actor, id, session);
-        checkVersion(document, input.expectedVersion);
-        if (!['APPROVED', 'IN_PROGRESS'].includes(document.workflowStatus))
-            throw validationError('Đợt không ở bước thực hiện phương án');
-        const plan = document.resolutionPlans.id(planId);
-        if (!plan)
-            throw validationError('Không có phương án thuộc đợt');
-        assigned(document, actor);
-        if (plan.version !== input.expectedPlanVersion || !['APPROVED', 'EXECUTED'].includes(plan.workflowStatus))
-            throw validationError('Phương án chưa được phê duyệt hoặc không còn hiệu lực');
-        const approval = await m.ApprovalHistory.findById(plan.header.approvalId).session(session);
-        if (!approval || approval.decision !== 'APPROVE')
-            throw validationError('Phương án chưa được phê duyệt');
-        const item = plan.items.id(input.itemId);
-        if (!item)
-            throw validationError('Dòng phương án không tồn tại');
-        const done = plan.executionRecords.filter(record => same(record.itemId, item._id))
-            .reduce((total, record) => total.plus(String(record.quantityBase)), exact('0'));
-        if (done.plus(input.quantityBase).gt(String(item.qtyBase)))
-            throw validationError('Lượng thực hiện vượt lượng phương án của dòng');
-        if (new Date() < approval.decidedAt)
-            throw validationError('Thực hiện phải sau quyết định duyệt');
-        const evidenceCount = await m.Attachment.countDocuments({
-            _id: { $in: input.evidenceIds },
-            status: 'ATTACHED',
-            ownerDocumentId: { $in: [document._id, plan._id] },
-            uploadedBy: actor._id,
-        }).session(session);
-        if (evidenceCount !== input.evidenceIds.length)
-            throw validationError('Bằng chứng không thuộc đợt/phương án hoặc không phải do bạn tải');
-        plan.workflowStatus = 'EXECUTED';
-        document.workflowStatus = 'IN_PROGRESS';
-        plan.executionRecords.push({
-            itemId: item._id,
-            performedBy: actor._id,
-            performedAt: new Date(),
-            quantityBase: input.quantityBase,
-            evidenceIds: input.evidenceIds,
-            ...(input.note != null && { note: input.note }),
-        });
-        return { document: await saveVersion(document, input.expectedVersion, session), versionBefore: input.expectedVersion, reason: input.note ?? 'Ghi thực hiện phương án' };
-    });
-}
-
-function serializePlan(plan) {
-    // Store exactly what approvalContent hashes so the close-time binding check
-    // compares the persisted decision against unchanged plan content.
-    return approvalContent(plan);
 }

@@ -8,8 +8,9 @@ const ids = rows => [...new Set(rows.filter(value => value != null).map(String))
 const byCode = (a, b) => String(a.code ?? '~').localeCompare(String(b.code ?? '~')) || a.locationId.localeCompare(b.locationId);
 
 /**
- * Blind count sheet built from the activation snapshot (UC-121). Read-only: no count, lock or
- * current balance is read, and the frozen book quantity is never selected from the database.
+ * Count sheet built from the activation snapshot (UC-121). Read-only: no count, lock or current balance is
+ * read. Since 22 Nov 2026 the book quantity is no longer hidden from counters, so each row carries it with
+ * the base unit code and name; printed sheets may still omit the column.
  */
 export async function getCountSheet(user, id) {
   requirePermission(user, 'stocktake:export');
@@ -24,7 +25,7 @@ export async function getCountSheet(user, id) {
 
   // Only BOOK entries exist at the cutoff; discovered rows are recorded later by counters.
   const snapshots = serialize(await m.StocktakeSnapshot.find({ stocktakeId: document._id, scopeVersion: header.scopeVersion, origin: 'BOOK' })
-    .select('_id locationId batchId ownerType ownerId qualityStatus baseUnitSnapshot').lean());
+    .select('_id locationId batchId ownerType ownerId qualityStatus baseUnitSnapshot bookQtyBase').lean());
   const batches = serialize(await m.ProductBatch.find({ _id: { $in: ids(snapshots.map(row => row.batchId)) } }).select('_id productId manufacturerLot').lean());
   const supplierIds = ids(snapshots.filter(row => row.ownerType === 'SUPPLIER').map(row => row.ownerId));
   const customerIds = ids(snapshots.filter(row => row.ownerType === 'CUSTOMER').map(row => row.ownerId));
@@ -37,6 +38,7 @@ export async function getCountSheet(user, id) {
     customerIds.length ? m.Customer.find({ _id: { $in: customerIds } }).select('_id code name').lean() : [],
   ]);
 
+  const unitNames = new Map((await m.Uom.find({ code: { $in: ids(snapshots.map(row => row.baseUnitSnapshot)) } }).select('code name').lean()).map(row => [row.code, row.name]));
   const batchById = new Map(batches.map(row => [String(row._id), row]));
   const productById = new Map(products.map(row => [String(row._id), row]));
   const locationById = new Map(locations.map(row => [String(row._id), row]));
@@ -49,7 +51,7 @@ export async function getCountSheet(user, id) {
       snapshotId: String(snapshot._id), productId: batch ? String(batch.productId) : null, sku: product?.sku ?? null, productName: product?.name ?? null,
       batchId: String(snapshot.batchId), manufacturerLot: batch?.manufacturerLot ?? null, qualityStatus: snapshot.qualityStatus,
       ownerType: snapshot.ownerType, ownerId: snapshot.ownerId ?? null, owner: owners.get(String(snapshot.ownerId)) ?? null,
-      baseUnit: snapshot.baseUnitSnapshot,
+      baseUnit: snapshot.baseUnitSnapshot, uomCode: snapshot.baseUnitSnapshot ?? null, uomName: unitNames.get(snapshot.baseUnitSnapshot) ?? null, bookQtyBase: String(snapshot.bookQtyBase),
     });
     rowsByLocation.set(String(snapshot.locationId), rows);
   }

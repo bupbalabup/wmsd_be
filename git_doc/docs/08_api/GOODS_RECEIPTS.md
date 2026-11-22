@@ -1,5 +1,13 @@
 # GoodsReceipt API
 
+## Receiving corrections — 20 November 2026
+
+The typed FAILED_DELIVERY list applies the same Sales-order ownership predicate as the unified list and detail before counting and pagination. Typed and unified TRANSFER receipt lists and details keep destination warehouse scope and also apply the BF04 linked-demand scope for Sales. Sales sees receipt identity and status metadata only, plus the authorized transfer request reference on detail. Operational lines, quantities, location/balance IDs and evidence are not returned; shared evidence and document-line lookups do not grant Sales broader receipt access.
+
+OTHER evidence may be attached only in DRAFT (create permission) or POSTED (reverse permission). Both evidence APIs recheck the state in the transaction that updates the receipt version; PENDING_APPROVAL and APPROVED reject attachment so approval remains valid. The detail page exposes Hoàn tác for the reverse capability, checks fresh preflight/version, requires reason and evidence, and preserves the exact command/key after an uncertain response. Posting and reversal refresh inventory, location and lot caches.
+
+The custody destination picker filters CUSTODY/QUARANTINE on the server and reads every page with the existing 100-row API limit. A failed page produces an error and disables posting rather than offering an incomplete list. No collection/index migration or shared-database write is required.
+
 Mọi API có tiền tố `/api`. Một collection `goods_receipts`; mỗi router cố định `documentKind` và chỉ trả phiếu thuộc loại đó. ID loại khác trả `404`; thiếu quyền trả `403`; ngoài kho được giao trả `403`. Quyền được kiểm trước truy vấn và trước lệnh ghi, cùng phiên bản, trạng thái và nguồn nghiệp vụ.
 
 | Loại | List, detail | Quyền đọc | Nơi tạo và quyền ghi |

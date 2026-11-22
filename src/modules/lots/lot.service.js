@@ -6,6 +6,7 @@ import {
   InventoryBalance,
   StockHoldingPoint,
   WarehouseLocation,
+  Uom,
   StockTransaction,
   OperationRecord,
   User,
@@ -35,12 +36,21 @@ import {
   lockLotIdentity,
 } from "../../shared/utils/lotIdentity.js";
 import { syncLotConversions } from "../../shared/utils/conversions.js";
-import { blindCountScope, redactMovement } from "../../shared/utils/blind-count.js";
 
 async function batch(id, session) {
   const row = await ProductBatch.findById(id).session(session);
   if (!row) throw notFoundError("Không tìm thấy lô hàng");
   return row;
+}
+// Product base unit as stocktake lines expose it: uomCode (Product.baseUnit) and uomName (Uom.name).
+async function baseUnits(products) {
+  const codes = [...new Set(products.map((p) => p?.baseUnit).filter(Boolean))];
+  const units = codes.length ? await Uom.find({ code: { $in: codes } }).select("code name").lean() : [];
+  const names = new Map(units.map((unit) => [unit.code, unit.name]));
+  return (product) => ({
+    uomCode: product?.baseUnit ?? null,
+    uomName: (product?.baseUnit && names.get(product.baseUnit)) ?? null,
+  });
 }
 async function scopedPoints(user, warehouseId) {
   if (warehouseId) requireWarehouseAccess(user, warehouseId);
@@ -80,15 +90,14 @@ export async function listLots(user, query) {
   const scopedPointIds = await scopedPoints(user);
   const [products, balances] = await Promise.all([
     Product.find({ _id: { $in: result.items.map((row) => row.productId) } })
-      .select("sku name")
+      .select("sku name baseUnit")
       .lean(),
     InventoryBalance.find({
       batchId: { $in: ids }, holdingPointId: { $in: scopedPointIds },
     }).select("_id batchId quantityBase").lean(),
   ]);
-  const blind = await blindCountScope(user);
-  const blindBatchIds = new Set(balances.filter((balance) => blind.has(balance._id)).map((balance) => String(balance.batchId)));
-  const stockedIds = new Set(balances.filter((balance) => !blind.has(balance._id) && exact(balance.quantityBase).gt(0)).map((balance) => String(balance.batchId)));
+  const unitOf = await baseUnits(products);
+  const stockedIds = new Set(balances.filter((balance) => exact(balance.quantityBase).gt(0)).map((balance) => String(balance.batchId)));
   return {
     ...result,
     items: result.items.map((row) => {
@@ -100,7 +109,7 @@ export async function listLots(user, query) {
           sku: product.sku,
           name: product.name,
         },
-        ...(blindBatchIds.has(row.id) && { blindCount: true }),
+        ...unitOf(product),
         hasScopedStock: stockedIds.has(row.id),
       };
     }),
@@ -126,22 +135,20 @@ export async function getLot(user, id) {
       .select("code name")
       .lean(),
     row.verifiedBy && User.findById(row.verifiedBy).select("fullName").lean(),
-    Product.findById(row.productId).select("sku name").lean(),
+    Product.findById(row.productId).select("sku name baseUnit").lean(),
   ]);
+  const unitOf = await baseUnits([product]);
   const byId = (rows, key) => rows.find((r) => String(r._id) === String(key));
   const ref = (r) => r && { id: String(r._id), code: r.code, name: r.name };
-  const blind = await blindCountScope(user);
   const stock = balances
-    .filter((b) => blind.has(b._id) || !/^0(\.0+)?$/.test(String(b.quantityBase)))
+    .filter((b) => !/^0(\.0+)?$/.test(String(b.quantityBase)))
     .map((b) => {
       const location = byId(locations, byId(points, b.holdingPointId)?.locationId);
-      const hidden = blind.has(b._id);
       return {
         warehouse: ref(byId(warehouses, location?.warehouseId)),
         location: ref(location),
         quality: b.qualityStatus,
-        quantityBase: hidden ? null : String(b.quantityBase),
-        ...(hidden && { blindCount: true }),
+        quantityBase: String(b.quantityBase),
       };
     })
     .filter((s) => s.warehouse);
@@ -152,15 +159,11 @@ export async function getLot(user, id) {
       sku: product.sku,
       name: product.name,
     },
+    ...unitOf(product),
     verifiedBy: verifier && { id: String(verifier._id), fullName: verifier.fullName },
     identityLocked: await lotHasReferences(id),
     stock,
-    balances: balances.map((balance) => {
-      const value = dto(balance);
-      if (!blind.has(balance._id)) return value;
-      delete value.packagingPortions;
-      return { ...value, quantityBase: null, blindCount: true };
-    }),
+    balances: balances.map((balance) => dto(balance)),
   };
 }
 // Who verified the lot and when, set once it becomes VERIFIED.
@@ -270,7 +273,6 @@ export async function getLotMovements(user, id, query) {
     holdingPointId: { $in: await scopedPoints(user) },
   }).distinct("_id");
   const allowed = new Set(balances.map(String));
-  const blind = await blindCountScope(user);
   const transactions = await StockTransaction.find({
     $or: [
       { "movements.fromBalanceId": { $in: balances } },
@@ -311,13 +313,12 @@ export async function getLotMovements(user, id, query) {
         toAfter: allowed.has(String(m.toBalanceId)) ? String(m.toAfter) : null,
       })),
   );
-  const redacted = movements.map((item) => redactMovement(blind, item));
   return {
-    items: redacted.slice(
+    items: movements.slice(
       (query.page - 1) * query.limit,
       query.page * query.limit,
     ),
-    total: redacted.length,
+    total: movements.length,
     page: query.page,
     limit: query.limit,
   };

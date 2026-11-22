@@ -41,7 +41,7 @@ Tất cả URL API dưới đây có tiền tố `/api`. FE lấy DTO thực, kh
 | 2 | 37 | Xác nhận chuyển vị trí | POST /location-movements/:id/confirm | Chi tiết chuyển vị trí |
 | 3 | 55 | Xác nhận thực soạn | POST /picking-tasks/:id/confirm | /picking-tasks/:id |
 | 3 | 104 | Nhận điều chuyển | POST /warehouse-transfers/dispatches/:id/receipts | /transfers/:id |
-| 3 | 93 | Chốt chênh lệch kiểm kê | GET /stocktakes; GET /stocktakes/:id; POST /stocktakes/:id/close | /stocktakes; /stocktakes/:id |
+| 3 | 93 | Chốt chênh lệch kiểm kê | GET /stocktakes; GET /stocktakes/:id; POST /stocktakes/:id/close (retired 22/11/2026 → POST /stocktakes/:id/approve-differences) | /stocktakes; /stocktakes/:id |
 | 3 | 99 | Báo cáo vận hành | GET /reports/options; GET /reports | Các màn /reports/* |
 
 Hợp đồng chi tiết BF03/BF04: [chuyển vị trí](location-movements/README.md), [điều chuyển kho](transfers/BF04_API.md). Luồng nhận điều chuyển giữ tách người gửi/người nhận, chặn nhận quá nguồn, hỗ trợ nhận toàn hàng hỏng và xếp vào cách ly. Không thay nó bằng luồng xuất bán.
@@ -80,6 +80,8 @@ Hủy/giao bù từ hàng giao thất bại phải trỏ reopeningReceiptLineId 
 Ảnh nguồn dùng upload riêng và link ký hạn 60 giây; FE yêu cầu link lúc người dùng mở. D07/D08 về người xác minh/chặn nguồn ngoài của SO mới vẫn chưa được duyệt, nên ghi nguồn không tự gán VERIFIED hoặc tự tạo bước xác minh. Không áp quyết định xác minh nguồn khách trả lịch sử sang SO mới.
 
 ## Chốt kiểm kê UC93
+
+> **[Superseded 22/11/2026]** `POST /stocktakes/:id/close`, the `planId`/`selectedCounts`/`reason` body and the plan/approval/execution preconditions below are retired by the user decision of 22 Nov 2026 (simplified reconciliation, closing reason dropped). The current endpoint is `POST /stocktakes/:id/approve-differences`; see [STOCKTAKE_LIFECYCLE.md](STOCKTAKE_LIFECYCLE.md#redesign--22-november-2026-current-contract). The text below is kept as dated evidence of the 10–18 Nov 2026 behaviour.
 
 GET dùng `stocktake:read`, POST close dùng `stock_adjustment:post`, cộng phạm vi kho. Body:
 
