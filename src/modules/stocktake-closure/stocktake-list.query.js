@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { documentIdentifier } from '../../shared/utils/document-id.validation.js';
 import { escapeRegex, validDateRange } from '../../shared/utils/movement-list.js';
 import { isOwner, requireWarehouseAccess } from '../../shared/utils/access.js';
 
@@ -9,6 +10,7 @@ export const stocktakeListQuery = z.object({
   q: z.string().trim().min(1).max(80).optional(),
   warehouseId: objectId.optional(),
   locationId: objectId.optional(),
+  planId: documentIdentifier.optional(),
   status: z.string().regex(/^[A-Z_]{1,30}$/).optional(),
   from: z.iso.datetime({ offset: true }).optional(),
   to: z.iso.datetime({ offset: true }).optional(),
@@ -29,6 +31,7 @@ export function buildStocktakeListFilter(user, query) {
   }
   if (query.status) filter.workflowStatus = query.status;
   if (query.locationId) filter['header.scopeLocationIds'] = query.locationId;
+  if (query.planId) filter['header.planId'] = query.planId;
   if (query.q) filter.documentNo = { $regex: escapeRegex(query.q), $options: 'i' };
   if (query.from || query.to) {
     filter['header.cutoffAt'] = { ...(query.from && { $gte: new Date(query.from) }), ...(query.to && { $lte: new Date(query.to) }) };

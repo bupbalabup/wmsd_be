@@ -1,3 +1,23 @@
+## 22 November 2026 — `stocktake_plan_period_once` frees cancelled slips
+
+Decision source: user "fix all" follow-up, 22 Nov 2026. The unique partial index `stocktake_plan_period_once` on `stocktakes` `{header.planId, header.planPeriodNo}` now has `partialFilterExpression: { "header.planId": { $exists: true }, workflowStatus: { $in: ["PLANNED","COUNTING","RECONCILING","PENDING_APPROVAL","APPROVED","IN_PROGRESS","COMPLETED","CLOSED","POSTED"] } }`, so a `CANCELLED` slip no longer blocks regenerating its plan period (`$ne` is not allowed in partial filters, hence the allow-list). No field was added or removed. Definition in code only; never built on a shared database. Contract: `git_doc/docs/08_api/STOCKTAKE_PLANS.md`.
+
+## 22 November 2026 — Stocktake plan collection and reconciliation fields
+
+Decision source: User decision 22 Nov 2026 following lecturer feedback (separate plan/slip, remove blind count, simplified reconciliation, drop closing reason). Contract: `git_doc/docs/08_api/STOCKTAKE_PLANS.md` and `STOCKTAKE_LIFECYCLE.md#redesign--22-november-2026-current-contract`.
+
+- New collection `stocktake_plans` (`StocktakePlan`, `stocktake-plan.model.js`; embedded `stocktake-plan-header.schema.js` reusing `stocktake-header-scope.schema.js`). Document identity `KHKK-<warehouse>-YYMMDD-<n>` (`ST_SCHEDULE` in `document-number.js`); `workflowStatus` ACTIVE/PAUSED/ENDED; header holds warehouse, title, reason, scope (locationIds/areaCodes/batchIds/productIds), assignedCounterIds, frequency MONTHLY/QUARTERLY/YEARLY, startDate, endDate, nextPeriodNo, nextDueAt, reminderDays, lastGeneratedAt, lastStocktakeId, generatedCount and pause/resume/end metadata. Indexes `{workflowStatus, header.nextDueAt}`, `{header.warehouseId, workflowStatus}`. Registry: 58 → 59 collections; `docType()` accepts `stocktake_plans` for operation/audit subjects.
+- `stocktakes.header` adds optional `planId` (document identity), `planPeriodNo`, `planPeriodDueAt`, `settledLines[]` (`stocktake-settled-line.schema.js`) and `recountLines[]` (`stocktake-recount-line.schema.js`). New unique partial index `stocktake_plan_period_once` on `{header.planId, header.planPeriodNo}`.
+- Unchanged but now history-only: embedded `resolutionPlans` and `stocktake-resolution-plan*.schema.js`, `stocktake-resolution-details.schema.js` (its `DISCREPANCY_REASONS` is reused), `stock_adjustments.header.resolutionPlanId`.
+- Compatibility: additive; no backfill, migration or index build was run on any shared database (definitions in code only). Seed fixture `src/seeds/rebuild/data.js` gets an empty `stocktake_plans` so the seed validator covers 59 models.
+- Verification: `test/reviewed-model-files`, `consolidation`, `database-seed`, `reviewed-demo`, `document-identities` pass with the 59-model count; isolated local replica-set runs listed in `git_doc/change_logs.md` (22 Nov 2026).
+
+## 20 November 2026 — Preserve customer-return claims and inspection packaging
+
+`return_quantity_claims.events` uses the existing kind field for REACQUIRED. Model validation checks event prefixes against the original claim and released allowance; RECEIVED remains charged to the source. Services lock and recheck source allowance before reassessment increases, preserving existing events.
+
+`customer_returns.inspections[].portions` adds optional `packagingState`, `measuredVolumeMm3` and `packagingSnapshot` for new DIRECT inspections. Whole measured portions keep the measurement at receipt; partial fragments can use the existing inventory volume bound. Sealed packaging is checked against the fixed verified lot, not against a client-provided replacement. Existing documents remain readable; no collection, relationship, index, migration or backfill changed.
+
 ## 19 November 2026 — Append-only correction of an empty-location count
 
 `stocktake_counts` adds optional `correctsEmptyCountId` (ref to the superseded `StocktakeCount`) and `correctionReason` (String ≤ 2000). A correction records a new discovered `STOCK` count with evidence; the original `EMPTY_LOCATION` attempt remains unchanged. Optional fields are compatible with existing documents; no collection or index change, migration, or backfill.

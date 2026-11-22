@@ -1,6 +1,6 @@
 # Từ điển dữ liệu hiện hành — 12/11/2026
 
-58 collection. Dòng nhúng có ID ổn định; không phải collection độc lập. Mongoose ref là liên kết ứng dụng, không phải foreign key do MongoDB kiểm. Native return workflow additions and compatibility are documented in [RETURN_WORKFLOWS_NATIVE](../../08_api/RETURN_WORKFLOWS_NATIVE.md). `DocumentIdentity` nhận mã liền dạng String, mã String đã lưu có dấu cách quanh dấu nối và ObjectId lịch sử. [Quy tắc định danh](../../08_api/DOCUMENT_IDENTITIES.md).
+59 collection. Dòng nhúng có ID ổn định; không phải collection độc lập. Mongoose ref là liên kết ứng dụng, không phải foreign key do MongoDB kiểm. Native return workflow additions and compatibility are documented in [RETURN_WORKFLOWS_NATIVE](../../08_api/RETURN_WORKFLOWS_NATIVE.md). DocumentIdentity = String mã phiếu mới hoặc ObjectId lịch sử; xem [quy tắc ID](../../08_api/DOCUMENT_IDENTITIES.md).
 
 ## uoms
 
@@ -123,7 +123,7 @@ Model: [user.model.js](../../../../src/models/user.model.js).
 | `phone` | String | false |  |
 | `email` | String | false |  |
 | `isActive` | Boolean | true |  |
-| `lockReason` | String (tối đa 2000 ký tự) | false | Lý do khoá hiện tại; xoá khi mở khoá. Dữ liệu cũ có thể để trống. |
+| `lockReason` | String | false |  |
 | `version` | Number | true |  |
 | `_id` | ObjectId | false |  |
 | `createdAt` | Date | false |  |
@@ -222,11 +222,11 @@ Model: [warehouse.model.js](../../../../src/models/warehouse.model.js).
 | `lengthMm` | Number | false |  |
 | `widthMm` | Number | false |  |
 | `clearHeightMm` | Number | false |  |
-| `layout3d` | Mixed/Object | false | Bản nháp: points, height, doors, maxStackHeight?, functions[] và zones[] (slots[] local); m/độ. `zones[].slots[].locationId` tùy chọn, chuỗi ObjectId tham chiếu vị trí nghiệp vụ cùng kho, kiểm bởi API; dữ liệu cũ thiếu trường vẫn hợp lệ. Pallet có layers[] (id/height/items[] nhãn mã hàng/lô/số thùng) và measuredCargoHeight? tính phần hàng; actualHeight cũ vẫn là tổng cao. Cấu trúc/giới hạn tại [chặng 2](../../10_Kho3D/STAGE2_ZONES.md) và [lớp pallet](../../10_Kho3D/STAGE3_PALLET_LAYERS.md). |
-| `layout3dApplied` | Mixed/Object | false | Snapshot áp dụng gần nhất cùng cấu trúc layout3d; lưu nháp không thay snapshot. |
-| `layout3dAppliedAt` | Date | false | Thời điểm áp dụng snapshot; chưa có ở dữ liệu cũ. |
 | `isActive` | Boolean | true |  |
-| `stockOperationVersion` | Number | true (default 0) | Technical warehouse stock-command guard; does not change catalogue updatedAt. |
+| `stockOperationVersion` | Number | true |  |
+| `layout3d` | Mixed | false |  |
+| `layout3dApplied` | Mixed | false |  |
+| `layout3dAppliedAt` | Date | false |  |
 | `_id` | ObjectId | false |  |
 | `createdAt` | Date | false |  |
 | `updatedAt` | Date | false |  |
@@ -498,8 +498,8 @@ Model: [inventory-balance.model.js](../../../../src/models/inventory-balance.mod
 | `packagingPortions[]._id` | ObjectId | false |  |
 | `packagingPortions[].createdAt` | Date | false |  |
 | `packagingPortions[].updatedAt` | Date | false |  |
-| `packagingPortions[].measuredVolumeMm3` | Decimal128 | false | Thể tích chiếm chỗ thực đo hoặc BE ước tính (mm³). |
-| `packagingPortions[].volumeUpperBoundMm3` | Decimal128 | false | mm³; conservative known-volume bound on outbound OPEN/LOOSE fragments, not a measurement; absent on historical rows; capacity fallback after measuredVolumeMm3 |
+| `packagingPortions[].measuredVolumeMm3` | Decimal128 | false |  |
+| `packagingPortions[].volumeUpperBoundMm3` | Decimal128 | false |  |
 | `packagingPortions[].extraOccupiedVolumeMm3` | Decimal128 | false |  |
 
 Indexes:
@@ -728,8 +728,6 @@ Indexes:
 
 Model: [approval-history.model.js](../../../../src/models/approval-history.model.js).
 
-Mỗi quyết định theo dòng RR lưu lượng duyệt ở `itemDecisions[].approvedQtyBase` theo đơn vị gốc của sản phẩm.
-
 | Trường | Kiểu | Bắt buộc | Liên kết |
 |---|---|---|---|
 | `decisionKey` | String | true |  |
@@ -743,7 +741,7 @@ Mỗi quyết định theo dòng RR lưu lượng duyệt ở `itemDecisions[].a
 | `itemDecisions[].itemId` | ObjectId | true |  |
 | `itemDecisions[].approvedQtyBase` | Decimal128 | true |  |
 | `itemDecisions[].outcome` | String | true |  |
-| `itemDecisions[].reason` | String | false | Tối đa 2.000 ký tự (16/11/2026, khớp lý do API). |
+| `itemDecisions[].reason` | String | false |  |
 | `requestedBy` | ObjectId | true | User |
 | `decidedBy` | ObjectId | true | User |
 | `decidedAt` | Date | true |  |
@@ -927,8 +925,8 @@ Model: [stocktake-count.model.js](../../../../src/models/stocktake-count.model.j
 | `baseUnitSnapshot` | String | false |  |
 | `conditionNote` | String | false |  |
 | `evidenceIds` | Array | false |  |
-| `correctsEmptyCountId` | ObjectId | false | StocktakeCount (EMPTY_LOCATION lần bị sửa; append-only self-reference) |
-| `correctionReason` | String | false | Bắt buộc khi `correctsEmptyCountId` có giá trị |
+| `correctsEmptyCountId` | ObjectId | false | StocktakeCount |
+| `correctionReason` | String | false |  |
 | `countedBy` | ObjectId | true | User |
 | `countedAt` | Date | true |  |
 | `recordedAt` | Date | true |  |
@@ -1277,8 +1275,6 @@ Indexes:
 
 ## external_references
 
-17/11/2026: new documents use customerName (text, max 160) and customerPhone (optional text, max 30), nested under header for orders/returns and top-level for historical external references. customerId is optional for legacy records. New return snapshots are resolved server-side from a single source document. Customer catalogue lookup is not required.
-
 Model: [external-reference.model.js](../../../../src/models/external-reference.model.js).
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
@@ -1292,6 +1288,8 @@ Model: [external-reference.model.js](../../../../src/models/external-reference.m
 | `verifiedBy` | ObjectId | false | User |
 | `verifiedAt` | Date | false |  |
 | `customerId` | ObjectId | false | Customer |
+| `customerName` | String | false |  |
+| `customerPhone` | String | false |  |
 | `warehouseId` | ObjectId | false | Warehouse |
 | `evidenceIds` | Array | false |  |
 | `status` | String | true |  |
@@ -1356,6 +1354,12 @@ Model: [product-batch.model.js](../../../../src/models/product-batch.model.js).
 | `productId` | ObjectId | true | Product |
 | `manufacturerLot` | String | true |  |
 | `identificationStatus` | String | true |  |
+| `tone` | String | false |  |
+| `calibre` | String | false |  |
+| `verificationReference` | String | false |  |
+| `notes` | String | false |  |
+| `verifiedAt` | Date | false |  |
+| `verifiedBy` | ObjectId | false | User |
 | `manufacturedOn` | Date | false |  |
 | `piecesPerCarton` | Number | true |  |
 | `cartonLengthMm` | Decimal128 | true |  |
@@ -1384,8 +1388,6 @@ Indexes:
 ## replenishment_requests
 
 Model: [replenishment-request.model.js](../../../../src/models/replenishment-request.model.js).
-
-`items[].qtyBase` là lượng đề nghị theo đơn vị gốc. Với gạch nguyên viên, `items[].enteredQty` theo đơn vị diện tích được quy đổi ngược từ lượng viên đã làm tròn. `items[].approvedQtyBase` là lượng duyệt theo đơn vị gốc.
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
 |---|---|---|---|
@@ -1604,8 +1606,6 @@ Indexes:
 
 Model: [purchase-order.model.js](../../../../src/models/purchase-order.model.js).
 
-`items[].qtyBase` là lượng đặt theo đơn vị gốc. `items[].lineAmount` bằng `unitPurchasePrice × enteredQty` sau chuẩn hóa lượng diện tích, làm tròn 6 chữ số thập phân. Quy cách lô thực nhận được ghi ở kiểm nhận.
-
 | Trường | Kiểu | Bắt buộc | Liên kết |
 |---|---|---|---|
 | `documentNo` | String | true |  |
@@ -1630,7 +1630,6 @@ Model: [purchase-order.model.js](../../../../src/models/purchase-order.model.js)
 | `header.warehouseId` | ObjectId | true | Warehouse |
 | `header.supplierId` | ObjectId | true | Supplier |
 | `header.expectedOn` | Date | false |  |
-| `header.supplierConfirmation` | String | false |  |
 | `header.approvedRequestRevision` | Number | false |  |
 | `header.orderDate` | Date | false |  |
 | `header.issuedAt` | Date | false |  |
@@ -1683,15 +1682,8 @@ Model: [purchase-order.model.js](../../../../src/models/purchase-order.model.js)
 | `items[].note` | String | false |  |
 | `items[].evidenceIds` | Array | false |  |
 | `items[].requestItemId` | ObjectId | false |  |
-| `items[].supplierConfirmedQtyBase` | Decimal128 | false |  |
-| `items[].supplierConfirmedBy` | ObjectId | false | User |
-| `items[].supplierConfirmedAt` | Date | false |  |
 | `items[].cancelledRemainderQtyBase` | Decimal128 | false |  |
 | `items[].cancellationDecisionId` | ObjectId | false | ApprovalHistory |
-| `items[].deliverySchedule` | Array | false |  |
-| `items[].deliverySchedule[].quantityBase` | Decimal128 | true |  |
-| `items[].deliverySchedule[].expectedAt` | Date | true |  |
-| `items[].deliverySchedule[].supplierReference` | String | false |  |
 | `items[].{DocumentLine_REPLENISHMENT}.details` | Embedded | true |  |
 | `items[].{DocumentLine_SALES_ORDER}.details` | Embedded | true |  |
 | `items[].{DocumentLine_OUTBOUND_DELIVERY}.details` | Embedded | true |  |
@@ -1719,7 +1711,7 @@ Model: [purchase-order.model.js](../../../../src/models/purchase-order.model.js)
 | `totalAmount` | Decimal128 | true |  |
 | `currency` | String | true |  |
 | `_id` | DocumentIdentity | false |  |
-| `replenishmentRequestId` | DocumentIdentity | false | ReplenishmentRequest. Gỡ khi PO bị hủy để RR lập được PO mới; unique index một phần giữ một RR một PO còn hiệu lực. |
+| `replenishmentRequestId` | DocumentIdentity | false |  |
 
 Indexes:
 
@@ -1767,7 +1759,10 @@ Indexes:
       "unique": true,
       "partialFilterExpression": {
         "replenishmentRequestId": {
-          "$type": "objectId"
+          "$type": [
+            "objectId",
+            "string"
+          ]
         }
       }
     }
@@ -1851,7 +1846,7 @@ Model: [goods-arrival.model.js](../../../../src/models/goods-arrival.model.js).
 | `items[].expectedProductId` | ObjectId | false | Product |
 | `items[].observedLabel` | String | false |  |
 | `items[].lotLabelSnapshot` | String | false |  |
-| `items[].packagingCondition` | String | false | Tình trạng ghi trên dòng hàng đến. API kiểm nhận dùng SEALED, OPENED, TORN, UNKNOWN hoặc LOOSE (hàng lẻ). |
+| `items[].packagingCondition` | String | false |  |
 | `items[].{DocumentLine_REPLENISHMENT}.details` | Embedded | true |  |
 | `items[].{DocumentLine_SALES_ORDER}.details` | Embedded | true |  |
 | `items[].{DocumentLine_OUTBOUND_DELIVERY}.details` | Embedded | true |  |
@@ -1922,8 +1917,6 @@ Indexes:
 ## goods_inspections
 
 Model: [goods-inspection.model.js](../../../../src/models/goods-inspection.model.js).
-
-`items[].details.receivingLocationId` là ObjectId tùy chọn tham chiếu `WarehouseLocation`, khai báo trong [inspection-details.schema.js](../../../../src/models/inspection-details.schema.js). Lệnh kiểm nhận mua xác thực vị trí đang hoạt động, thuộc kho nhận và có loại `RECEIVING`. Bản ghi cũ có thể thiếu trường này.
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
 |---|---|---|---|
@@ -2060,8 +2053,6 @@ Indexes:
 ```
 
 ## goods_receipts
-
-17 November 2026: FAILED_DELIVERY variant adds optional header.goodsIssueId (DocumentIdentity → SalesGoodsIssue) for direct undelivered receipts. Its item details require salesIssueLineId; failedDeliveryLineId and inspectionLineId are optional only for direct mode at command boundaries. Existing legacy header references remain valid. See [current contract](../../08_api/GOODS_ISSUES.md). No collection/backfill.
 
 Model: [goods-receipt.model.js](../../../../src/models/goods-receipt.model.js).
 
@@ -2248,11 +2239,8 @@ Indexes:
 
 Model: [transfer-order.model.js](../../../../src/models/transfer-order.model.js).
 
-18/11/2026 — BF03 optional mixed entry: `items[].{DocumentLine_WAREHOUSE_TASK}.details.packagingState` is String enum `SEALED|LOOSE`, optional with no default/ref/index. Each typed item consumes only that category and keeps independent partial progress; absent values retain legacy behavior. This field lives in the shared embedded warehouse-task details schema and is currently used only by RELOCATE commands. Explicit LOOSE splits known-volume stock conservatively; SEALED cannot open. No collection/relationship/ERD relationship changes or backfill. See [current API](../../08_api/location-movements/README.md#mixed-sealed-cartons-and-loose-pieces--18-november-2026).
-
 | Trường | Kiểu | Bắt buộc | Liên kết |
 |---|---|---|---|
-| `items[].{DocumentLine_WAREHOUSE_TASK}.details.packagingState` | String enum SEALED / LOOSE | false | Không; chỉ định loại đóng gói BF03 |
 | `documentNo` | String | true |  |
 | `documentKind` | String | true |  |
 | `workflowStatus` | String | true |  |
@@ -2444,6 +2432,8 @@ Model: [warehouse-transfer-request.model.js](../../../../src/models/warehouse-tr
 | `header.rejectionReason` | String | false |  |
 | `header.closedBy` | ObjectId | false | User |
 | `header.closedAt` | Date | false |  |
+| `header.closureMode` | String | false |  |
+| `header.closureReason` | String | false |  |
 | `updatedBy` | ObjectId | false | User |
 | `evidenceIds` | Array | false |  |
 | `cancelledBy` | ObjectId | false | User |
@@ -2926,8 +2916,6 @@ Indexes:
 
 ## sales_orders
 
-17/11/2026: new documents use customerName (text, max 160) and customerPhone (optional text, max 30), nested under header for orders/returns and top-level for historical external references. customerId is optional for legacy records. New return snapshots are resolved server-side from a single source document. Customer catalogue lookup is not required.
-
 Model: [sales-order.model.js](../../../../src/models/sales-order.model.js).
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
@@ -2953,7 +2941,9 @@ Model: [sales-order.model.js](../../../../src/models/sales-order.model.js).
 | `sources[].documentId` | DocumentIdentity | true |  |
 | `header` | Embedded | true |  |
 | `header.externalReferenceId` | ObjectId | true | ExternalReference |
-| `header.customerId` | ObjectId | true | Customer |
+| `header.customerId` | ObjectId | false | Customer |
+| `header.customerName` | String | false |  |
+| `header.customerPhone` | String | false |  |
 | `header.neededOn` | Date | true |  |
 | `header.deliveryAddressSnapshot` | String | true |  |
 | `header.recipientName` | String | false |  |
@@ -3589,8 +3579,6 @@ Indexes:
 
 ## sales_goods_issues
 
-17 November 2026: New DIRECT mode links SalesOrder and Customer, actual InventoryBalance per item and embedded customerReceipts; no picking. Legacy manual/OD-backed modes retain their old rules. See [current contract](../../08_api/GOODS_ISSUES.md). No collection/backfill.
-
 Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.model.js).
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
@@ -3636,7 +3624,6 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `postedBy` | ObjectId | false | User |
 | `postedAt` | Date | false |  |
 | `customerReceipts` | Array | false |  |
-| `customerReceipts[]._id` | ObjectId | false | Stable embedded event ID |
 | `customerReceipts[].issueLineId` | ObjectId | true |  |
 | `customerReceipts[].quantityBase` | Decimal128 | true |  |
 | `customerReceipts[].recipientName` | String | true |  |
@@ -3644,6 +3631,7 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `customerReceipts[].recordedBy` | ObjectId | true | User |
 | `customerReceipts[].recordedAt` | Date | true |  |
 | `customerReceipts[].evidenceIds` | Array | false |  |
+| `customerReceipts[]._id` | ObjectId | false |  |
 | `createdAt` | Date | false |  |
 | `updatedAt` | Date | false |  |
 | `items` | Array | false |  |
@@ -4317,15 +4305,35 @@ Model: [stocktake.model.js](../../../../src/models/stocktake.model.js).
 | `header.scope.productIds` | Array | false |  |
 | `header.scope.areaCodes` | Array | false |  |
 | `header.assignedCounterIds` | Array | false |  |
-| `header.selectedCounts` | Array | false | Cặp snapshot/lần đếm được chọn khi đối chiếu (13/11/2026) |
+| `header.selectedCounts` | Array | false |  |
 | `header.selectedCounts[].snapshotId` | ObjectId | true | StocktakeSnapshot |
 | `header.selectedCounts[].countId` | ObjectId | true | StocktakeCount |
 | `header.lastReconciledBy` | ObjectId | false | User |
-| `header.lastReconciledAt` | Date | false | Xóa khi có lần đếm mới; chốt yêu cầu đã đối chiếu |
+| `header.lastReconciledAt` | Date | false |  |
 | `header.activatedBy` | ObjectId | false | User |
 | `header.activatedAt` | Date | false |  |
 | `header.closedBy` | ObjectId | false | User |
 | `header.closureReferenceId` | ObjectId | false |  |
+| `header.planPeriodNo` | Number | false |  |
+| `header.planPeriodDueAt` | Date | false |  |
+| `header.settledLines` | Array | false |  |
+| `header.settledLines[].snapshotId` | ObjectId | true | StocktakeSnapshot |
+| `header.settledLines[].countId` | ObjectId | true | StocktakeCount |
+| `header.settledLines[].outcome` | String | true |  |
+| `header.settledLines[].deltaQtyBase` | Decimal128 | true |  |
+| `header.settledLines[].baseUnitSnapshot` | String | false |  |
+| `header.settledLines[].reasonCode` | String | false |  |
+| `header.settledLines[].reasonNote` | String | false |  |
+| `header.settledLines[].adjustmentId` | DocumentIdentity | false |  |
+| `header.settledLines[].settledBy` | ObjectId | true | User |
+| `header.settledLines[].settledAt` | Date | true |  |
+| `header.recountLines` | Array | false |  |
+| `header.recountLines[].snapshotId` | ObjectId | true | StocktakeSnapshot |
+| `header.recountLines[].afterAttemptNo` | Number | true |  |
+| `header.recountLines[].requestedBy` | ObjectId | true | User |
+| `header.recountLines[].requestedAt` | Date | true |  |
+| `header.recountLines[].note` | String | false |  |
+| `header.planId` | DocumentIdentity | false | StocktakePlan |
 | `updatedBy` | ObjectId | false | User |
 | `evidenceIds` | Array | false |  |
 | `cancelledBy` | ObjectId | false | User |
@@ -4541,6 +4549,34 @@ Indexes:
       "createdAt": -1
     },
     {}
+  ],
+  [
+    {
+      "header.planId": 1,
+      "header.planPeriodNo": 1
+    },
+    {
+      "unique": true,
+      "name": "stocktake_plan_period_once",
+      "partialFilterExpression": {
+        "header.planId": {
+          "$exists": true
+        },
+        "workflowStatus": {
+          "$in": [
+            "PLANNED",
+            "COUNTING",
+            "RECONCILING",
+            "PENDING_APPROVAL",
+            "APPROVED",
+            "IN_PROGRESS",
+            "COMPLETED",
+            "CLOSED",
+            "POSTED"
+          ]
+        }
+      }
+    }
   ],
   [
     {
@@ -4980,10 +5016,6 @@ Indexes:
 
 ## customer_returns
 
-17/11/2026: new documents use customerName (text, max 160) and customerPhone (optional text, max 30), nested under header for orders/returns and top-level for historical external references. customerId is optional for legacy records. New return snapshots are resolved server-side from a single source document. Customer catalogue lookup is not required.
-
-17 November 2026: New intakeMode DIRECT and embedded handbacks record physical facts/handback without custody stock; only accepted receipts post STORE stock. Older requests preserve custody semantics. See [current contract](../../08_api/GOODS_ISSUES.md). No collection/backfill.
-
 Model: [customer-return.model.js](../../../../src/models/customer-return.model.js).
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
@@ -5008,7 +5040,9 @@ Model: [customer-return.model.js](../../../../src/models/customer-return.model.j
 | `sources[].documentId` | DocumentIdentity | true |  |
 | `header` | Embedded | true |  |
 | `header.warehouseId` | ObjectId | true | Warehouse |
-| `header.customerId` | ObjectId | true | Customer |
+| `header.customerId` | ObjectId | false | Customer |
+| `header.customerName` | String | false |  |
+| `header.customerPhone` | String | false |  |
 | `header.intakeMode` | String | false |  |
 | `header.financialFollowupStatus` | String | true |  |
 | `header.openedBy` | ObjectId | false | User |
@@ -5084,13 +5118,13 @@ Model: [customer-return.model.js](../../../../src/models/customer-return.model.j
 | `decisions[].decision` | String | true |  |
 | `decisions[].reason` | String | true |  |
 | `handbacks` | Array | false |  |
-| `handbacks[]._id` | ObjectId | false | Stable embedded event ID |
 | `handbacks[].returnLineId` | ObjectId | true |  |
 | `handbacks[].quantityBase` | Decimal128 | true |  |
 | `handbacks[].recipientName` | String | true |  |
 | `handbacks[].recordedBy` | ObjectId | true | User |
 | `handbacks[].recordedAt` | Date | true |  |
 | `handbacks[].evidenceIds` | Array | false |  |
+| `handbacks[]._id` | ObjectId | false |  |
 | `inspections` | Array | false |  |
 | `inspections[].returnLineId` | ObjectId | true |  |
 | `inspections[].inspectionNo` | Number | true |  |
@@ -5101,6 +5135,7 @@ Model: [customer-return.model.js](../../../../src/models/customer-return.model.j
 | `inspections[].portions` | Array | false |  |
 | `inspections[].portions[].quantityBase` | Decimal128 | true |  |
 | `inspections[].portions[].packagingCondition` | String | true |  |
+| `inspections[].portions[].packagingState` | String | false |  |
 | `inspections[].portions[].installationStatus` | String | true |  |
 | `inspections[].portions[].damageCause` | String | true |  |
 | `inspections[].portions[].deadlineStatus` | String | true |  |
@@ -5108,6 +5143,13 @@ Model: [customer-return.model.js](../../../../src/models/customer-return.model.j
 | `inspections[].portions[].eligibilityStatus` | String | true |  |
 | `inspections[].portions[].reason` | String | true |  |
 | `inspections[].portions[].evidenceIds` | Array | false |  |
+| `inspections[].portions[].measuredVolumeMm3` | Decimal128 | false |  |
+| `inspections[].portions[].packagingSnapshot` | Embedded | false |  |
+| `inspections[].portions[].packagingSnapshot.packageUnit` | String | true |  |
+| `inspections[].portions[].packagingSnapshot.baseUnitsPerPackage` | Decimal128 | true |  |
+| `inspections[].portions[].packagingSnapshot.outerLengthMm` | Decimal128 | false |  |
+| `inspections[].portions[].packagingSnapshot.outerWidthMm` | Decimal128 | false |  |
+| `inspections[].portions[].packagingSnapshot.outerHeightMm` | Decimal128 | false |  |
 | `inspections[]._id` | ObjectId | false |  |
 | `inspections[].createdAt` | Date | false |  |
 | `inspections[].updatedAt` | Date | false |  |
@@ -6284,7 +6326,7 @@ Model: [opening-stock.model.js](../../../../src/models/opening-stock.model.js).
 | `sources[].documentId` | DocumentIdentity | true |  |
 | `header` | Embedded | true |  |
 | `header.warehouseId` | ObjectId | false | Warehouse |
-| `header.openingImportSource` | String | false | `FILE` marks file-imported opening stock for once-per-warehouse uniqueness. |
+| `header.openingImportSource` | String | false |  |
 | `header.cutoverKey` | String | false |  |
 | `header.openingAt` | Date | false |  |
 | `header.coveredLocationIds` | Array | false |  |
@@ -6341,8 +6383,8 @@ Model: [opening-stock.model.js](../../../../src/models/opening-stock.model.js).
 | `items[].ownerType` | String | false |  |
 | `items[].ownerId` | ObjectId | false |  |
 | `items[].qualityStatus` | String | false |  |
-| `items[].packagingState` | String | false | SEALED / OPEN / LOOSE; required by new opening import service. |
-| `items[].measuredVolumeMm3` | Decimal128 | false | Positive measured total volume for an OPEN/LOOSE portion. |
+| `items[].packagingState` | String | false |  |
+| `items[].measuredVolumeMm3` | Decimal128 | false |  |
 | `items[].{DocumentLine_REPLENISHMENT}.details` | Embedded | true |  |
 | `items[].{DocumentLine_SALES_ORDER}.details` | Embedded | true |  |
 | `items[].{DocumentLine_OUTBOUND_DELIVERY}.details` | Embedded | true |  |
@@ -6368,8 +6410,6 @@ Model: [opening-stock.model.js](../../../../src/models/opening-stock.model.js).
 | `soThuTu` | Number | false |  |
 | `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
-
-One-time file import: unique partial index on `header.warehouseId` where `workflowStatus=POSTED` and `header.openingImportSource=FILE`. Install or replace the prior broad index using [opening setup](../../09_phat_trien/EXCEL_OPENING_SETUP.md); never silently rebuild indexes on existing data.
 
 Indexes:
 
@@ -6485,6 +6525,84 @@ Indexes:
         "status": "ISSUED"
       }
     }
+  ]
+]
+```
+
+## stocktake_plans
+
+Model: [stocktake-plan.model.js](../../../../src/models/stocktake-plan.model.js).
+
+| Trường | Kiểu | Bắt buộc | Liên kết |
+|---|---|---|---|
+| `documentNo` | String | true |  |
+| `documentKind` | String | true |  |
+| `workflowStatus` | String | true |  |
+| `version` | Number | true |  |
+| `createdBy` | ObjectId | true | User |
+| `occurredAt` | Date | false |  |
+| `note` | String | false |  |
+| `header` | Embedded | true |  |
+| `header.warehouseId` | ObjectId | true | Warehouse |
+| `header.title` | String | true |  |
+| `header.reason` | String | false |  |
+| `header.scope` | Embedded | false |  |
+| `header.scope.locationIds` | Array | false |  |
+| `header.scope.batchIds` | Array | false |  |
+| `header.scope.productIds` | Array | false |  |
+| `header.scope.areaCodes` | Array | false |  |
+| `header.assignedCounterIds` | Array | false |  |
+| `header.frequency` | String | true |  |
+| `header.startDate` | Date | true |  |
+| `header.endDate` | Date | false |  |
+| `header.nextPeriodNo` | Number | true |  |
+| `header.nextDueAt` | Date | false |  |
+| `header.reminderDays` | Number | true |  |
+| `header.lastGeneratedAt` | Date | false |  |
+| `header.generatedCount` | Number | true |  |
+| `header.pausedAt` | Date | false |  |
+| `header.pausedBy` | ObjectId | false | User |
+| `header.resumedAt` | Date | false |  |
+| `header.endedAt` | Date | false |  |
+| `header.endedBy` | ObjectId | false | User |
+| `header.endReason` | String | false |  |
+| `header.lastStocktakeId` | DocumentIdentity | false | Stocktake |
+| `updatedBy` | ObjectId | false | User |
+| `tenLoaiPhieu` | String | false |  |
+| `maDonVi` | String | false |  |
+| `kyDanhSo` | String | false |  |
+| `soThuTu` | Number | false |  |
+| `trangThaiTiengViet` | String | false |  |
+| `createdAt` | Date | false |  |
+| `updatedAt` | Date | false |  |
+| `_id` | DocumentIdentity | false |  |
+
+Indexes:
+
+```json
+[
+  [
+    {
+      "documentNo": 1
+    },
+    {
+      "unique": true,
+      "_autoIndex": false
+    }
+  ],
+  [
+    {
+      "workflowStatus": 1,
+      "header.nextDueAt": 1
+    },
+    {}
+  ],
+  [
+    {
+      "header.warehouseId": 1,
+      "workflowStatus": 1
+    },
+    {}
   ]
 ]
 ```

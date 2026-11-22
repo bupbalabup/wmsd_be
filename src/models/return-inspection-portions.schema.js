@@ -6,6 +6,7 @@ import {
   code,
   decimal,
 } from "./model-utils.js";
+import { createPackagingSchema } from "./packaging.schema.js";
 import { str } from "./schema-helpers.js";
 import { PACKAGING_CONDITIONS } from "./constants.js";
 
@@ -15,6 +16,7 @@ export function createReturnInspectionPortionsSchema() {
     {
       quantityBase: decimal({ positive: true }),
       packagingCondition: code(PACKAGING_CONDITIONS),
+      packagingState: code(["SEALED", "OPEN", "LOOSE"], { required: false }),
       installationStatus: code(["UNUSED", "INSTALLED", "UNKNOWN"]),
       damageCause: code(["NONE", "CUSTOMER", "SUPPLIER", "OTHER", "UNKNOWN"]),
       deadlineStatus: code(["WITHIN", "EXCEEDED", "NOT_APPLICABLE", "UNKNOWN"]),
@@ -22,6 +24,8 @@ export function createReturnInspectionPortionsSchema() {
       eligibilityStatus: code(["PENDING", "CASE_REVIEW", "INELIGIBLE"]),
       reason: text(2000),
       evidenceIds: refs("Attachment"),
+      measuredVolumeMm3: decimal({ positive: true, required: false }),
+      packagingSnapshot: createPackagingSchema(),
     },
     embeddedOptions,
   );

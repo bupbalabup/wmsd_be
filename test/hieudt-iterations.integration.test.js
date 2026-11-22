@@ -8,7 +8,7 @@ import { PERMISSION_CATALOGUE, ROLE_PERMISSIONS } from '../src/seeds/data/permis
 import * as sales from '../src/modules/sales-orders/sales-execution.service.js';
 import { createSalesOrder } from '../src/modules/sales-orders/sales-create.service.js';
 import { getOutboundDelivery, getSalesOrder } from '../src/modules/sales-orders/sales-read.service.js';
-import { closeStocktake, approvalContent } from '../src/modules/stocktake-closure/stocktake-closure.service.js';
+import { approveStocktakeDifferences } from '../src/modules/stocktake-closure/stocktake-reconciliation.service.js';
 import { operationalReport } from '../src/modules/operational-reports/operational-reports.service.js';
 import { newId } from '../src/shared/utils/document-command.js';
 import { exact } from '../src/models/model-utils.js';
@@ -107,39 +107,34 @@ run('SO remainder rejects committed reductions, stale versions, wrong actor and 
 });
 async function stocktakeFixture(counted, source = balance, location = storage) {
     const b = await m.InventoryBalance.findById(source._id), now = new Date();
-    const st = await m.Stocktake.create({ documentNo: 'ST-' + key(), workflowStatus: 'COUNTING', version: 1, createdBy: owner._id, header: { warehouseId: warehouse._id, scopeLocationIds: [location._id], scopeVersion: 1, cutoffAt: now, assignedCounterIds: [worker._id] } });
+    const st = await m.Stocktake.create({ documentNo: 'ST-' + key(), workflowStatus: 'RECONCILING', version: 1, createdBy: owner._id, header: { warehouseId: warehouse._id, scopeLocationIds: [location._id], scopeVersion: 1, cutoffAt: now, assignedCounterIds: [worker._id] } });
     await m.StocktakeLocationLock.create({ stocktakeId: st._id, scopeVersion: 1, locationId: location._id, lockedAt: now, lockedBy: worker._id, status: 'LOCKED', version: 1 });
     const snapshot = await m.StocktakeSnapshot.create({ stocktakeId: st._id, scopeVersion: 1, cutoffAt: now, capturedAt: now, sourceBalanceId: b._id, sourceBalanceVersion: b.version, locationId: location._id, batchId: batch._id, ownerType: 'STORE', qualityStatus: 'GOOD', bookQtyBase: String(b.quantityBase), baseUnitSnapshot: 'PIECE', origin: 'BOOK' });
     const count = await m.StocktakeCount.create({ stocktakeId: st._id, scopeVersion: 1, locationId: location._id, targetType: 'STOCK', snapshotId: snapshot._id, attemptNo: 1, quantityEntries: [{ enteredQty: counted, enteredUnit: 'PIECE', baseUnitsPerUnit: '1', quantityBase: counted }], countedQtyBase: counted, baseUnitSnapshot: 'PIECE', countedBy: worker._id, countedAt: now, recordedAt: now });
-    // Close requires a completed reconciliation, as produced by the reconcile command.
+    // Approving differences requires a completed reconciliation (RECONCILING), as produced by the reconcile command.
     st.header.selectedCounts = [{ snapshotId: snapshot._id, countId: count._id }];
     st.header.lastReconciledBy = worker._id;
     st.header.lastReconciledAt = now;
     await st.save();
     return { st, snapshot, count, b };
 }
-run('zero-difference closure requires actual counts, writes no zero adjustment and retries safely', async () => {
-    const { st, snapshot, count } = await stocktakeFixture('4');
-    const body = { idempotencyKey: key(), expectedVersion: 1, reason: 'Matched', selectedCounts: [{ snapshotId: String(snapshot._id), countId: String(count._id) }] };
-    await assert.rejects(closeStocktake(worker, st._id, body));
-    await assert.rejects(closeStocktake(owner, st._id, { ...body, selectedCounts: [] }));
-    await closeStocktake(owner, st._id, body);
-    assert.equal((await closeStocktake(owner, st._id, body)).replayed, true);
+run('zero-difference approval requires actual counts, writes no zero adjustment and retries safely', async () => {
+    const { st } = await stocktakeFixture('4');
+    const body = { idempotencyKey: key(), expectedVersion: 1, all: true };
+    await assert.rejects(approveStocktakeDifferences(worker, st._id, body));
+    await assert.rejects(approveStocktakeDifferences(owner, st._id, { idempotencyKey: key(), expectedVersion: 1 }));
+    await approveStocktakeDifferences(owner, st._id, body);
+    assert.equal((await approveStocktakeDifferences(owner, st._id, body)).replayed, true);
     assert.equal(await m.StockAdjustment.countDocuments({}), 0);
     assert.equal(await m.StocktakeLocationLock.countDocuments({ stocktakeId: st._id, status: 'LOCKED' }), 0);
 });
-run('approved delta closure is atomic, verifies evidence/content and retains locks after failure', async () => {
-    const { st, snapshot, count, b } = await stocktakeFixture('0');
-    const planId = newId(), itemId = newId(), approvalId = newId(), now = new Date();
-    const evidence = await m.Attachment.create({ ownerDocumentType: 'stocktakes', ownerDocumentId: st._id, purpose: 'EXECUTION', originalName: 'count.png', mediaType: 'image/png', sizeBytes: 12, storageKey: 'local-test', checksum: 'b'.repeat(64), uploadedBy: worker._id, uploadedAt: now, accessCategory: 'BUSINESS', status: 'ATTACHED' });
-    st.resolutionPlans.push({ _id: planId, documentNo: 'PLAN-' + key(), workflowStatus: 'APPROVED', version: 1, createdBy: worker._id, header: { stocktakeId: st._id, planVersion: 1, scopeVersion: 1, approvalId, reason: 'Four missing' }, selectedCounts: [{ snapshotId: snapshot._id, countId: count._id }], items: [{ _id: itemId, lineNo: 1, lineKind: 'ST_RESOLUTION', productId: product._id, lotId: batch._id, enteredUnit: 'PIECE', baseUnitSnapshot: 'PIECE', baseUnitsPerUnit: '1', enteredQty: '4', qtyBase: '4', productNameSnapshot: 'Tile', details: { countId: count._id, actionKind: 'DELTA', fromBalanceId: b._id, deltaQty: '-4' } }], executionRecords: [{ itemId, performedBy: worker._id, performedAt: now, quantityBase: '4', evidenceIds: [evidence._id] }] });
-    await st.save();
-    await m.ApprovalHistory.create({ _id: approvalId, decisionKey: key(), subjectType: 'stocktake_resolution_plans', subjectId: planId, subjectRevision: 1, decisionScope: 'STOCKTAKE', reviewedContent: approvalContent(st.resolutionPlans.id(planId)), decision: 'APPROVE', reason: 'Verified', requestedBy: worker._id, decidedBy: owner._id, decidedAt: new Date(now.getTime() - 1000), recordedAt: now });
-    const body = { idempotencyKey: key(), expectedVersion: 1, planId: String(planId), expectedPlanVersion: 2, reason: 'Close' };
-    await assert.rejects(closeStocktake(owner, st._id, body));
+run('approved difference posts the counted quantity atomically and releases locks once every line is settled', async () => {
+    const { st, b } = await stocktakeFixture('0');
+    const body = { idempotencyKey: key(), expectedVersion: 2, all: true };
+    await assert.rejects(approveStocktakeDifferences(owner, st._id, body), /Phiên bản|đã thay đổi/i);
     assert.equal(await m.StocktakeLocationLock.countDocuments({ stocktakeId: st._id, status: 'LOCKED' }), 1);
     assert.equal(String((await m.InventoryBalance.findById(b._id)).quantityBase), '4');
-    await closeStocktake(owner, st._id, { ...body, expectedPlanVersion: 1 });
+    await approveStocktakeDifferences(owner, st._id, { ...body, expectedVersion: 1 });
     assert.equal(String((await m.InventoryBalance.findById(b._id)).quantityBase), '0');
     assert.equal(await m.StockAdjustment.countDocuments({}), 1);
     assert.equal(await m.StocktakeLocationLock.countDocuments({ stocktakeId: st._id, status: 'LOCKED' }), 0);
@@ -232,41 +227,6 @@ run('failed-delivery reopening requires a posted receipt and shares its cap acro
     assert.equal((await m.FailedDeliveryReceipt.findById(receipt._id)).commitmentTransfers.length, 2);
 });
 
-run('RECLASS closure rejects a superseded count then changes quality without a net adjustment', async () => {
-    const { stock, loc } = await extraSource('4');
-    const { st, snapshot, count } = await stocktakeFixture('0', stock, loc);
-    const damaged = await m.InventoryBalance.create({ holdingPointId: stock.holdingPointId, batchId: batch._id, qualityStatus: 'DAMAGED', ownerType: 'STORE', quantityBase: '0', version: 1, packagingPortions: [] });
-    const snapshot2 = await m.StocktakeSnapshot.create({ ...snapshot.toObject(), _id: newId(), sourceBalanceId: damaged._id, sourceBalanceVersion: 1, qualityStatus: 'DAMAGED', bookQtyBase: '0' });
-    const count2 = await m.StocktakeCount.create({ ...count.toObject(), _id: newId(), snapshotId: snapshot2._id, countedQtyBase: '4', quantityEntries: [{ enteredQty: '4', enteredUnit: 'PIECE', baseUnitsPerUnit: '1', quantityBase: '4' }] });
-    st.header.selectedCounts.push({ snapshotId: snapshot2._id, countId: count2._id });
-    const planId = newId(), approvalId = newId(), itemId = newId(), now = new Date();
-    const evidence = await m.Attachment.create({ ownerDocumentType: 'stocktakes', ownerDocumentId: st._id, purpose: 'EXECUTION', originalName: 'damage.png', mediaType: 'image/png', sizeBytes: 12, storageKey: 'local-test', checksum: 'b'.repeat(64), uploadedBy: worker._id, uploadedAt: now, accessCategory: 'BUSINESS', status: 'ATTACHED' });
-    st.resolutionPlans.push({ _id: planId, documentNo: 'PLAN-' + key(), workflowStatus: 'APPROVED', version: 1, createdBy: worker._id, header: { stocktakeId: st._id, planVersion: 1, scopeVersion: 1, approvalId, reason: 'Observed damage' }, selectedCounts: [{ snapshotId: snapshot._id, countId: count._id }, { snapshotId: snapshot2._id, countId: count2._id }], items: [{ _id: itemId, lineNo: 1, lineKind: 'ST_RESOLUTION', productId: product._id, lotId: batch._id, enteredUnit: 'PIECE', baseUnitSnapshot: 'PIECE', baseUnitsPerUnit: '1', enteredQty: '4', qtyBase: '4', productNameSnapshot: 'Tile', details: { countId: count._id, actionKind: 'RECLASS', fromBalanceId: stock._id, toBalanceId: damaged._id } }], executionRecords: [{ itemId, performedBy: worker._id, performedAt: now, quantityBase: '4', evidenceIds: [evidence._id] }] });
-    await st.save();
-    await m.ApprovalHistory.create({ _id: approvalId, decisionKey: key(), subjectType: 'stocktake_resolution_plans', subjectId: planId, subjectRevision: 1, decisionScope: 'STOCKTAKE', reviewedContent: approvalContent(st.resolutionPlans.id(planId)), decision: 'APPROVE', reason: 'Verified', requestedBy: worker._id, decidedBy: owner._id, decidedAt: new Date(now.getTime() - 1000), recordedAt: now });
-    const newer = await m.StocktakeCount.create({ ...count.toObject(), _id: newId(), attemptNo: 2, previousCountId: count._id, recountReason: 'Check again' });
-    const body = { idempotencyKey: key(), expectedVersion: 1, planId: String(planId), expectedPlanVersion: 1, reason: 'Close reclassification' };
-    await assert.rejects(closeStocktake(owner, st._id, body), /lần đếm mới/);
-    assert.equal(await m.StocktakeLocationLock.countDocuments({ stocktakeId: st._id, status: 'LOCKED' }), 1);
-    const revised = st.resolutionPlans.id(planId);
-    revised.version = 2;
-    revised.selectedCounts[0].countId = newer._id;
-    revised.items[0].details.countId = newer._id;
-    revised.header.approvalId = newId();
-    st.header.selectedCounts[0].countId = newer._id;
-    const revisedTime = new Date();
-    revised.executionRecords[0].performedAt = revisedTime;
-    await st.save();
-    await m.ApprovalHistory.create({ _id: revised.header.approvalId, decisionKey: key(), subjectType: 'stocktake_resolution_plans', subjectId: planId, subjectRevision: 2, decisionScope: 'STOCKTAKE', reviewedContent: approvalContent(revised), decision: 'APPROVE', reason: 'Recount reviewed', requestedBy: worker._id, decidedBy: owner._id, decidedAt: revisedTime, recordedAt: revisedTime });
-    body.expectedPlanVersion = 2;
-    const adjustmentsBefore = await m.StockAdjustment.countDocuments();
-    await closeStocktake(owner, st._id, body);
-    assert.equal(String((await m.InventoryBalance.findById(stock._id)).quantityBase), '0');
-    assert.equal(String((await m.InventoryBalance.findById(damaged._id)).quantityBase), '4');
-    assert.equal(await m.StockAdjustment.countDocuments(), adjustmentsBefore);
-    assert.equal(await m.StockTransaction.countDocuments({ sourceId: st._id }), 1);
-});
-
 run('HTTP sales, picking, stocktake and report routes enforce native DTOs, authentication and strict commands', async () => {
     const server = app.listen(0, '127.0.0.1');
     await new Promise(resolve => server.once('listening', resolve));
@@ -287,7 +247,7 @@ run('HTTP sales, picking, stocktake and report routes enforce native DTOs, authe
         assert.equal(result.body.data.workflowStatus, 'CONFIRMED');
         assert.equal((await api('/outbound-deliveries', seller, { idempotencyKey: key(), expectedVersion: 1, unknown: true })).status, 400);
         assert.equal((await api('/reports?group=inventory&warehouseId=' + key(), worker)).status, 403);
-        assert.equal((await api('/stocktakes/' + key() + '/close', worker, { idempotencyKey: key(), expectedVersion: 1, reason: 'Invalid role', selectedCounts: [] })).status, 403);
+        assert.equal((await api('/stocktakes/' + key() + '/approve-differences', worker, { idempotencyKey: key(), expectedVersion: 1, all: true })).status, 403);
     } finally { await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
 });
 

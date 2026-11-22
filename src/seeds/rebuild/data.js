@@ -230,5 +230,7 @@ export async function buildReviewedDemo({ consolidate = true } = {}) {
     basePerUnit: mongoose.Types.Decimal128.fromString(row.basePerUnit),
     createdAt: demoDate(1), updatedAt: demoDate(1),
   }));
+  // Recurring stocktake plans have no historical source; the collection starts empty (22 Nov 2026).
+  result.stocktake_plans = [];
   return result;
 }

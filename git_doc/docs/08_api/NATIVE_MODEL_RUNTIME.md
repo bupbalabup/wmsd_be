@@ -36,6 +36,8 @@ Cả hai API cần `product:update` và trả sản phẩm đã lưu cùng `upda
 
 ## Mua và nhập
 
+20 November 2026 — creating an inspection performs a guaranteed timestamp write on the same PO, conditional on its current version and OPEN/PARTIAL state. It leaves the public version unchanged and contends with cancellation; transaction retry rechecks state and linked receiving documents. An inspection cannot commit alongside cancellation of its source PO.
+
 RR lưu header/items/submissions; duyệt tạo ApprovalHistory độc lập người lập, kiểm đầy đủ từng dòng và lượng nguyên nếu sản phẩm yêu cầu. Một RR tối đa một PO, thuộc một NCC/kho. PO lưu nguồn, snapshot giá, trạng thái, phiên bản và ngày nhận dự kiến chung `header.expectedOn`. Lập, sửa nháp và phát hành PO kiểm nguồn RR đã duyệt, quyết định mới nhất, trần lượng từng dòng và trạng thái danh mục. Cảnh báo RR được xem riêng qua `POST /api/replenishments/evaluate`. Từ 16/11/2026: `currency` chỉ nhận `VND`; `expectedOn` khi lập PO, đổi ngày dự kiến hoặc đổi sang ngày khác lúc sửa nháp không được trước hôm nay theo giờ Việt Nam (giữ nguyên ngày đã lưu thì vẫn sửa được); `lineAmount` làm tròn 6 số lẻ; phát hành kiểm cả kho còn hoạt động; chốt thiếu kiểm số nguyên với sản phẩm đếm nguyên đơn vị gốc. Mọi ObjectId trong payload được chuẩn hóa chữ thường trước khi kiểm trùng.
 
 Kế toán chốt với NCC trước khi lập PO (nguồn quyết định: user, 2026-11-11).
@@ -81,7 +83,7 @@ Khi ghi nhập mua hoặc tạm giữ, `packaging` gồm các phần tử `{line
 
 Khi bỏ qua `packaging`, nhập mua và tạm giữ dùng tình trạng bao bì của dòng kiểm nhận nguồn. `OPENED`, `TORN` và `UNKNOWN` tạo một phần `OPEN` cho toàn bộ dòng. `LOOSE` (hàng lẻ, viên rời) tạo một phần `LOOSE`. `SEALED` tạo phần nguyên thùng. Các luồng không truyền tình trạng bao bì tách thùng nguyên và ghi số lượng dư thành một phần `LOOSE`.
 
-BE điền `measuredVolumeMm3` khi phần `OPEN` hoặc `LOOSE` chưa có giá trị. Với `OPEN`, lấy `ceil(quantityBase / piecesPerCarton)` nhân thể tích ngoài thùng của lô. Với `LOOSE`, lấy `quantityBase` nhân thể tích một đơn vị gốc từ `Product.lengthMm × widthMm × heightMm`. BE tính bằng Decimal và làm tròn đến 3 chữ số thập phân. Giá trị client gửi được dùng trực tiếp. Nếu thiếu kích thước dương cần cho công thức, lệnh trả 400 `Thiếu kích thước lô/sản phẩm, cần nhập thể tích thực đo`.
+BE điền `measuredVolumeMm3` khi phần `OPEN` hoặc `LOOSE` chưa có giá trị hay giới hạn thể tích đã biết. Với `OPEN`, lấy `ceil(quantityBase / piecesPerCarton)` nhân thể tích ngoài thùng của lô. Với `LOOSE`, lấy `quantityBase` nhân thể tích một đơn vị gốc từ `Product.lengthMm × widthMm × heightMm`. BE tính bằng Decimal và làm tròn đến 3 chữ số thập phân. Giá trị client gửi được dùng trực tiếp. Nếu thiếu kích thước dương cần cho công thức, lệnh trả 400 `Thiếu kích thước lô/sản phẩm, cần nhập thể tích thực đo`. For [DIRECT customer returns](RETURN_WORKFLOWS_NATIVE.md#reassessment-claim-and-packaging-correction--20-november-2026), an inspected measurement travels with the whole portion; a partial receipt can use `volumeUpperBoundMm3` for capacity.
 
 GET receipt/custody bổ sung inspectionResult trên từng item để hiển thị chất lượng và tình trạng bao bì từ kiểm nhận; đây là dữ liệu đọc, không thêm field lưu trên item. GET inspection bổ sung arrival, receipts, custodyReceipts. FE chuyển các DTO này thành dòng bảng hiển thị, không ghi trở lại dạng cũ.
 

@@ -17,9 +17,9 @@ const document = (header = {}, workflowStatus = 'COUNTING') => ({
   _id: ST, documentNo: ST, workflowStatus,
   header: { warehouseId: id(warehouseId), scopeVersion: 2, scopeLocationIds: [id(loc2), id(loc1), id(loc3)], cutoffAt: new Date('2026-11-14T00:00:00Z'), activatedAt: new Date('2026-11-14T00:00:00Z'), assignedCounterIds: [id(counterId)], ...header },
 });
-const snapshot = (n, overrides = {}) => ({ _id: id(String(n).repeat(24)), locationId: id(loc1), batchId: id(batch1), ownerType: 'STORE', qualityStatus: 'GOOD', baseUnitSnapshot: 'PIECE', ...overrides });
+const snapshot = (n, overrides = {}) => ({ _id: id(String(n).repeat(24)), locationId: id(loc1), batchId: id(batch1), ownerType: 'STORE', qualityStatus: 'GOOD', baseUnitSnapshot: 'PIECE', bookQtyBase: '12', ...overrides });
 
-function setup({ record = document(), snapshots = [snapshot(6), snapshot(7, { batchId: id(batch2), ownerType: 'SUPPLIER', ownerId: id(supplierId), qualityStatus: 'DAMAGED', baseUnitSnapshot: 'BOX' }), snapshot(8, { locationId: id(loc2) })] } = {}) {
+function setup({ record = document(), snapshots = [snapshot(6), snapshot(7, { batchId: id(batch2), ownerType: 'SUPPLIER', ownerId: id(supplierId), qualityStatus: 'DAMAGED', baseUnitSnapshot: 'BOX', bookQtyBase: '3' }), snapshot(8, { locationId: id(loc2) })] } = {}) {
   const calls = {};
   mock.method(models.Stocktake, 'findById', value => { calls.id = value; return { select: () => ({ lean: async () => record }) }; });
   mock.method(models.StocktakeSnapshot, 'find', filter => { calls.snapshots = filter; return { select: fields => { calls.snapshotFields = fields; return { lean: async () => snapshots }; } }; });
@@ -29,6 +29,7 @@ function setup({ record = document(), snapshots = [snapshot(6), snapshot(7, { ba
   mock.method(models.WarehouseLocation, 'find', () => rows([{ _id: id(loc1), code: 'A-01', name: 'Aisle 1' }, { _id: id(loc2), code: 'A-02', name: 'Aisle 2' }, { _id: id(loc3), code: 'A-03', name: 'Aisle 3' }]));
   mock.method(models.User, 'find', () => rows([{ _id: id(counterId), username: 'staff', fullName: 'Staff One' }]));
   mock.method(models.Supplier, 'find', () => rows([{ _id: id(supplierId), code: 'SUP-1', name: 'Supplier One' }]));
+  mock.method(models.Uom, 'find', () => rows([{ code: 'PIECE', name: 'Viên' }, { code: 'BOX', name: 'Thùng' }]));
   mock.method(models.Customer, 'find', () => assert.fail('No customer-owned snapshot exists'));
   // Reads must never write or read counts, locks or current balances.
   for (const model of [models.Stocktake, models.StocktakeSnapshot, models.StocktakeCount, models.StocktakeLocationLock, models.InventoryBalance])
@@ -40,24 +41,24 @@ function setup({ record = document(), snapshots = [snapshot(6), snapshot(7, { ba
 }
 afterEach(() => mock.restoreAll());
 
-test('sheet groups frozen snapshot rows by location, keeps empty locations and carries no book quantity', async () => {
+test('sheet groups frozen snapshot rows by location, keeps empty locations and carries the book quantity with its unit (blind count removed 22 Nov 2026)', async () => {
   const calls = setup();
   const sheet = await getCountSheet(user(), ST);
   assert.deepEqual(calls.snapshots, { stocktakeId: ST, scopeVersion: 2, origin: 'BOOK' });
-  assert.equal(calls.snapshotFields.includes('bookQtyBase'), false);
+  assert.equal(calls.snapshotFields.includes('bookQtyBase'), true);
   assert.deepEqual(sheet.stocktake, { id: ST, documentNo: ST, workflowStatus: 'COUNTING', scopeVersion: 2, cutoffAt: '2026-11-14T00:00:00.000Z', activatedAt: '2026-11-14T00:00:00.000Z' });
   assert.deepEqual(sheet.warehouse, { id: warehouseId, code: 'WH-T', name: 'Test warehouse' });
   assert.deepEqual(sheet.counters, [{ id: counterId, username: 'staff', fullName: 'Staff One' }]);
   assert.deepEqual(sheet.locations.map(row => [row.code, row.rows.length, row.emptyConfirmation]), [['A-01', 2, false], ['A-02', 1, false], ['A-03', 0, true]]);
   assert.deepEqual(sheet.locations[0].rows[1], {
     snapshotId: '7'.repeat(24), productId: product2, sku: 'SKU-B', productName: 'Tile B', batchId: batch2, manufacturerLot: 'LOT-2', qualityStatus: 'DAMAGED',
-    ownerType: 'SUPPLIER', ownerId: supplierId, owner: { code: 'SUP-1', name: 'Supplier One' }, baseUnit: 'BOX',
+    ownerType: 'SUPPLIER', ownerId: supplierId, owner: { code: 'SUP-1', name: 'Supplier One' }, baseUnit: 'BOX', uomCode: 'BOX', uomName: 'Thùng', bookQtyBase: '3',
   });
   assert.equal(sheet.locations[0].rows[0].owner, null);
   assert.equal(sheet.locations[0].rows[0].ownerId, null);
   assert.equal(sheet.locations[2].locationId, loc3);
-  const text = JSON.stringify(sheet);
-  assert.equal(/bookQty|book_qty|variance|difference/i.test(text), false);
+  assert.equal(sheet.locations[0].rows[0].bookQtyBase, '12');
+  assert.equal(sheet.locations[0].rows[0].uomName, 'Viên');
 });
 
 test('an activated session whose scope was empty at cutoff lists only empty-location rows', async () => {

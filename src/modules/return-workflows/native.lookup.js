@@ -2,8 +2,7 @@ import { databaseId } from '../../models/document-identity.js';
 import mongoose from 'mongoose';
 import * as s from './native.shared.js';
 import { currentRole } from '../../shared/utils/userRole.js';
-import { blindCountScope } from '../../shared/utils/blind-count.js';
-import { freeQuantity } from '../../shared/utils/stock.js';
+import { freeQuantity, stocktakeLockedLocations } from '../../shared/utils/stock.js';
 import { parent } from './native.read.js';
 
 const { m, exact, same, serialize, requirePermission, requireWarehouseAccess, hasPermission } = s;
@@ -132,8 +131,7 @@ export async function lookup(user, query) {
     Model = m.Stocktake;
     let locationId;
     if(query.balanceId){const context=await s.sourceContext(query.balanceId);if(!context.location)throw s.validationError('Tồn nguồn không nằm trong kho');requireWarehouseAccess(user,context.location.warehouseId);locationId=context.location._id;}
-    // A non-Owner cannot record a defect against a session that is still blind counting, so it is not offered.
-    const closed = ['CLOSED', 'POSTED', ...(currentRole(user)?.code === 'OWNER' ? [] : ['COUNTING'])];
+    const closed = ['CLOSED', 'POSTED'];
     stages = [{ $match: { ...scope(user, query), workflowStatus: { $nin: closed } } },join(m.StocktakeLocationLock,'_id','locks','stocktakeId'),{$match:{locks:{$elemMatch:{status:'LOCKED',...(locationId&&{locationId})}}}}, { $project: { documentNo: 1, warehouseId: '$header.warehouseId', workflowStatus: 1 } }];
   } else if (query.kind === 'holds') {
     Model = m.DefectReport;
@@ -148,13 +146,11 @@ export async function lookup(user, query) {
   }
   const result = await page(Model, stages, query, query.kind === 'balances' ? ['code', 'name', 'productCode', 'locationCode'] : ['code', 'name', 'documentNo']);
   if (query.kind === 'balances') {
-    // Blind-counted balances stay selectable (a defect found while counting must reference them) but their
-    // quantities are the hidden book, so they are returned as null; the command still checks the real quantity.
-    const blind = await blindCountScope(user);
+    const frozen = await stocktakeLockedLocations(result.items.map(row => row.locationId));
     for (const row of result.items) {
-      if (blind.has(row._id)) { Object.assign(row, { qtyBase: null, availableQty: null, blindCount: true }); continue; }
+      row.lockedByStocktake = frozen.has(String(row.locationId));
       const balance = await m.InventoryBalance.findById(row._id), free = await freeQuantity(balance);
-      row.availableQty = free.gt(0) ? free.toFixed() : '0';
+      row.availableQty = !row.lockedByStocktake && free.gt(0) ? free.toFixed() : '0';
     }
   }
   return serialize(result);

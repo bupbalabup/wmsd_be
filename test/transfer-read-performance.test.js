@@ -1,6 +1,6 @@
 import test,{afterEach,mock} from 'node:test';
 import assert from 'node:assert/strict';
-import { StockReservation,TransferOrder,StockTransaction,DefectReport,Warehouse,WarehouseLocation,StockHoldingPoint,InventoryBalance,WarehouseTransferRequest,TransferDispatch,TransferReceipt,InternalTransferRequirement,ApprovalHistory,StockDiscrepancy } from '../src/models/runtime.js';
+import { StockReservation,TransferOrder,StockTransaction,DefectReport,Warehouse,WarehouseLocation,StockHoldingPoint,InventoryBalance,StocktakeLocationLock,WarehouseTransferRequest,TransferDispatch,TransferReceipt,InternalTransferRequirement,ApprovalHistory,StockDiscrepancy } from '../src/models/runtime.js';
 import { freeQuantities } from '../src/shared/utils/stock-availability-read.js';
 import { freeQuantity } from '../src/shared/utils/stock.js';
 import { transferOptions,getTransfer,getDispatch } from '../src/modules/transfers/transfer-read.service.js';
@@ -42,6 +42,7 @@ test('destination location options do not load balances, products or design payl
   let projection;
   mock.method(Warehouse,'find',()=>({select(fields){projection=fields;return chain([{_id:wh,code:'W1',name:'Warehouse'}]);}}));
   mock.method(WarehouseLocation,'find',q=>{assert.equal(q.warehouseId,wh);return chain([{_id:'loc',warehouseId:wh,code:'A1'}]);});
+  mock.method(StocktakeLocationLock,'find',()=>chain([])); // the destination list flags locations locked by a stocktake
   for(const model of [StockHoldingPoint,InventoryBalance])mock.method(model,'find',()=>assert.fail('locations-only must not load stock'));
   const result=await transferOptions(user,wh,'locations');assert.equal(result.locations.length,1);assert.deepEqual(result.balances,[]);
   assert.equal(projection,'_id code name isActive');

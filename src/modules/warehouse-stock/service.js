@@ -8,7 +8,6 @@ import { dto, serialize, page, transaction } from '../../shared/utils/persistenc
 import { command, checkVersion, same, saveVersion } from '../../shared/utils/document-command.js';
 import { remainingReservation, verifyCapacity, guardWarehouses } from '../../shared/utils/stock.js';
 import { stockQuantities } from '../../shared/utils/stock-availability-read.js';
-import { blindCountScope, blindLockedLocationIds } from '../../shared/utils/blind-count.js';
 import { notFoundError, validationError } from '../../shared/utils/ApiError.js';
 const escape = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export const warehouseScope = user => isOwner(user) ? {} : { _id: { $in: user.warehouseIds || [] } };
@@ -99,17 +98,15 @@ export async function locationDetail(user,id) {
     const batches = await m.ProductBatch.find({_id:{$in:balances.map(b=>b.batchId)}}).session(session).lean();
     const products = await m.Product.find({_id:{$in:batches.map(b=>b.productId)}}).session(session).lean();
     const volume = await verifyLocationVolume(row,warehouse,balances);
-    const blindLocations = await blindLockedLocationIds(user, locks, session);
-    const blind = blindLocations.has(String(row._id));
-    return {...dto(row),warehouse:warehouse?dto(warehouse):null,locked:locks.length>0,openTaskCount:tasks,capacity:volume&&blind?{...volume,occupiedMm3:null}:volume,blindCount:blind,
-      stock:balances.filter(b=>blind||exact(b.quantityBase).gt(0)).map(b=>{const batch=batches.find(l=>same(l._id,b.batchId)),product=products.find(p=>same(p._id,batch?.productId));return {id:String(b._id),batch:batch?.manufacturerLot??null,product:product?.name??null,sku:product?.sku??null,unit:product?.baseUnit??null,quality:b.qualityStatus,ownerType:b.ownerType,quantityBase:blind?null:String(b.quantityBase)};})};
+    return {...dto(row),warehouse:warehouse?dto(warehouse):null,locked:locks.length>0,openTaskCount:tasks,capacity:volume,
+      stock:balances.filter(b=>exact(b.quantityBase).gt(0)).map(b=>{const batch=batches.find(l=>same(l._id,b.batchId)),product=products.find(p=>same(p._id,batch?.productId));return {id:String(b._id),batch:batch?.manufacturerLot??null,product:product?.name??null,sku:product?.sku??null,unit:product?.baseUnit??null,quality:b.qualityStatus,ownerType:b.ownerType,quantityBase:String(b.quantityBase)};})};
   });
 }
 async function verifyLocationVolume(location,warehouse,balances) {
   if(!location.usableLengthMm||!location.usableWidthMm||!warehouse?.clearHeightMm)return null;
   const capacity=exact(location.usableLengthMm).mul(String(location.usableWidthMm)).mul(String(warehouse.clearHeightMm));
   let used=exact('0');
-  for(const b of balances)for(const p of b.packagingPortions??[]){if(p.measuredVolumeMm3!=null)used=used.plus(String(p.measuredVolumeMm3));else if(p.packagingState==='SEALED'&&p.packagingSnapshot?.outerLengthMm)used=used.plus(exact(p.packagingSnapshot.outerLengthMm).mul(String(p.packagingSnapshot.outerWidthMm)).mul(String(p.packagingSnapshot.outerHeightMm)).mul(p.sealedPackCount));else if(exact(p.quantityBase).gt(0))return {capacityMm3:capacity.toFixed(),occupiedMm3:null};used=used.plus(String(p.extraOccupiedVolumeMm3??'0'));}
+  for(const b of balances)for(const p of b.packagingPortions??[]){const volume=p.measuredVolumeMm3??p.volumeUpperBoundMm3;if(volume!=null)used=used.plus(String(volume));else if(p.packagingState==='SEALED'&&p.packagingSnapshot?.outerLengthMm)used=used.plus(exact(p.packagingSnapshot.outerLengthMm).mul(String(p.packagingSnapshot.outerWidthMm)).mul(String(p.packagingSnapshot.outerHeightMm)).mul(p.sealedPackCount));else if(exact(p.quantityBase).gt(0))return {capacityMm3:capacity.toFixed(),occupiedMm3:null};used=used.plus(String(p.extraOccupiedVolumeMm3??'0'));}
   return {capacityMm3:capacity.toFixed(),occupiedMm3:used.toFixed()};
 }
 async function bindLocationSlots(actor, location, binding, session) {
@@ -190,7 +187,6 @@ async function inventoryRows(user, rows, view, session) {
   const sales=currentRole(user)?.code==='SALES',summary=view==='summary';
   const locationIds=[...new Set(rows.flatMap(row=>row.location?[String(row.location._id)]:[]))];
   const locks=locationIds.length?await m.StocktakeLocationLock.find({locationId:{$in:locationIds},status:'LOCKED'}).select('locationId stocktakeId').session(session).lean():[];
-  const blindLocations=await blindLockedLocationIds(user,locks,session);
   const frozenLocations=new Set(locks.map(row=>String(row.locationId)));
   const eligible=row=>row.warehouse?.isActive&&row.point?.type!=='IN_TRANSIT'&&!frozenLocations.has(String(row.location?._id))
     &&row.ownerType==='STORE'&&row.qualityStatus==='GOOD'&&row.batch.identificationStatus==='VERIFIED'&&row.product.isActive&&row.location?.isActive;
@@ -199,14 +195,8 @@ async function inventoryRows(user, rows, view, session) {
     const {point,location,warehouse,batch,product}=row,transit=point?.type==='IN_TRANSIT';
     const amounts=quantities.get(String(row._id));
     const available=eligible(row)&&location.isPickable?ExactDecimal.max(0,amounts.free).toFixed():'0';
-    const hiddenByCount=blindLocations.has(String(location?._id));
     const base={id:String(row._id),warehouse:warehouse?.name??null,location:location?.code??(transit?'Đang chuyển':null),
-      product:product.name,sku:product.sku,batch:batch.manufacturerLot,unit:product.baseUnit,availableQtyBase:hiddenByCount?null:available};
-    if(hiddenByCount){
-      const hidden={...base,availableQtyBase:null,blindCount:true};
-      if(sales)return hidden;
-      return {...hidden,quality:row.qualityStatus,ownerType:row.ownerType,physicalQtyBase:null,usableQtyBase:null,transitQtyBase:'0',custodyQtyBase:null,reservedQtyBase:null,heldQtyBase:null,pendingQtyBase:null,frozen:true,version:row.version};
-    }
+      product:product.name,sku:product.sku,batch:batch.manufacturerLot,unit:product.baseUnit,availableQtyBase:available};
     if(!summary)Object.assign(base,{warehouseId:warehouse?String(warehouse._id):null,locationId:location?String(location._id):null,
       productId:String(product._id),batchId:String(batch._id)});
     if(sales)return base;
@@ -279,7 +269,7 @@ export async function movements(user,query,id) {
   if(query.q){const regex=new RegExp(escape(query.q),'i');const products=await m.Product.find({$or:[{name:regex},{sku:regex}]}).select('_id').lean();const batches=await m.ProductBatch.find({$or:[{manufacturerLot:regex},{productId:{$in:products.map(p=>p._id)}}]}).select('_id').lean();const locationIds=ctx.locations.filter(l=>regex.test(l.code)||regex.test(l.name??'')).map(l=>l._id);const points=ctx.points.filter(p=>locationIds.some(l=>same(l,p.locationId))).map(p=>p._id);const matching=await m.InventoryBalance.find({_id:{$in:balanceIds},$or:[{batchId:{$in:batches.map(b=>b._id)}},{holdingPointId:{$in:points}}]}).select('_id').lean();const ids=matching.map(b=>b._id);pipeline.push({$match:{$or:[{operation:regex},{'movements.fromBalanceId':{$in:ids}},{'movements.toBalanceId':{$in:ids}}]}});}
   if(id)pipeline.push({$match:{'movements._id':databaseId(id)}});
   pipeline.push({$sort:{occurredAt:-1,'movements._id':-1}},{$facet:{items:[{$skip:id?0:(query.page-1)*query.limit},{$limit:id?1:query.limit}],total:[{$count:'value'}]}});
-  const [result]=await m.StockTransaction.aggregate(pipeline);const items=[];const blind=await blindCountScope(user);
+  const [result]=await m.StockTransaction.aggregate(pipeline);const items=[];
   const endpoint=async balanceId=>{
     if(!balanceId||!balanceIds.some(b=>same(b,balanceId)))return null;
     const b=await m.InventoryBalance.findById(balanceId).lean(),point=ctx.points.find(p=>same(p._id,b?.holdingPointId)),location=ctx.locations.find(l=>same(l._id,point?.locationId));
@@ -291,8 +281,7 @@ export async function movements(user,query,id) {
     let source=null;const Model=m.models.get(t.sourceType);
     const permissions={transfer_orders:'stock_relocation:read',transfer_dispatches:'stock_transfer:read',transfer_receipts:'stock_transfer:read',warehouse_transfer_requests:'stock_transfer:read',goods_receipts:'goods_receipt:read',sales_goods_issues:'goods_issue:read'};
     if(Model&&permissions[t.sourceType]){const doc=await Model.findById(t.sourceId).select('documentNo header note documentKind').lean();const permission=t.sourceType==='transfer_orders'&&doc?.header?.taskKind!=='RELOCATE'?'stock_transfer:read':t.sourceType==='goods_receipts'&&doc?.documentKind==='TRANSFER'?'stock_transfer:read':permissions[t.sourceType];if(doc&&hasPermission(user,permission))source={documentNo:doc.documentNo,type:t.sourceType,reason:doc.header?.reason??doc.note??null};}
-    const hideFrom=blind.has(move.fromBalanceId),hideTo=blind.has(move.toBalanceId),hidden=Boolean(hideFrom||hideTo);
-    items.push({id:String(move._id),transactionId:String(t._id),operation:t.operation,occurredAt:t.occurredAt,recordedAt:t.recordedAt,performedBy:performer?.fullName??performer?.username??null,source,quantityBase:hidden?null:String(move.quantityBase),blindCount:hidden,from:from?{...from,before:hidden?null:String(move.fromBefore),after:hidden?null:String(move.fromAfter)}:null,to:to?{...to,before:hidden?null:String(move.toBefore),after:hidden?null:String(move.toAfter)}:null});
+    items.push({id:String(move._id),transactionId:String(t._id),operation:t.operation,occurredAt:t.occurredAt,recordedAt:t.recordedAt,performedBy:performer?.fullName??performer?.username??null,source,quantityBase:String(move.quantityBase),from:from?{...from,before:String(move.fromBefore),after:String(move.fromAfter)}:null,to:to?{...to,before:String(move.toBefore),after:String(move.toAfter)}:null});
   }
   const rows=items;
   if(id){if(!rows[0])throw notFoundError();return serialize(rows[0]);}

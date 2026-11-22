@@ -4,6 +4,115 @@ Nguồn yêu cầu: luồng "Inventory Audit Process — To-Be" do người dùn
 
 Mọi endpoint nằm dưới `/api/stocktakes`, dùng `Authorization: Bearer`, body strict (khóa lạ bị từ chối 400) và nhận `idempotencyKey` (+ `expectedVersion` khi sửa chứng từ có sẵn). Mã đợt là định danh chứng từ `KK-<kho>-YYMMDD-<số>` (dấu nối liền từ 12/11/2026; API vẫn nhận mã cũ có dấu cách); phương án là `PAXLKK-…` (xem [DOCUMENT_IDENTITIES.md](DOCUMENT_IDENTITIES.md)). Phản hồi lệnh: `{ id, version, workflowStatus, operationId, decisionId?, resultRefs, replayed }`; `resultRefs[]` chỉ gồm `documentType`, `documentId`, `itemId?`, `revision?` (đếm → `stocktakes` + `itemId` = mã lần đếm + `revision` = lần thứ; phương án → `stocktake_resolution_plans` + `revision` = phiên bản). **Đối chiếu không trả danh sách chênh lệch trong phản hồi**: bên đọc tính từ `GET /stocktakes/:id` (`snapshots`, `counts`, `header.selectedCounts`; chênh lệch = `countedQtyBase − bookQtyBase`).
 
+> **Redesigned on 22 Nov 2026 — read the section below first.** The design of 13–18 Nov 2026 described in the older sections (blind count, resolution plans with review and execution records, `POST /:id/close` with a mandatory `reason`, `POST /:id/reopen-counting`) is **superseded history**; those sections are kept as dated evidence and are marked where they conflict. Current plan entity: [STOCKTAKE_PLANS.md](STOCKTAKE_PLANS.md).
+
+## Redesign — 22 November 2026 (current contract)
+
+Decision source: **User decision 22 Nov 2026 following lecturer feedback (separate plan/slip, remove blind count, simplified reconciliation, drop closing reason).** It supersedes the BF-04 blind-count rule and the 18 Nov 2026 blind-count decision ([HIEUDT_WAREHOUSE_SCOPE.md](HIEUDT_WAREHOUSE_SCOPE.md)); the old text stays as dated history.
+
+### What changed
+
+1. **Plan vs slip.** A recurring plan is its own entity (`stocktake_plans`, see [STOCKTAKE_PLANS.md](STOCKTAKE_PLANS.md)). The counted document is the *slip* (`stocktakes`, `KK-…`), either ad-hoc (`POST /`) or generated from a plan (`POST /api/stocktake-plans/:id/generate`, stamps `header.planId`, `header.planPeriodNo`, `header.planPeriodDueAt`). `PLANNED` remains the slip's pre-activation state. `GET /` accepts `planId` (document identity) to list the slips of a plan.
+2. **No blind count.** Every authorized reader receives the frozen book quantity (`bookQtyBase`) as soon as the slip is `COUNTING`: `GET /:id` snapshots, the count sheet, the stock/movement/lot/report readers. `blind-count.js`, `redactMovement`, `blindCountScope`, `blindLockedLocationIds` and every `blindCount` response flag are gone. Frozen-snapshot immutability, bin locking, separation of duties, warehouse scope and "OWNER or assigned counter" access are unchanged. Option lists that offer stock for issue/transfer/relocation no longer drop balances of counting locations for non-Owners (Owners never had them dropped); writers still refuse a locked bin (`Vị trí đang khóa kiểm kê`). **Amended 22 Nov 2026 (same day, follow-up):** the lock is a lock concept, not a blind concept, so every option/lookup that offers stock now treats stock in a location with an active `StocktakeLocationLock` (`LOCKED`) as having zero selectable quantity for **every role** — see [Option lists and stocktake locks](HIEUDT_WAREHOUSE_SCOPE.md#option-lists-and-stocktake-locks-22-nov-2026).
+3. **Simplified reconciliation.** The resolution-plan round trip (submit plan → review → execution evidence → close) is removed. After the counter reconciles (`RECONCILING`) the Owner has two actions: **recount** selected lines, or **approve differences** ("Clear Difference", UC-93).
+4. **No closing reason.** Approve takes no mandatory `reason`; unknown keys are rejected by the strict body. An optional per-line discrepancy label (`reasonCode` ∈ `DAMAGED|LOST|MISPLACED|FOUND|RECORD_ERROR|OTHER`, `reasonNote`) is accepted and never required (`OTHER` needs a note).
+5. **Units everywhere.** Snapshot, count, reconciliation line and lookup payloads carry `uomCode` and `uomName` of the product base unit (`Product.baseUnit` is a `Uom.code`; `uomName` is the Uom name, e.g. `PIECE` / `Viên`). Entered units stay in `quantityEntries[].enteredUnit`. Stocktake payloads carry no price or value, so no currency field exists.
+
+### State machine
+
+`PLANNED → COUNTING → RECONCILING → COMPLETED`, with `RECONCILING → COUNTING` (recount) and `PLANNED|COUNTING|RECONCILING → CANCELLED`. `RECONCILING` stays while some lines are unsettled. The retired states `PENDING_APPROVAL`, `APPROVED`, `IN_PROGRESS` only exist on slips created before 22 Nov 2026 (see Compatibility).
+
+### Endpoints that changed or are new (base `/api/stocktakes`)
+
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `GET /` | `stocktake:read` | New optional query `planId`. No redaction of any field. |
+| `GET /:id` | `stocktake:read` | Same document as before, **no field is redacted while `COUNTING`**, plus `lines[]` (reconciliation view), `uomCode/uomName` on `snapshots[]` and `counts[]`, `lookups.units`, `uomCode/uomName` on `lookups.products[]`. `header` additionally exposes `planId?`, `planPeriodNo?`, `planPeriodDueAt?`, `settledLines[]`, `recountLines[]`. |
+| `GET /:id/count-sheet` | `stocktake:export` | Each row now also has `uomCode`, `uomName` and `bookQtyBase` (`baseUnit` kept). Still read-only and no counts, locks or balances are read. |
+| `POST /:id/recount` | `stocktake:create` (Owner) | **New.** Replaces `reopen-counting`. |
+| `POST /:id/approve-differences` | `stock_adjustment:post` (Owner) | **New.** Replaces `close`, `resolution-plans`, `…/review`, `…/executions`. |
+| `POST /:id/cancel` | `stocktake:create` | As before, plus: refused once any line has been settled (stock was already posted). |
+| `POST /:id/counts`, `reconcile` | `stocktake:update` / `stocktake:reconcile` | Behaviour extended for recount, below. |
+
+**Removed (404):** `POST /:id/close`, `POST /:id/reopen-counting`, `POST /:id/resolution-plans`, `POST /:id/resolution-plans/:planId/review`, `POST /:id/resolution-plans/:planId/executions`. **Kept read-only for history:** `GET /resolution-plans`, `GET /resolution-plans/:planId` (permission `stock_adjustment:read`), `GET /:id/evidence/:evidenceId` (also for plan evidence). Evidence upload `POST /:id/evidence` is accepted only while `COUNTING` (`stocktake:update`).
+
+### `lines[]` — reconciliation view in `GET /:id`
+
+One entry per snapshot line, built from the frozen snapshot, every count attempt and the header:
+
+```json
+{
+  "snapshotId": "…", "origin": "BOOK", "locationId": "…", "batchId": "…", "productId": "…",
+  "sku": "RD", "productName": "Tile RD", "manufacturerLot": "B1",
+  "qualityStatus": "GOOD", "ownerType": "STORE", "ownerId": null,
+  "uomCode": "PIECE", "uomName": "Viên",
+  "bookQtyBase": "12", "countedQtyBase": "9", "differenceBase": "-3",
+  "latestCountId": "…", "attemptCount": 2,
+  "status": "DIFFERENCE",
+  "attempts": [ { "countId": "…", "attemptNo": 1, "countedQtyBase": "10", "uomCode": "PIECE", "uomName": "Viên", "quantityEntries": [ … ], "countedBy": "…", "countedAt": "…", "recountReason": null },
+                { "countId": "…", "attemptNo": 2, "countedQtyBase": "9", "recountReason": "Recount after Owner request", "…": "…" } ],
+  "settlement": null,
+  "recount": null
+}
+```
+
+`status`: `NOT_COUNTED` (no attempt yet), `MATCHED` (newest count equals book, not yet closed), `DIFFERENCE` (newest count differs), `RECOUNT_REQUESTED` (Owner sent it back; `recount = { afterAttemptNo, requestedBy, requestedAt, note }`), `SETTLED` (`settlement = { outcome: "POSTED"|"MATCHED", deltaQtyBase, uomCode, uomName, reasonCode?, reasonNote?, adjustmentId?, settledBy, settledAt }`). All quantities are exact decimal strings in the product base unit. `differenceBase = countedQtyBase − bookQtyBase`.
+
+### `POST /:id/recount`
+
+Body (strict): `{ "idempotencyKey": "…", "expectedVersion": 7, "snapshotIds": ["<snapshotId>", …], "note": "optional, ≤ 1000" }`.
+
+Rules: state `RECONCILING` (and, for sessions created before 22 Nov 2026, `PENDING_APPROVAL`, `APPROVED`, `IN_PROGRESS` — open resolution plans are marked `CANCELLED` as history); every id must be a snapshot of the current `scopeVersion`; settled lines cannot be recounted. Effect: `header.recountLines[]` records `{ snapshotId, afterAttemptNo, requestedBy, requestedAt, note }`, `selectedCounts` and `lastReconciledAt/By` are cleared, the slip goes back to `COUNTING`. Bin locks, snapshots and **all earlier attempts are kept** (counts are append-only). While recounting, `POST /:id/counts` accepts new attempts only for the requested lines (and for newly found stock), still needing `previousCountId` + `recountReason`; lines already settled are refused. `POST /:id/reconcile` refuses until every requested line has an attempt newer than `afterAttemptNo`, then clears `recountLines` and returns to `RECONCILING`. No stock changes. Response is the usual receipt (`workflowStatus: "COUNTING"`).
+
+### `POST /:id/approve-differences`
+
+Body (strict):
+
+```json
+{
+  "idempotencyKey": "6b0…",
+  "expectedVersion": 9,
+  "all": false,
+  "lines": [ { "snapshotId": "…", "reasonCode": "LOST", "reasonNote": "Broken pallet" } ],
+  "packaging": [ { "lineId": "<snapshotId>", "portions": [ … ] } ]
+}
+```
+
+`all: true` selects every unsettled line (`lines`, when also given, only labels them); otherwise `lines` is the checkbox selection. One of the two is required. `packaging` is optional and only used for a surplus (counted > book) to describe the received portions, exactly as the old close did; without it the batch carton data is used.
+
+Preconditions (all re-checked inside the transaction): state `RECONCILING` and fully reconciled; `expectedVersion` current; every scoped location still `LOCKED`; the newest attempt of each selected line is the reconciled one; the frozen balance still equals the snapshot (quantity, owner, quality, version) and has no active defect hold; reservations stay below the new quantity. **Separation of duties:** the approver may not be the counter of any selected line (`Người đếm không được tự duyệt chênh lệch của chính mình`). Creator of the slip is *not* restricted (same as before; see risks).
+
+Effect, in ONE transaction: for each selected line with a difference the balance moves from the book to the counted quantity through the same stock primitives the old close used (`receiveStock` for a surplus, `splitPortions` with carton opening for a shortage); one `StockTransaction` (operation `STOCKTAKE_CLOSE`) with one movement per posted line (ledger + `InventoryBalance` + packaging portions), and one `StockAdjustment` (`ĐCKK-…`, `POSTED`) with one `ADJUSTMENT` item per posted line (`quantityDeltaBase`, `beforeQty`, `afterQty`, `reason`, `snapshotIds`, `countIds`, no approval id) as the history record. Quality, owner, lot and location are those of the snapshot's balance. `DISCOVERED` (found-not-in-book, book 0) lines post their counted quantity as a surplus; `EMPTY_LOCATION` confirmations have no line and post nothing. Lines with a zero difference are closed as `MATCHED` without posting (and when no *unselected* line still differs, the remaining matching lines are closed together with the last approval, so the Owner never has to tick them). Each settled line is recorded once in `header.settledLines[]` (`snapshotId`, `countId`, `outcome`, `deltaQtyBase`, `baseUnitSnapshot`, `reasonCode?`, `reasonNote?`, `adjustmentId?`, `settledBy`, `settledAt`).
+
+Result: if every snapshot line is settled the slip becomes `COMPLETED`, `header.completedAt/closedBy/closureReferenceId` are set and all locks are released in the same transaction; otherwise it stays `RECONCILING` with locks kept, so the remaining lines can be approved later or sent to recount. Response: receipt `{ id, version, workflowStatus, operationId, resultRefs: [{ documentType: "stock_adjustments", documentId }], replayed }` (no `resultRefs` when only matching lines were closed); `stockTransactionId` is recorded on the operation.
+
+Empty-only scope (fixed 22 Nov 2026 after independent review): a slip whose scope has **no snapshot line** and only `EMPTY_LOCATION` counts confirmed as 0 completes with `{ all: true }` — there is nothing to select, so the "no line" refusal is skipped, every empty location is re-verified as confirmed, the slip becomes `COMPLETED`, the locks are released in the same transaction, nothing is posted and the receipt is the normal one (`resultRefs: []`; replay, stale-version 409 and a later call 400 behave as usual). `lines` alone is still refused for such a slip (no snapshot to name).
+
+`packaging[]` entries must name a selected line: a `lineId` that is not among the lines being approved (unknown, already settled or not selected) is refused with `400 ERR-CORE-400-001` ("Quy cách nhập thuộc dòng không nằm trong các dòng được duyệt") instead of being ignored.
+
+Idempotency: the same `idempotencyKey` and payload replays the receipt without posting again; a different key cannot re-approve a settled line (400 `Dòng đã được duyệt trước đó`); a stale `expectedVersion` → 409 `ERR-CORE-409-001`; a failed approval rolls back everything and keeps the locks.
+
+### Errors
+
+State/business refusals of this module use `400 ERR-CORE-400-001` with a Vietnamese `message` (existing convention for stocktake), e.g. `Đợt chưa đối chiếu hoặc đang đếm lại; chưa thể duyệt chênh lệch`, `Dòng đã được duyệt trước đó`, `Số dư không còn khớp mốc kiểm kê`, `Còn phần hàng bị chặn chưa xử lý; giữ khóa kiểm kê`, `Còn dòng được yêu cầu đếm lại chưa có kết quả mới`, `Đợt đang đếm lại: chỉ nhận kết quả cho các dòng được yêu cầu đếm lại`. `403` for a missing permission or unassigned warehouse, `404` for an unknown slip, `409 ERR-CORE-409-001` for a stale version, `409 ERR-CORE-409-003` for a reused key with a different payload.
+
+### Frontend contract notes (22 Nov 2026)
+
+- Remove every blind-count UI assumption: show `bookQtyBase` (+ `uomName`) to counters as soon as the slip is `COUNTING`; stop reading `blindCount`, `blindCountedLocations` and null quantities. Render every stocktake quantity as number + `uomName` (fallback `uomCode`).
+- Drive the Owner reconciliation screen from `GET /:id` `lines[]` (`status`, `differenceBase`, `attempts`, `settlement`, `recount`) instead of recomputing from `snapshots`/`counts`/`header.selectedCounts`. Checkbox selection → `POST /:id/approve-differences { lines: [{ snapshotId }] }`, "select all" → `{ all: true }`, "recount" → `POST /:id/recount { snapshotIds }`. There is no closing-reason input any more; a per-line reason is an optional label.
+- After a partial approval the slip stays `RECONCILING` and `lines[].status` shows `SETTLED` for the approved ones; reload the slip (the receipt's `version` is the new `expectedVersion`). When it returns `COMPLETED` the locks are already released.
+- "Found outside the book" form: `GET /api/lots` `items[]` now carries the product base unit as `uomCode` (`Product.baseUnit`) and `uomName` (`Uom.name`, `null` when the code is unknown) — the same two names and semantics as stocktake `lines[]`; `GET /api/lots/:id` carries them too. `GET /api/lots` has no `lookups` block, so there is nothing else to extend.
+- Plan screens use `/api/stocktake-plans` ([STOCKTAKE_PLANS.md](STOCKTAKE_PLANS.md)); show the due notice from `isDue`/`dueSoon`/`dueState`/`daysUntilDue` and disable "generate" when `canGenerate` is false. The generated slip id is `resultRefs[0].documentId` of the generate receipt.
+- Misplaced / wrong-quality lines (note 22 Nov 2026): `approve-differences` posts each counted line on its own — the shortage at the book location/quality as a decrease and the surplus at the other location/quality as an increase, as separate balances in one `StockTransaction` and one `StockAdjustment`; the source→target link of the old `RECLASS`/`RELOCATE` plan items is not kept, and the old refusal of opposite `DELTA`s on one lot and owner no longer applies.
+- Remove calls to `close`, `reopen-counting`, `resolution-plans` (POST), `resolution-plans/:id/review` and `…/executions`; the resolution-plan GETs remain only for historical slips.
+
+### Compatibility and removed code
+
+- Removed: `closeStocktake`, `approvalContent`, `submitResolutionPlan`, `reviewResolutionPlan`, `recordExecution`, `reopenCounting`, `isBlind`, `src/shared/utils/blind-count.js`.
+- Kept for history: the embedded `resolutionPlans` array and its schemas (`stocktake-resolution-plan*.schema.js`, `stocktake-resolution-details.schema.js`; `DISCREPANCY_REASONS` is reused), the plan read endpoints, `ApprovalHistory` rows of subject `stocktake_resolution_plans`, `StockAdjustment.header.resolutionPlanId` and item `planItemId`/`approvalId`. Existing `COMPLETED`/`CANCELLED` slips and their adjustments are read exactly as before (and `operational-reports` still reads `stocktakes`/`stock_adjustments`).
+- Legacy in-flight slips in `PENDING_APPROVAL`/`APPROVED`/`IN_PROGRESS` cannot be closed through the removed endpoints; the Owner uses `POST /:id/recount` to bring them back to `COUNTING` and then the new flow. No automatic migration was run.
+- Permissions: `stock_adjustment:create`, `stock_adjustment:update`, `stock_adjustment:approve` are no longer used by any endpoint and are labelled "[Ngừng dùng từ 22/11/2026]" in the seed catalogue and `permissions.json`; they were **not deleted** (roles in existing databases reference them). `stock_adjustment:read` still guards the historical plan reads; `stock_adjustment:post` now guards `approve-differences`; `stocktake:create` additionally guards plan writes and `recount`.
+
 ## Verification and number allocation follow-up (16 November 2026)
 
 Embedded resolution plans retain ObjectId identities while `documentNo` stores their `PAXLKK` number. The allocator now scans both embedded identity fields, instead of restarting the sequence when only ObjectId `_id` values are present. Existing numbers are not rewritten; no schema, index or migration is introduced. See [DOCUMENT_IDENTITIES](DOCUMENT_IDENTITIES.md) for the concurrency limits.
@@ -12,7 +121,7 @@ The lifecycle integration suite passed 5/5 and the native iterations suite passe
 
 Browser verification exercised both close paths with the real local API and synthetic local data. Execution attachment metadata was inserted into the disposable visual database because no stocktake evidence upload/attach endpoint existed at that time (added on 17 November 2026, see Evidence upload and view). This proves ID-reference validation, not file storage or upload. Mobile verification covered completed detail/list layout only, not every command form.
 
-## Trạng thái và quyền
+## Trạng thái và quyền (13–18/11/2026 — superseded 22/11/2026 for the plan/review/execution/close steps; see the redesign section above)
 
 `PLANNED → COUNTING → RECONCILING → PENDING_APPROVAL → APPROVED → IN_PROGRESS → COMPLETED` (từ chối phương án quay về `RECONCILING`; không chênh lệch thì chốt thẳng từ `RECONCILING`). Quyền theo vai trò seed: Owner `stocktake:create`, `stock_adjustment:approve`, `stock_adjustment:post`; Warehouse Staff `stocktake:update`, `stocktake:reconcile`, `stock_adjustment:create`, `stock_adjustment:update`. Mọi lệnh còn kiểm tra kho được giao, trạng thái, version, và với đếm/đối chiếu/phương án/thực hiện: nhân viên phải nằm trong `header.assignedCounterIds`. Từ 17/11/2026 Owner có thể hủy đợt ở `PLANNED`, `COUNTING` hoặc `RECONCILING` → `CANCELLED` (xem lệnh Hủy đợt).
 
@@ -131,7 +240,7 @@ Giới hạn đã biết của hợp đồng hiện hành: chốt từ chối ha
 
 ## Giới hạn và điểm chưa quyết
 
-- ~~Đếm mù chỉ được thực thi ở UI.~~ Đã giải quyết 17/11/2026: API chi tiết không trả `bookQtyBase` khi `COUNTING` cho mọi vai trò. Từ 18/11/2026 các màn đọc tồn (`/inventory`, chi tiết vị trí, nhật ký biến động, báo cáo tồn, lô) cũng ẩn số dư của vị trí đang đếm với mọi vai trò trừ Owner; xem [HIEUDT_WAREHOUSE_SCOPE.md](HIEUDT_WAREHOUSE_SCOPE.md).
+- ~~Đếm mù chỉ được thực thi ở UI.~~ Đã giải quyết 17/11/2026 (rồi **bỏ hoàn toàn ngày 22/11/2026**, mọi người đọc nhận số sổ đóng băng khi `COUNTING`): API chi tiết không trả `bookQtyBase` khi `COUNTING` cho mọi vai trò. Từ 18/11/2026 các màn đọc tồn (`/inventory`, chi tiết vị trí, nhật ký biến động, báo cáo tồn, lô) cũng ẩn số dư của vị trí đang đếm với mọi vai trò trừ Owner; xem [HIEUDT_WAREHOUSE_SCOPE.md](HIEUDT_WAREHOUSE_SCOPE.md).
 - ~~Chưa có API tải bằng chứng cho kiểm kê.~~ Đã giải quyết ngày 17/11/2026: xem [Evidence upload and view](#evidence-upload-and-view-17-november-2026). `evidenceIds` vẫn phải là `Attachment` đã `ATTACHED` với `ownerDocumentId` là mã đợt (hoặc phương án) và `uploadedBy` là người thao tác.
 - Hủy đợt: đã có từ 17/11/2026 (Owner, trước khi phương án được duyệt). Mở lại đợt sau đối chiếu hoặc hủy sau khi phương án đã duyệt vẫn chưa có quy trình; không tự mở khóa.
 

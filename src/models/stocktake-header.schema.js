@@ -5,11 +5,14 @@ import {
   refs,
   code,
   date,
+  integer,
 } from "./model-utils.js";
 import { id, opt, revision, warehouse } from "./schema-helpers.js";
 
 import { createStocktakeHeaderScopeSchema } from "./stocktake-header-scope.schema.js";
 import { createStocktakeResolutionPlanSelectedCountsSchema } from "./stocktake-resolution-plan-selected-counts.schema.js";
+import { createStocktakeSettledLineSchema } from "./stocktake-settled-line.schema.js";
+import { createStocktakeRecountLineSchema } from "./stocktake-recount-line.schema.js";
 
 // Embedded schema; no standalone collection.
 export function createStocktakeHeaderSchema() {
@@ -36,6 +39,13 @@ export function createStocktakeHeaderSchema() {
     activatedAt: date(false),
     closedBy: ref("User", false),
     closureReferenceId: id(false),
+    // Slip generated from a StocktakePlan (22 Nov 2026); absent for ad-hoc slips.
+    planId: ref("StocktakePlan", false),
+    planPeriodNo: integer(0, { required: false }),
+    planPeriodDueAt: date(false),
+    // Simplified reconciliation (22 Nov 2026): lines already settled, and lines sent back for recount.
+    settledLines: { type: [createStocktakeSettledLineSchema()], default: [] },
+    recountLines: { type: [createStocktakeRecountLineSchema()], default: [] },
   });
   return schema;
 }

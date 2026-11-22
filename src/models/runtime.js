@@ -49,6 +49,7 @@ export const SalesGoodsIssue = models.get("sales_goods_issues");
 export const DefectReport = models.get("defect_reports");
 export const StockScrapRecord = models.get("stock_scrap_records");
 export const Stocktake = models.get("stocktakes");
+export const StocktakePlan = models.get("stocktake_plans");
 export const StockAdjustment = models.get("stock_adjustments");
 export const FailedDelivery = models.get("failed_deliveries");
 export const FailedDeliveryReceipt = mongoose.connection.model('FailedDeliveryReceipt');

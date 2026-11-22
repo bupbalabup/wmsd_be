@@ -3,7 +3,8 @@
 Theo quyết định người dùng ngày 17/11/2026, bỏ danh mục khách hàng và delivery riêng; giữ đơn bán và khách trả. Xem [phạm vi và nguồn yêu cầu](PROJECT_GUIDE.md#phạm-vi-chức-năng-hiện-hành). Mô tả triển khai cũ bên dưới không tự mở lại các chức năng đã loại khỏi phạm vi. Đây là thay đổi tài liệu; code/DB chưa được thay đổi trong lượt này.
 
 > Mới 15/11/2026: [Báo cáo vận hành UC-113](docs/08_api/OPERATIONAL_REPORTS.md) — nhóm báo cáo theo vai trò, bộ lọc, chỉ đọc và giới hạn vai trò tùy chỉnh.
-> Mới 13/11/2026: [Vòng đời kiểm kê BF-05](docs/08_api/STOCKTAKE_LIFECYCLE.md) — lập kế hoạch, đóng băng, đếm mù, đối chiếu, duyệt độc lập, chốt và hàng phát hiện ngoài sổ.
+> Mới 22/11/2026: kiểm kê được thiết kế lại theo phản hồi giảng viên — [kế hoạch kiểm kê định kỳ tách khỏi phiếu](docs/08_api/STOCKTAKE_PLANS.md), bỏ đếm mù, đối chiếu đơn giản (đếm lại hoặc duyệt chênh lệch theo từng dòng) và bỏ lý do chốt: [hợp đồng hiện hành](docs/08_api/STOCKTAKE_LIFECYCLE.md#redesign--22-november-2026-current-contract).
+> 13/11/2026 (một phần đã bị thay thế ngày 22/11/2026): [Vòng đời kiểm kê BF-05](docs/08_api/STOCKTAKE_LIFECYCLE.md) — lập kế hoạch, đóng băng, đếm mù, đối chiếu, duyệt độc lập, chốt và hàng phát hiện ngoài sổ.
 > Mới 10/11/2026: [18 UC HieuDT — API và màn hình](docs/08_api/HIEUDT_ITERATIONS_NATIVE.md), [chạy test local](docs/09_phat_trien/HIEUDT_LOCAL_TESTS.md).
 
 # WMSD — Tài liệu chung của nhóm
@@ -60,7 +61,7 @@ Phiếu duyệt, thiết kế, hướng dẫn chuyển DB và API đã tập tru
 - Các file `docs/01_bao_cao` là bản so sánh/nộp bài, sửa trong mục hiện có và bảo toàn format.
 - Khảo sát ở `docs/05_khao_sat`, SAP tham khảo ở `docs/06_tham_khao`, rà soát theo ngày ở `docs/07_ra_soat`.
 
-Model runtime hiện hành dùng 59 file collection `src/models/*.model.js` và 96 schema nhúng `src/models/*.schema.js`, cùng một registry. Ba thư mục model cũ đã được bỏ theo quyết định ngày 06/11/2026. DB Atlas/v8 là bằng chứng có ngày, không phải đích runtime hiện tại. Xem [hợp đồng runtime](docs/08_api/NATIVE_MODEL_RUNTIME.md) và [hướng dẫn local](docs/09_phat_trien/DB_REBUILD.md).
+Model runtime hiện hành dùng 59 file collection `src/models/*.model.js` và 101 schema nhúng `src/models/*.schema.js`, cùng một registry. Ba thư mục model cũ đã được bỏ theo quyết định ngày 06/11/2026. DB Atlas/v8 là bằng chứng có ngày, không phải đích runtime hiện tại. Xem [hợp đồng runtime](docs/08_api/NATIVE_MODEL_RUNTIME.md) và [hướng dẫn local](docs/09_phat_trien/DB_REBUILD.md).
 
 [Category v8: phân loại, dọn model và triển khai](docs/09_phat_trien/CATEGORIES_V8.md). Bản v7 trước là mốc lịch sử.
 

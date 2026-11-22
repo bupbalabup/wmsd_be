@@ -281,7 +281,13 @@ export function receiveTransfer(user,id,input) {
       const item=copyItem(origin,row.qtyBase,{lineNo:i+1,lineKind:'TRANSFER_RECEIPT',sources:[sourceLink(outbound,origin,row.qtyBase)],details:{dispatchLineId:origin._id,qualityCode:row.qualityCode,destinationBalanceId:destination._id,receivingLocationId:row.locationId}});
       receipt.items.push(item);await moveStock(transit._id,destination._id,row.qtyBase,item._id,posting,actor,session);
       if(row.qualityCode==='DAMAGED'){
-        const report=await document(DefectReport,'DEF',actor,{warehouseId:receipt.header.warehouseId,discoveredAt:new Date(),reason:row.damageReason,reportedBy:actor._id},session,[copyItem(item,row.qtyBase,{lineNo:1,lineKind:'STANDARD',balanceId:destination._id,ownerType:'STORE',sources:[sourceLink(receipt,item,row.qtyBase)]})]);
+        const reportItem = copyItem(item,row.qtyBase,{lineNo:1,lineKind:'STANDARD',balanceId:destination._id,ownerType:'STORE',sources:[sourceLink(receipt,item,row.qtyBase)]});
+        const report=await document(DefectReport,'DEF',actor,{warehouseId:receipt.header.warehouseId,discoveredAt:new Date(),reason:row.damageReason,reportedBy:actor._id},session,[reportItem]);
+        report.holds.push({
+          _id: newId(), defectReportLineId: reportItem._id, recordedBy: actor._id, recordedAt: new Date(),
+          reason: row.damageReason, evidenceIds: [], allocations: [{ balanceId: destination._id, quantityBase: row.qtyBase }],
+          events: [], status: 'ACTIVE', version: 1,
+        });
         report.sources=[sourceLink(receipt)];await report.save({session});receipt.header.damageReportIds.push(report._id);
       }
     }
