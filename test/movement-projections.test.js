@@ -86,7 +86,7 @@ test('projected transfer detail and receipt source preserve progress, discrepanc
   mock.method(m.ApprovalHistory,'find',()=>query([]));
   mock.method(m.StockDiscrepancy,'find',()=>query([{_id:'difference',version:2,workflowStatus:'OPEN',header:{sourceRef:{documentId:'dispatch'}},items:[{qtyBase:'1',details:{sourceLineId:'dispatch-line'}}],unused:'omit'}]));
   m.StockHoldingPoint.find.mock.mockImplementation(()=>query([{_id:'point',dispatchLineId:'dispatch-line',unused:'omit'}]));
-  m.InventoryBalance.find.mock.mockImplementation(()=>query([{_id:'balance',holdingPointId:'point',quantityBase:'5',unused:'omit'}]));
+  m.InventoryBalance.find.mock.mockImplementation(filter=>query(filter.batchId?[]:[{_id:'balance',holdingPointId:'point',quantityBase:'5',unused:'omit'}])); // stock check queries by batch; transit by holding point
   mock.method(m.StockTransaction,'find',filter=>query(filter.reversedTransactionId?.$exists===false?[{_id:'transaction',movements:[{sourceLineId:'receipt-line',quantityBase:'2',unused:'omit'}],unused:'omit'}]:[]));
   const detail=await getTransfer(actor,'request');
   assert.equal(detail.version,4);assert.equal(detail.tasks[0].version,3);

@@ -10,6 +10,7 @@ function fixture(){
   mock.method(models.TransferReceipt,'find',()=>query([{_id:'receipt',items:[{_id:'receipt-line',qtyBase:state.received,details:{dispatchLineId:'dispatch-line',qualityCode:'GOOD'}}]}]));
   mock.method(models.StockHoldingPoint,'find',()=>query([{_id:'point'}]));
   mock.method(models.StockDiscrepancy,'exists',()=>query(state.difference));
+  mock.method(models.StockDiscrepancy,'find',()=>query([])); // no written-off transit loss
   mock.method(models.InventoryBalance,'exists',()=>query(state.transit));
   mock.method(models.InternalTransferRequirement,'find',()=>query([{_id:'requirement',workflowStatus:state.requirement,header:{sourceDocumentId:'receipt'}}]));
   mock.method(models.TransferOrder,'find',()=>query([{_id:'task',workflowStatus:state.task,header:{requirementId:'requirement'}}]));
