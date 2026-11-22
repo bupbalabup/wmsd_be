@@ -6,11 +6,12 @@ import { stocktakeLockedLocations } from '../../shared/utils/stock.js';
 import mongoose from 'mongoose';
 import { movementList } from '../../shared/utils/movement-list.js';
 import { optionFields,movementDetailFields,requirementFields,executionFields,differenceFields,approvalFields } from '../../shared/utils/movement-read-fields.js';
-import { WarehouseTransferRequest, TransferDispatch, TransferReceipt, InternalTransferRequirement, TransferOrder, ApprovalHistory, SalesOrder, WarehouseIssueRequest, SupplyAllocation, Warehouse, WarehouseLocation, StockHoldingPoint, InventoryBalance, ProductBatch, Product, Uom, Conversion, StockDiscrepancy } from '../../models/runtime.js';
+import { WarehouseTransferRequest, TransferDispatch, TransferReceipt, InternalTransferRequirement, TransferOrder, ApprovalHistory, SalesOrder, WarehouseIssueRequest, SupplyAllocation, Warehouse, WarehouseLocation, StockHoldingPoint, InventoryBalance, ProductBatch, Product, Uom, Conversion, StockDiscrepancy, User } from '../../models/runtime.js';
 import { requirePermission, requireWarehouseAccess, isOwner, hasPermission } from '../../shared/utils/access.js';
 import { currentRole } from '../../shared/utils/userRole.js';
 import { dto } from '../../shared/utils/persistence.js';
 import { notFoundError } from '../../shared/utils/ApiError.js';
+import { transferStockCheck } from './transfer-stock-check.js';
 async function transferWarehouseDisplay(documents) {
   if(!documents.length)return [];
   const warehouses=await Warehouse.find({_id:{$in:documents.flatMap(d=>[d.header.sourceWarehouseId,d.header.destinationWarehouseId])}}).select('_id code name').lean();
@@ -107,10 +108,11 @@ function transitProgress(dispatches,points,balances){
 
 export async function getTransfer(user,id){
   requirePermission(user,'stock_transfer:read');
-  const request=await WarehouseTransferRequest.findOne({$and:[await scope(user),{_id:id}]}).select(movementDetailFields).lean();if(!request)throw notFoundError();
+  const sales = currentRole(user)?.code === 'SALES';
+  const request=await WarehouseTransferRequest.findOne({$and:[await scope(user),{_id:id}]}).select(movementDetailFields + (sales ? '' : ' items.sourceLocations')).lean();if(!request)throw notFoundError();
   const [[display],dispatches]=await Promise.all([transferWarehouseDisplay([dto(request)]),TransferDispatch.find({'header.requestId':id}).select(movementDetailFields).lean()]);
   const receipts=await TransferReceipt.find({'header.dispatchId':{$in:dispatches.map(row=>row._id)}}).select(movementDetailFields).lean();
-  if(currentRole(user)?.code==='SALES')return {...display,dispatches:dispatches.map(row=>({id:String(row._id),workflowStatus:row.workflowStatus})),receipts:receipts.map(row=>({id:String(row._id),workflowStatus:row.workflowStatus}))};
+  if(sales)return {...display,dispatches:dispatches.map(row=>({id:String(row._id),workflowStatus:row.workflowStatus})),receipts:receipts.map(row=>({id:String(row._id),workflowStatus:row.workflowStatus}))};
   const [requirements,approvals,differences,points,effective]=await Promise.all([
     InternalTransferRequirement.find({'header.sourceDocumentId':{$in:[...dispatches,...receipts].map(row=>row._id)}}).select(requirementFields).lean(),
     ApprovalHistory.find({subjectType:'warehouse_transfer_requests',subjectId:id}).select(approvalFields).lean(),
@@ -123,8 +125,9 @@ export async function getTransfer(user,id){
     InventoryBalance.find({holdingPointId:{$in:points.map(p=>p._id)}}).select('holdingPointId quantityBase').lean(),
   ]);
   const progress=transitProgress(dispatches,points,transitBalances);
-  const lineProgress=request.items.map(item=>{const sent=dispatches.filter(d=>d.workflowStatus==='POSTED').flatMap(d=>d.items).filter(i=>String(i.details.requestLineId)===String(item._id));const sentIds=sent.map(i=>String(i._id));const received=receipts.filter(r=>r.workflowStatus==='POSTED').flatMap(r=>r.items).filter(i=>sentIds.includes(String(i.details.dispatchLineId)));const sum=rows=>rows.reduce((n,i)=>n.plus(effective.get(String(i._id))??String(i.qtyBase)),exact('0')).toFixed();return {lineId:String(item._id),dispatchedQtyBase:sent.reduce((n,i)=>n.plus(String(i.qtyBase)),exact('0')).toFixed(),receivedGoodQtyBase:sum(received.filter(i=>i.details.qualityCode==='GOOD')),receivedDamagedQtyBase:sum(received.filter(i=>i.details.qualityCode==='DAMAGED')),transitQtyBase:progress.flatMap(p=>p.lines).filter(l=>sentIds.includes(l.lineId)).reduce((n,l)=>n.plus(l.remainingQtyBase),exact('0')).toFixed(),unresolvedQtyBase:differences.filter(d=>d.workflowStatus!=='RESOLVED').flatMap(d=>d.items).filter(i=>sentIds.includes(String(i.details.sourceLineId))).reduce((n,i)=>n.plus(String(i.qtyBase)),exact('0')).toFixed()};});
-  return {...display,lineProgress,differences:differences.map(dto),progress,dispatches:dispatches.map(dto),receipts:receipts.map(dto),internalRequirements:requirements.map(dto),tasks:tasks.map(dto),approvals:approvals.map(dto)};
+  const lineProgress=request.items.map(item=>{const sent=dispatches.filter(d=>d.workflowStatus==='POSTED').flatMap(d=>d.items).filter(i=>String(i.details.requestLineId)===String(item._id));const sentIds=sent.map(i=>String(i._id));const received=receipts.filter(r=>r.workflowStatus==='POSTED').flatMap(r=>r.items).filter(i=>sentIds.includes(String(i.details.dispatchLineId)));const sum=rows=>rows.reduce((n,i)=>n.plus(effective.get(String(i._id))??String(i.qtyBase)),exact('0')).toFixed();return {lineId:String(item._id),dispatchedQtyBase:sent.reduce((n,i)=>n.plus(String(i.qtyBase)),exact('0')).toFixed(),receivedGoodQtyBase:sum(received.filter(i=>i.details.qualityCode==='GOOD')),receivedDamagedQtyBase:sum(received.filter(i=>i.details.qualityCode==='DAMAGED')),transitQtyBase:progress.flatMap(p=>p.lines).filter(l=>sentIds.includes(l.lineId)).reduce((n,l)=>n.plus(l.remainingQtyBase),exact('0')).toFixed(),unresolvedQtyBase:differences.filter(d=>d.workflowStatus==='OPEN').flatMap(d=>d.items).filter(i=>sentIds.includes(String(i.details.sourceLineId))).reduce((n,i)=>n.plus(String(i.qtyBase)),exact('0')).toFixed(),writtenOffQtyBase:differences.filter(d=>d.workflowStatus==='RESOLVED'&&d.header?.resolutionMode==='WRITE_OFF').flatMap(d=>d.items).filter(i=>sentIds.includes(String(i.details.sourceLineId))).reduce((n,i)=>n.plus(String(i.qtyBase)),exact('0')).toFixed()};});
+  const stockCheck=['PENDING_APPROVAL','APPROVED','REVISION_REQUIRED'].includes(request.workflowStatus)?await transferStockCheck(request):undefined;
+  return {...display,stockCheck,lineProgress,differences:differences.map(dto),progress,dispatches:dispatches.map(dto),receipts:receipts.map(dto),internalRequirements:requirements.map(dto),tasks:tasks.map(dto),approvals:approvals.map(dto)};
 }
 
 export async function getPutawayTask(user,id) {
@@ -156,6 +159,13 @@ export async function getPutawayTask(user,id) {
 
 // This is a selection aid only. Every BF04 write command rechecks the active
 // warehouse, lot, balance, quality and source quantities inside its transaction.
+// Active warehouse staff of one warehouse who may pick and hand over transfer goods.
+export async function pickAssignees(user,warehouseId){
+  requirePermission(user,'stock_transfer:dispatch');
+  requireWarehouseAccess(user,warehouseId);
+  const users=await User.find({isActive:true,warehouseIds:warehouseId}).select('_id fullName roleId').populate({path:'roleId',populate:{path:'permissionIds'}}).lean(false);
+  return users.filter(row=>hasPermission(row,'stock_transfer:dispatch')&&currentRole(row)?.code==='WAREHOUSE').map(row=>({id:String(row._id),fullName:row.fullName}));
+}
 export async function transferOptions(user, warehouseId, mode='stock') {
   requirePermission(user,'stock_transfer:read');
   const warehouses=await Warehouse.find({isActive:true}).select('_id code name isActive').lean();
@@ -163,14 +173,15 @@ export async function transferOptions(user, warehouseId, mode='stock') {
   if(currentRole(user)?.code==='SALES')return {warehouses:warehouses.map(dto),sourceWarehouseIds:[],locations:[],holdingPoints:[],balances:[],batches:[],products:[]};
   const sourceWarehouseIds=warehouses.filter(row=>isOwner(user)||(user.warehouseIds||[]).some(id=>String(id)===String(row._id))).map(row=>String(row._id));
   if(!warehouseId)return {warehouses:warehouses.map(dto),sourceWarehouseIds,locations:[],holdingPoints:[],balances:[],batches:[],products:[]};
-  requireWarehouseAccess(user,warehouseId);
+  // Staff who may raise requests can look at any warehouse's stock so a destination can ask for goods it does not hold.
+  if(!hasPermission(user,'stock_transfer:create'))requireWarehouseAccess(user,warehouseId);
   const locations=await WarehouseLocation.find({warehouseId,isActive:true}).select(optionFields.location).lean();
   if(mode==='locations'){const frozen=await stocktakeLockedLocations(locations.map(row=>row._id));return {warehouses:warehouses.map(dto),sourceWarehouseIds,locations:locations.map(row=>({...dto(row),lockedByStocktake:frozen.has(String(row._id))})),holdingPoints:[],balances:[],batches:[],products:[],units:[],conversions:[]};}
   const holdingPoints=await StockHoldingPoint.find({locationId:{$in:locations.map(row=>row._id)}}).select(optionFields.point).lean();
   const balances=(await InventoryBalance.find({holdingPointId:{$in:holdingPoints.map(row=>row._id)},quantityBase:{$gt:0}}).select(optionFields.balance).lean());
   const [batches,products,units,available]=await Promise.all([
     ProductBatch.find({_id:{$in:balances.map(row=>row.batchId)},identificationStatus:'VERIFIED'}).select(optionFields.batch).lean(),
-    Product.find({isActive:true}).select(optionFields.product).lean(),Uom.find({isActive:true}).select('code name isCarton').lean(),freeQuantities(balances),
+    Product.find({isActive:true}).select(optionFields.product + ' wholeBaseUnits').lean(),Uom.find({isActive:true}).select('code name isCarton areaMm2').lean(),freeQuantities(balances),
   ]);
   const conversions=await Conversion.find({productId:{$in:products.map(row=>row._id)},validFrom:{$lte:new Date()}}).select(optionFields.conversion).sort({validFrom:-1}).lean();
   const seenConversions=new Set();
@@ -178,5 +189,5 @@ export async function transferOptions(user, warehouseId, mode='stock') {
   const unitById=new Map(units.map(unit=>[String(unit._id),dto(unit)]));
   // Stocktake-locked locations (any role) stay listed but flagged, with nothing selectable.
   const frozen=await stocktakeLockedLocations(locations.map(row=>row._id)),frozenPoints=new Set(holdingPoints.filter(row=>frozen.has(String(row.locationId))).map(row=>String(row._id)));
-  return {warehouses:warehouses.map(dto),sourceWarehouseIds,locations:locations.map(row=>({...dto(row),lockedByStocktake:frozen.has(String(row._id))})),holdingPoints:holdingPoints.map(dto),balances:balances.map(b=>{const lockedByStocktake=frozenPoints.has(String(b.holdingPointId));return {...dto(b),lockedByStocktake,availableQtyBase:lockedByStocktake?'0':available.get(String(b._id)).toFixed()};}),batches:batches.map(dto),products:products.map(dto),units:units.map(dto),conversions:currentConversions.map(row=>({...dto(row),uom:unitById.get(String(row.uomId))||null}))};
+  return {warehouses:warehouses.map(dto),sourceWarehouseIds,locations:locations.map(row=>({...dto(row),lockedByStocktake:frozen.has(String(row._id))})),holdingPoints:holdingPoints.map(dto),balances:balances.map(b=>{const lockedByStocktake=frozenPoints.has(String(b.holdingPointId));return {...dto(b),lockedByStocktake,availableQtyBase:lockedByStocktake?'0':available.get(String(b._id)).toFixed()};}),batches:batches.map(dto),products:products.map(dto),units:units.map(dto),conversions:currentConversions.map(row=>({...dto(row),basePerUnit:exact(row.basePerUnit).toFixed(),uom:unitById.get(String(row.uomId))||null}))};
 }

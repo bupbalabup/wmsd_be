@@ -13,6 +13,6 @@ export function createHandoverHeaderSchema() {
     },
     embeddedOptions,
   );
-  schema.add({ vehiclePlate: opt(20) });
+  schema.add({ vehiclePlate: opt(20), driverName: opt(160), driverPhone: opt(30), note: opt(500) });
   return schema;
 }
