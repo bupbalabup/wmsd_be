@@ -96,6 +96,64 @@ run('UC38–44 location commands, scope, inventory details and freeze/capacity c
  const lock=await m.StocktakeLocationLock.create({stocktakeId:new mongoose.Types.ObjectId(),locationId:result.id,scopeVersion:1,lockedAt:new Date(),lockedBy:a._id,status:'LOCKED'});
  await assert.rejects(stock.saveLocation(owner,result.id,{...edit,idempotencyKey:key(),expectedVersion:loc.version}),/khóa/);await m.StocktakeLocationLock.deleteOne({_id:lock._id});
 });
+run('transfer source locations persist and cap both the request and each dispatch', async () => {
+  const second = await m.WarehouseLocation.create({ warehouseId: wa._id, code: 'SRC-2', name: 'Ô thứ hai', locationType: 'STORAGE', isPickable: true });
+  const point = await m.StockHoldingPoint.create({ type: 'LOCATION', locationId: second._id });
+  const secondBalance = await m.InventoryBalance.create({ holdingPointId: point._id, batchId: batch._id, qualityStatus: 'GOOD', ownerType: 'STORE', quantityBase: '10', version: 0 });
+  const allocations = [{ sourceBalanceId: String(balance._id), qtyBase: '3' }, { sourceBalanceId: String(secondBalance._id), qtyBase: '5' }];
+  const body = (enteredQty, sourceLocations) => ({ idempotencyKey: key(), sourceWarehouseId: String(wa._id), destinationWarehouseId: String(wb._id), reason: 'Cần hàng',
+    lines: [{ productId: String(product._id), lotId: String(batch._id), enteredUnit: 'PIECE', enteredQty, sourceLocations }] });
+
+  await assert.rejects(transfers.createRequest(a, body('7', allocations)), /Tổng số lượng các ô/);
+  await assert.rejects(transfers.createRequest(a, body('45', [{ ...allocations[0], qtyBase: '40.5' }, { ...allocations[1], qtyBase: '4.5' }])), /yêu cầu số lượng nguyên/);
+  await assert.rejects(transfers.createRequest(a, body('46', [{ ...allocations[0], qtyBase: '41' }, allocations[1]])), /Vị trí SRC chỉ còn 40/);
+  const lock = await m.StocktakeLocationLock.create({ stocktakeId: new mongoose.Types.ObjectId(), locationId: second._id, scopeVersion: 1, lockedAt: new Date(), lockedBy: a._id, status: 'LOCKED' });
+  await assert.rejects(transfers.createRequest(a, body('8', allocations)), /Vị trí SRC-2 đang khóa kiểm kê/);
+  await m.StocktakeLocationLock.deleteOne({ _id: lock._id });
+
+  const request = await transfers.createRequest(a, body('8', allocations));
+  const detail = await getTransfer(a, request.id);
+  assert.deepEqual(detail.items[0].sourceLocations.map(({ locationCode, qtyBase }) => ({ locationCode, qtyBase })), [
+    { locationCode: 'SRC', qtyBase: '3' }, { locationCode: 'SRC-2', qtyBase: '5' },
+  ]);
+  const revised = [{ ...allocations[0], qtyBase: '2' }, { ...allocations[1], qtyBase: '6' }];
+  await transfers.updateRequest(a, request.id, { ...body('8', revised), expectedVersion: detail.version });
+  const updated = await getTransfer(a, request.id);
+  assert.equal(updated.items[0]._id, detail.items[0]._id);
+  assert.deepEqual(updated.items[0].sourceLocations.map(location => location.qtyBase), ['2', '6']);
+  assert.equal((await freeQuantity(await m.InventoryBalance.findById(balance._id))).toFixed(), '40');
+
+  await transfers.reviewRequest(owner, request.id, { idempotencyKey: key(), expectedVersion: updated.version, decision: 'APPROVE', reason: 'Đủ căn cứ' });
+  const dispatch = (version, qtyBase) => ({ idempotencyKey: key(), expectedVersion: version,
+    lines: [{ requestLineId: detail.items[0]._id, sourceBalanceId: String(balance._id), stagingLocationId: String(stage._id), qtyBase }] });
+  let approved = await getTransfer(a, request.id);
+  await assert.rejects(transfers.createDispatch(a, request.id, dispatch(approved.version, '3')), /vượt số lượng có thể xuất theo phân bổ/);
+  const first = await transfers.createDispatch(a, request.id, dispatch(approved.version, '1'));
+  approved = await getTransfer(a, request.id);
+  await assert.rejects(transfers.createDispatch(a, request.id, dispatch(approved.version, '2')), /vượt số lượng có thể xuất theo phân bổ/);
+  await transfers.cancelDraftDispatch(a, first.id, { idempotencyKey: key(), expectedVersion: 1, reason: 'Gom lại một đợt' });
+  approved = await getTransfer(a, request.id);
+  const replacement = dispatch(approved.version, '2');
+  replacement.lines.push({ ...replacement.lines[0], sourceBalanceId: String(secondBalance._id), qtyBase: '6' });
+  const saved = await transfers.createDispatch(a, request.id, replacement);
+  await transfers.cancelDraftDispatch(a, saved.id, { idempotencyKey: key(), expectedVersion: 1, reason: 'Kết thúc kiểm tra' });
+
+  const partial = await transfers.createRequest(a, body('12', revised));
+  const partialDetail = await getTransfer(a, partial.id);
+  assert.equal(partialDetail.items[0].qtyBase, '12');
+  assert.deepEqual(partialDetail.items[0].sourceLocations.map(location => location.qtyBase), ['2', '6']);
+  await transfers.reviewRequest(owner, partial.id, { idempotencyKey: key(), expectedVersion: partialDetail.version, decision: 'APPROVE', reason: 'Chấp nhận phần chưa phân bổ' });
+  const partialApproved = await getTransfer(a, partial.id);
+  const extra = dispatch(partialApproved.version, '7');
+  extra.lines[0].requestLineId = partialApproved.items[0]._id;
+  await assert.rejects(transfers.createDispatch(a, partial.id, extra), /vượt số lượng có thể xuất theo phân bổ/);
+  extra.idempotencyKey = key();
+  extra.lines[0].qtyBase = '6';
+  extra.lines.push({ ...extra.lines[0], sourceBalanceId: String(secondBalance._id) });
+  const partialDispatch = await transfers.createDispatch(a, partial.id, extra);
+  await transfers.cancelDraftDispatch(a, partialDispatch.id, { idempotencyKey: key(), expectedVersion: 1, reason: 'Kết thúc kiểm tra' });
+});
+
 run('UC53–56/120 dispatch reserves once, partial mixed receipt and linked difference resolution preserve stock',async()=>{
  const request=await transfers.createRequest(a,{idempotencyKey:key(),sourceWarehouseId:String(wa._id),destinationWarehouseId:String(wb._id),reason:'Cần hàng',lines:[{productId:String(product._id),enteredUnit:'PIECE',enteredQty:'8'}]});
  await assert.rejects(transfers.reviewRequest(a,request.id,{idempotencyKey:key(),expectedVersion:1,decision:'APPROVE',reason:'self'}));
@@ -111,8 +169,7 @@ run('UC53–56/120 dispatch reserves once, partial mixed receipt and linked diff
  sent=await m.TransferDispatch.findById(dispatch.id);await assert.rejects(transfers.receiveTransfer(a,dispatch.id,{idempotencyKey:key(),expectedVersion:sent.version,lines:[{dispatchLineId:String(sent.items[0]._id),locationId:String(receiving._id),qtyBase:'8',qualityCode:'GOOD'}]}));
  const received=await transfers.receiveTransfer(b,dispatch.id,{idempotencyKey:key(),expectedVersion:sent.version,lines:[{dispatchLineId:String(sent.items[0]._id),locationId:String(receiving._id),qtyBase:'4',qualityCode:'GOOD'},{dispatchLineId:String(sent.items[0]._id),locationId:String(quarantine._id),qtyBase:'4',qualityCode:'DAMAGED',damageReason:'Vỡ khi vận chuyển'}]});
  await differences.reviewDifference(owner,report.id,{idempotencyKey:key(),expectedVersion:1,decision:'APPROVE',reason:'Đã nhận đủ theo phiếu liên kết',receiptId:received.id});
- const receipt=await m.TransferReceipt.findById(received.id);const good=receipt.items.find(i=>i.details.qualityCode==='GOOD');const putaway=await transfers.createRequirement(b,received.id,{idempotencyKey:key(),expectedVersion:receipt.version,destinations:[{receiptLineId:String(good._id),locationId:String(storage._id)}]});await transfers.confirmTask(b,putaway.id,{idempotencyKey:key(),expectedVersion:1});
- req=await m.WarehouseTransferRequest.findById(request.id);await transfers.closeRequest(b,request.id,{idempotencyKey:key(),expectedVersion:req.version});
+ const receipt=await m.TransferReceipt.findById(received.id);const good=receipt.items.find(i=>i.details.qualityCode==='GOOD');const putaway=await transfers.createRequirement(b,received.id,{idempotencyKey:key(),expectedVersion:receipt.version});await transfers.confirmTask(b,putaway.id,{idempotencyKey:key(),expectedVersion:putaway.version,destinations:[{receiptLineId:String(good._id),locationId:String(storage._id)}]});
  await assert.rejects(differences.reviewDifference(b,report.id,{idempotencyKey:key(),expectedVersion:1,decision:'APPROVE',reason:'self',receiptId:received.id}));
  const detail=await getTransfer(b,request.id);assert.equal(detail.workflowStatus,'COMPLETED');assert.equal(detail.lineProgress[0].receivedGoodQtyBase,'4');assert.equal(detail.lineProgress[0].receivedDamagedQtyBase,'4');assert.equal(detail.lineProgress[0].transitQtyBase,'0');assert.equal(detail.progress[0].lines[0].remainingQtyBase,'0');assert.equal(detail.differences[0].workflowStatus,'RESOLVED');
  const logs=await stock.movements(b,page);assert.ok(logs.total>0);const event=await stock.movements(b,page,logs.items[0].id);assert.ok(event.to||event.from);const hidden=(await stock.movements(a,page)).items.find(e=>!e.from&&e.to);if(hidden)assert.equal(hidden.from,null);

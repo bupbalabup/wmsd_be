@@ -1,3 +1,7 @@
+## 22 November 2026 — Source locations on transfer request lines
+
+User decision: select multiple bins and validate quantities per selected product and lot. `warehouse_transfer_requests.items[]` adds optional `lotLabelSnapshot` and optional `sourceLocations[]` with `sourceBalanceId`, `locationId`, `locationCode`, and positive Decimal128 `qtyBase`. The transaction checks the balance scope, available stock, and the total. No new collection, index, or backfill is required. See the [BF04 contract](../../git_doc/docs/08_api/transfers/BF04_API.md#source-locations-on-transfer-requests--22-november-2026).
+
 ## 22 November 2026 — `stocktake_plan_period_once` frees cancelled slips
 
 Decision source: user "fix all" follow-up, 22 Nov 2026. The unique partial index `stocktake_plan_period_once` on `stocktakes` `{header.planId, header.planPeriodNo}` now has `partialFilterExpression: { "header.planId": { $exists: true }, workflowStatus: { $in: ["PLANNED","COUNTING","RECONCILING","PENDING_APPROVAL","APPROVED","IN_PROGRESS","COMPLETED","CLOSED","POSTED"] } }`, so a `CANCELLED` slip no longer blocks regenerating its plan period (`$ne` is not allowed in partial filters, hence the allow-list). No field was added or removed. Definition in code only; never built on a shared database. Contract: `git_doc/docs/08_api/STOCKTAKE_PLANS.md`.

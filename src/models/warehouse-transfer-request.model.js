@@ -19,6 +19,7 @@ import {
 import { createDocumentSourceSchema } from "./document-source.schema.js";
 import { createDocumentItemSchema } from "./document-item.schema.js";
 import { createWarehouseTransferRequestHeaderSchema } from "./warehouse-transfer-request-header.schema.js";
+import { transferSourceLocationSchema } from './transfer-source-location.schema.js';
 import {
   attachDocumentItems,
   addDocumentIndexesAndRules,
@@ -51,7 +52,8 @@ export function createWarehouseTransferRequestSchema() {
   );
   const item = createDocumentItemSchema();
   item.add({ note: opt(2000), evidenceIds: refs("Attachment") });
-  item.add({ approvedQtyBase: quantity() });
+  item.add({ approvedQtyBase: quantity(), lotLabelSnapshot: opt(100) });
+  item.add({ sourceLocations: { type: [transferSourceLocationSchema], default: undefined } });
   attachDocumentItems(schema, item);
   addDocumentIndexesAndRules(schema);
 
