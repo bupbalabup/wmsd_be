@@ -18,6 +18,10 @@
 - II. Detailed Code Design
   - 0. Shared command pipeline (Report 3 I.2.9, EX-01–EX-05)
   - 1. BF-01 Replenishment, purchasing and goods receipt
+    - 1.1 Replenishment Request (RR)
+    - 1.2 Purchase Order (PO)
+    - 1.3 Goods Inspection (ARR + INS)
+    - 1.4 Purchase Goods Receipt (GR)
   - 2. BF-02 Defect detection, isolation and disposition
   - 3. BF-03 Same-warehouse relocation
   - 4. BF-04 Inter-warehouse transfer
@@ -1873,79 +1877,93 @@ sequenceDiagram
 
 ### 1. BF-01 Replenishment, purchasing and goods receipt — Implemented
 
-#### 1.1 Class Diagram
+BF-01 creates four linked documents in this order: Replenishment Request (RR), Purchase Order (PO), Goods Inspection (INS, created with its Goods Arrival ARR) and purchase Goods Receipt (GR). Sections 1.1 to 1.4 give one class diagram and one sequence diagram per document. Every write command also runs the shared pipeline in section 0. In the class diagrams, a dotted arrow is a call or read/write dependency and a solid arrow with multiplicity is a stored reference.
+
+#### 1.1 Replenishment Request (RR)
+
+##### 1.1.1 Class Diagram
 
 ```mermaid
 classDiagram
+  class ReplenishmentRoutes {
+    <<replenishment.routes.js>>
+    +GET /options, /options/lots, /options/sources
+    +POST /evaluate
+    +GET /, /:id, /:id/submissions
+    +POST / replenishment_request:create
+    +PUT /:id replenishment_request:update
+    +POST /:id/submit replenishment_request:update
+    +POST /:id/review replenishment_request:approve
+    +POST /:id/cancel
+  }
   class ReplenishmentCommands {
+    <<replenishment.commands.js>>
     +getReplenishmentOptions()
+    +getReplenishmentLotOptions()
     +evaluateReplenishment()
     +createReplenishment()
     +updateReplenishment()
     +submitReplenishment()
     +reviewReplenishment()
     +cancelReplenishment()
+    -items()
+    -checkWarnings()
+    -submission()
   }
   class ReplenishmentEvaluation {
+    <<replenishment.evaluation.js>>
     +evaluateLines()
-    +activeRequests()
-    +reviewRequired()
     +resolveSource()
+    +reviewRequired()
+    -availableStock()
+    -openRequests()
+    -incomingPurchaseOrders()
+    -otherWarehouseOptions()
   }
-  class PurchaseOrderCommands {
-    +createPurchaseOrder()
-    +updatePurchaseOrder()
-    +confirmPurchaseOrder()
-    +rescheduleExpectedOn()
-    +requestClose()
-    +approveClose()
-    +executeClose()
+  class ReplenishmentReads {
+    <<replenishment.service.js and replenishment.sources.js>>
+    +listReplenishments()
+    +getReplenishment()
+    +listReplenishmentSubmissions()
+    +getReplenishmentSourceOptions()
   }
-  class PoReceivingService {
-    +inspectionContext()
-    +createInspection()
-    +updateInspection()
-    +confirmInspection()
-    +postReceipt()
-    +postCustodyReceipt()
+  class ReplenishmentRequest {
+    <<replenishment_requests>>
+    _id RR-warehouse-YYMMDD-seq
+    workflowStatus DRAFT SUBMITTED APPROVED REJECTED CANCELLED
+    header.warehouseId, neededOn, triggerReason
+    header.approvedRevision, latestDecisionId
+    items[].qtyBase, approvedQtyBase
+    items[].details.triggerType, source, evaluation snapshot
+    submissions[]
   }
-  class PurchasePutawayService {
-    +putawayContext()
-    +createPutaway()
-    +confirmPutaway()
-    +cancelPutaway()
+  class ApprovalHistory {
+    <<approval_histories>>
+    subjectType replenishment_requests
+    subjectRevision, decision
+    itemDecisions[].approvedQtyBase
   }
-  class PurchaseCorrectionService {
-    +reversalPreflight()
-    +reverseReceipt()
+  class SourceDocument {
+    <<SalesOrder, WarehouseIssueRequest or Stocktake>>
   }
-  class ReplenishmentRequest
-  class PurchaseOrder
-  class GoodsArrival
-  class GoodsInspection
-  class GoodsReceipt
-  class CustodyReceipt
-  class TransferOrder
-  class InventoryBalance
-  class StockTransaction
-  class ApprovalHistory
-  ReplenishmentCommands --> ReplenishmentEvaluation : warnings
-  ReplenishmentCommands --> ReplenishmentRequest
-  ReplenishmentCommands --> ApprovalHistory : review
-  PurchaseOrderCommands --> PurchaseOrder
-  PurchaseOrderCommands --> ReplenishmentRequest : approved source
-  PurchaseOrderCommands --> ApprovalHistory : close approval
-  PoReceivingService --> GoodsArrival
-  PoReceivingService --> GoodsInspection
-  PoReceivingService --> GoodsReceipt : PURCHASE
-  PoReceivingService --> CustodyReceipt
-  PoReceivingService --> InventoryBalance
-  PoReceivingService --> StockTransaction
-  PurchasePutawayService --> TransferOrder : PUTAWAY
-  PurchaseCorrectionService --> GoodsReceipt
+  class StockAndPurchaseData {
+    <<read only>>
+    InventoryBalance
+    Product.stockThresholds
+    PurchaseOrder OPEN or PARTIAL
+  }
+  ReplenishmentRoutes ..> ReplenishmentCommands : calls
+  ReplenishmentRoutes ..> ReplenishmentReads : calls
+  ReplenishmentCommands ..> ReplenishmentEvaluation : evaluates lines
+  ReplenishmentEvaluation ..> SourceDocument : resolveSource
+  ReplenishmentEvaluation ..> StockAndPurchaseData : reads for warnings
+  ReplenishmentCommands ..> ReplenishmentRequest : writes
+  ReplenishmentCommands ..> ApprovalHistory : writes on review
+  ReplenishmentRequest "1" --> "0..*" ApprovalHistory : decisions
+  ReplenishmentRequest "0..*" --> "0..*" SourceDocument : items.sources
 ```
 
-#### 1.2 Sequence — Create, submit and approve RR
+##### 1.1.2 Sequence — Create, submit, review and cancel RR
 
 ```mermaid
 sequenceDiagram
@@ -1954,95 +1972,444 @@ sequenceDiagram
   actor O as Store Owner
   participant FE as RR pages
   participant API as /api/replenishments
-  participant RS as ReplenishmentCommands
-  participant EV as ReplenishmentEvaluation
+  participant RC as replenishment.commands
+  participant EV as replenishment.evaluation
   participant DB as MongoDB
-  SW->>FE: Open Create request (menu, SO or stocktake)
-  FE->>API: GET /options?mode=CREATE, /options/lots
-  FE->>API: POST /evaluate {warehouseId, neededOn, lines}
-  API->>EV: evaluateLines (snapshot read)
-  EV->>DB: available stock, thresholds, open RR, OPEN/PARTIAL PO, other warehouses
+  SW->>FE: Open Create request (menu, SO shortage or stocktake)
+  FE->>API: GET /options?mode=CREATE, /options/lots, /options/sources
+  FE->>API: POST /evaluate {warehouseId, neededOn, lines[productId, enteredUnit, enteredQty, lotId?, source?]}
+  API->>EV: evaluateLines
+  EV->>DB: read source document, free stock, threshold, open RR, OPEN/PARTIAL PO, other warehouses
+  EV->>EV: resolve trigger (SALES_SHORTAGE, STOCKTAKE_LOW_STOCK, STOCK_THRESHOLD, MANUAL_OTHER)
   EV-->>FE: per line quantities + warnings[OPEN_REQUEST, INCOMING_PO, STOCK_SUFFICIENT]
-  SW->>FE: Enter quantities, confirm independent need + reason on warned lines
-  FE->>API: POST / {SAVE_DRAFT|SUBMIT, creationKey, lines}
-  API->>RS: createReplenishment
-  RS->>EV: re-evaluate inside transaction
-  alt warned line without confirmation
-    RS-->>FE: 409 ERR-RR-409-004 {latestEvaluations, invalidLines}
+  SW->>FE: Confirm independent need + reason on warned lines
+  FE->>API: POST / {action SAVE_DRAFT or SUBMIT, creationKey, warehouseId, neededOn, triggerReason, lines}
+  API->>RC: createReplenishment
+  RC->>EV: re-evaluate inside the transaction (strict source version on SUBMIT)
+  alt warned line without confirmation, or source version changed
+    RC-->>FE: 409 ERR-RR-409-004 {latestEvaluations, invalidLines}
   else valid
-    RS->>DB: save RR DRAFT or SUBMITTED + warning snapshot
-    RS-->>FE: receipt
+    RC->>DB: allocate RR id, save DRAFT (or SUBMITTED + submissions[] snapshot)
+    RC-->>FE: receipt
+  end
+  opt edit or submit a saved request (creator, DRAFT, no PO)
+    FE->>API: PUT /:id {expectedVersion, operationKey, lines}
+    FE->>API: POST /:id/submit {expectedVersion, operationKey, evaluations?}
+    RC->>EV: re-evaluate saved lines, require warning confirmations
+    RC->>DB: save RR SUBMITTED + submissions[] snapshot
   end
   O->>FE: Open submitted RR
-  FE->>API: POST /:id/review {decision, lines[approvedQty], expectedVersion}
-  API->>RS: reviewReplenishment
-  RS->>DB: check Owner ≠ creator, every line, qty ≤ requested
-  RS->>DB: ApprovalHistory + RR APPROVED / REJECTED / returned
-  RS-->>FE: receipt (no stock, no PO)
+  FE->>API: POST /:id/review {decision APPROVE/REJECT, reason, lines[lineId, approvedQtyBase, reason?], expectedVersion}
+  API->>RC: reviewReplenishment
+  RC->>RC: check reviewer ≠ creator, status SUBMITTED, decision reason present
+  RC->>RC: APPROVE checks every line, approved ≤ requested, whole cartons/base units, line reason when reduced, one line > 0
+  alt check fails
+    RC-->>FE: 400 / 403
+  else valid
+    RC->>DB: save ApprovalHistory, items.approvedQtyBase, header.latestDecisionId, approvedRevision
+    RC->>DB: save RR APPROVED / REJECTED
+    RC-->>FE: receipt (no stock movement, no PO created)
+  end
+  opt cancel a request without PO
+    FE->>API: POST /:id/cancel {expectedVersion, operationKey, reason}
+    RC->>RC: creator for DRAFT/SUBMITTED, Owner for APPROVED
+    RC->>DB: save RR CANCELLED
+  end
 ```
 
-#### 1.3 Sequence — Purchase order lifecycle
+#### 1.2 Purchase Order (PO)
+
+##### 1.2.1 Class Diagram
+
+```mermaid
+classDiagram
+  class PurchaseOrderRoutes {
+    <<purchase-order.routes.js and purchase-order.commands.routes.js>>
+    +GET /, /supplier-options, /:id purchase_order:read
+    +POST / purchase_order:create
+    +PUT /:id purchase_order:update
+    +POST /:id/confirm purchase_order:update
+    +POST /:id/expected-on purchase_order:update
+    +POST /:id/close-remainder purchase_order:update
+    +POST /:id/cancel purchase_order:update
+  }
+  class PurchaseOrderCommands {
+    <<purchase-order.commands.js>>
+    +createPurchaseOrder()
+    +updatePurchaseOrder()
+    +confirmPurchaseOrder()
+    +rescheduleExpectedOn()
+    +closeRemainder()
+    +cancelPurchaseOrder()
+    -draftItems()
+    -validateClose()
+  }
+  class PurchaseOrderService {
+    <<purchase-order.service.js>>
+    +purchaseOrderQuantities()
+    +cancelBlocker()
+    +getPurchaseOrder()
+    +listPurchaseOrders()
+    +listPurchaseOrderSupplierOptions()
+  }
+  class PurchaseOrder {
+    <<purchase_orders>>
+    _id PO-warehouse-YYMMDD-seq
+    workflowStatus DRAFT OPEN PARTIAL COMPLETED CLOSED CANCELLED
+    replenishmentRequestId, unset on cancel
+    header.supplierId, supplierSnapshot, expectedOn, issuedAt
+    header.approvedRequestRevision, closedAt, closureReason
+    items[].requestItemId, qtyBase, unitPurchasePrice, lineAmount
+    items[].cancelledRemainderQtyBase
+    totalAmount, currency VND
+  }
+  class ReplenishmentRequest {
+    <<APPROVED>>
+  }
+  class ApprovalHistory {
+    <<latest APPROVE decision>>
+  }
+  class Supplier {
+    <<ACTIVE>>
+  }
+  class PurchaseReceipt {
+    <<goods_receipts PURCHASE>>
+    POSTED counts as received
+    DRAFT counts as commitment
+  }
+  PurchaseOrderRoutes ..> PurchaseOrderCommands : calls
+  PurchaseOrderRoutes ..> PurchaseOrderService : calls
+  PurchaseOrderCommands ..> PurchaseOrderService : quantities, cancelBlocker
+  PurchaseOrderCommands ..> PurchaseOrder : writes
+  PurchaseOrderCommands ..> ApprovalHistory : reads approved ceiling
+  PurchaseOrderService ..> PurchaseReceipt : sums received and draft qty
+  PurchaseOrder "0..1" --> "1" ReplenishmentRequest : live PO per RR
+  PurchaseOrder "0..*" --> "1" Supplier : supplierId
+  PurchaseReceipt "0..*" --> "1" PurchaseOrder : purchaseOrderId
+```
+
+##### 1.2.2 Sequence — Create, confirm, reschedule, close remainder and cancel PO
 
 ```mermaid
 sequenceDiagram
   autonumber
   actor A as Accountant
-  actor O as Store Owner
+  participant FE as PO pages
   participant API as /api/purchase-orders
-  participant PC as PurchaseOrderCommands
+  participant PC as purchase-order.commands
+  participant PS as purchase-order.service
   participant DB as MongoDB
   Note over A: Agree quantity, price and date with the supplier outside WMSD
-  A->>API: POST / {replenishmentRequestId, supplierId, lines[rrLineId, qty, price, note], expectedOn, creationKey}
+  A->>FE: Create PO from an APPROVED RR
+  FE->>API: POST / {creationKey, warehouseId, supplierId, currency VND, expectedOn?, lines[rrLineId, approvalId, enteredQty, uomCode?, unitPurchasePrice, note?]}
   API->>PC: createPurchaseOrder
-  PC->>DB: RR APPROVED, latest decision, no PO yet (unique index), qty ≤ approved, active supplier/products
-  PC->>DB: save PO DRAFT, touch RR.updatedAt
-  opt edit while DRAFT
-    A->>API: PUT /:id {expectedVersion, operationKey, lines}
+  PC->>DB: read RR, latest ApprovalHistory, supplier, warehouse, products
+  PC->>PC: RR APPROVED in the same warehouse, one PO line per RR line, qty ≤ approvedQtyBase, expectedOn not before today
+  alt RR already has a live PO (partial unique index) or a check fails
+    PC-->>FE: 400
+  else valid
+    PC->>DB: touch RR.updatedAt, save PO DRAFT with supplierSnapshot and totalAmount
+    PC-->>FE: receipt
   end
-  A->>API: POST /:id/confirm
-  PC->>DB: recheck RR ceilings → PO OPEN, issuedAt
-  opt supplier changes delivery date
-    A->>API: POST /:id/expected-on {expectedOn, reason}
-    PC->>DB: OPEN/PARTIAL only, audit RESCHEDULE_PO_EXPECTED_ON
+  opt edit while DRAFT
+    FE->>API: PUT /:id {expectedVersion, operationKey, lines}
+    PC->>PC: same checks, RR source cannot change
+    PC->>DB: save PO DRAFT
+  end
+  A->>FE: Issue PO
+  FE->>API: POST /:id/confirm {expectedVersion, operationKey}
+  PC->>PC: RR still APPROVED at approvedRequestRevision, lines within approval, supplier, warehouse and products active
+  PC->>DB: save PO OPEN, issuedAt
+  opt supplier changes the delivery date
+    FE->>API: POST /:id/expected-on {expectedOn, reason, expectedVersion, operationKey}
+    PC->>DB: OPEN/PARTIAL only, save expectedOn, audit RESCHEDULE_PO_EXPECTED_ON before/after
+  end
+  opt stop waiting for the remainder (one step, evidence optional)
+    FE->>API: POST /:id/close-remainder {lines[poLineId, qtyBase], reason, evidenceIds?}
+    PC->>PS: purchaseOrderQuantities
+    PC->>PC: qty ≤ outstanding − open draft GR
+    PC->>DB: add cancelledRemainderQtyBase, PO CLOSED + closedAt when nothing is outstanding, audit CLOSE_PO_REMAINDER
   end
   opt cancel before any receiving document
-    A->>API: POST /:id/cancel {expectedVersion, reason}
-    PC->>DB: DRAFT/OPEN without arrival/receipt → CANCELLED, unset replenishmentRequestId (RR free for a new PO)
-  end
-  opt stop waiting for the remainder
-    A->>API: POST /:id/close-remainder {lines, reason, evidenceIds?}
-    PC->>DB: cancelledRemainderQtyBase, audit CLOSE_PO_REMAINDER, PO CLOSED when nothing outstanding
+    FE->>API: POST /:id/cancel {expectedVersion, operationKey, reason}
+    PC->>PS: cancelBlocker (DRAFT/OPEN, no remainder closed, no arrival or GR)
+    PC->>DB: save PO CANCELLED, unset replenishmentRequestId (RR free for a new PO)
   end
 ```
 
-#### 1.4 Sequence — Inspection, goods receipt posting and put-away
+#### 1.3 Goods Inspection (ARR + INS)
+
+##### 1.3.1 Class Diagram
+
+```mermaid
+classDiagram
+  class PurchaseReceivingRoutes {
+    <<po-receiving.routes.js purchaseReceivingRouter and queueRouter>>
+    +GET /purchase-orders/:id/inspection-context
+    +POST /purchase-orders/:id/inspections goods_receipt_inspection:create
+    +GET /purchase-orders/:id/receiving-summary, /receiving-trips
+    +GET /purchase-receiving/queue
+  }
+  class InspectionRoutes {
+    <<po-receiving.routes.js inspectionRouter>>
+    +GET /goods-inspections, /:id, /:id/history
+    +PUT /:id goods_receipt_inspection:update
+    +POST /:id/confirm goods_receipt_inspection:update
+    +POST /:id/cancel goods_receipt_inspection:update
+    +GET /:id/correction-preflight
+    +POST /:id/corrections goods_receipt_inspection:update
+  }
+  class PoReceivingService {
+    <<po-receiving.service.js>>
+    +inspectionContext()
+    +createInspection()
+    +updateInspection()
+    +confirmInspection()
+    +cancelDraft()
+    +activePo()
+    +prepare()
+  }
+  class PurchaseCorrectionService {
+    <<purchase-correction.service.js>>
+    +correctionPreflight()
+    +replaceInspection()
+    -correctionBlockers()
+  }
+  class GoodsArrival {
+    <<goods_arrivals>>
+    _id ARR-warehouse-YYMMDD-seq
+    workflowStatus DRAFT RECORDED CANCELLED
+    header.purchaseOrderId, arrivedAt, deliveredBy, deliveryReference
+    items[].purchaseOrderItemId, lotId, qtyBase, packagingCondition
+  }
+  class GoodsInspection {
+    <<goods_inspections>>
+    _id INS-warehouse-YYMMDD-seq
+    workflowStatus DRAFT CONFIRMED CANCELLED
+    header.arrivalId, previousInspectionId, correctionReason
+    items[].details.qualityCode GOOD DAMAGED PENDING BLOCKED
+    items[].details.ownershipDecision ACCEPT CUSTODY REJECT
+    items[].details.receivingLocationId, packagingCondition
+  }
+  class PurchaseOrder {
+    <<OPEN or PARTIAL>>
+  }
+  class PurchaseReceipt {
+    <<GR PURCHASE DRAFT>>
+  }
+  class CustodyReceipt {
+    <<custody_receipts DRAFT, owner SUPPLIER>>
+  }
+  PurchaseReceivingRoutes ..> PoReceivingService : calls
+  InspectionRoutes ..> PoReceivingService : calls
+  InspectionRoutes ..> PurchaseCorrectionService : calls
+  PurchaseCorrectionService ..> PoReceivingService : activePo, prepare
+  PoReceivingService ..> PurchaseOrder : reads headroom
+  PoReceivingService ..> GoodsArrival : writes
+  PoReceivingService ..> GoodsInspection : writes
+  PoReceivingService ..> PurchaseReceipt : creates on confirm
+  PoReceivingService ..> CustodyReceipt : creates on confirm
+  PurchaseCorrectionService ..> GoodsInspection : writes replacement
+  GoodsArrival "0..*" --> "1" PurchaseOrder : purchaseOrderId
+  GoodsInspection "1" --> "1" GoodsArrival : arrivalId
+  GoodsInspection "0..1" --> "0..1" GoodsInspection : previousInspectionId
+  PurchaseReceipt "0..1" --> "1" GoodsInspection : ACCEPT lines
+  CustodyReceipt "0..1" --> "1" GoodsInspection : CUSTODY lines
+```
+
+##### 1.3.2 Sequence — Record arrival, inspect and confirm
 
 ```mermaid
 sequenceDiagram
   autonumber
   actor W as Warehouse Staff
-  participant API as /api/purchase-orders, /goods-inspections, /goods-receipts/purchase, /putaway-tasks
-  participant RV as PoReceivingService
-  participant PW as PurchasePutawayService
+  participant FE as PO detail / inspection page
+  participant API as /api/purchase-orders, /api/goods-inspections
+  participant RV as po-receiving.service
+  participant CR as purchase-correction.service
   participant DB as MongoDB
-  W->>API: GET /purchase-orders/:id/inspection-context
-  W->>API: POST /purchase-orders/:id/inspections {arrivedAt, deliveredBy, lines[poLineId, lotId, enteredUnit, enteredQty, qualityCode, ownershipDecision, packagingCondition]}
+  W->>FE: Open a receiving trip on an OPEN/PARTIAL PO
+  FE->>API: GET /purchase-orders/:id/inspection-context
+  API-->>FE: PO lines, quantities (headroom in base units), VERIFIED lots, locations, products, cartonUnits
+  W->>FE: Count by whole cartons or base units, choose lot, quality and decision
+  FE->>API: POST /purchase-orders/:id/inspections {creationKey, expectedPoVersion, arrivedAt, deliveredBy?, deliveryReference?, lines[poLineId, lotId, enteredUnit?, enteredQty, qualityCode, ownershipDecision, packagingCondition, receivingLocationId?]}
   API->>RV: createInspection
-  RV->>DB: convert by lot Conversion, check PO allowance in qtyBase
-  RV->>DB: GoodsArrival + GoodsInspection DRAFT
-  W->>API: POST /goods-inspections/:id/confirm {destinations}
-  RV->>DB: GoodsReceipt PURCHASE DRAFT (ACCEPT) + CustodyReceipt DRAFT (CUSTODY)
-  W->>API: POST /goods-receipts/purchase/:id/post {packaging?}
-  RV->>DB: check quality, allowance, capacity, stocktake lock
-  RV->>DB: InventoryBalance STORE +qty at RECEIVING, StockTransaction, PO PARTIAL/COMPLETED
-  W->>API: POST /goods-receipts/purchase/:id/putaway-tasks {lines[receiptLineId, qtyBase, toLocationId]}
-  API->>PW: createPutaway
-  PW->>DB: simulate carton split (whole cartons + whole loose part) → TransferOrder PUTAWAY OPEN
-  W->>API: POST /putaway-tasks/:id/confirm {lines[taskLineId, actualQtyBase]}
-  PW->>DB: move RECEIVING → STORAGE, capacity check, task PARTIAL/CONFIRMED
-  opt custody goods
-    W->>API: POST /custody-receipts/:id/post {destinations}
-    RV->>DB: SUPPLIER-owned balance at CUSTODY/QUARANTINE (PO received qty unchanged)
+  RV->>DB: read PO at expectedPoVersion, lot Conversion, lots, locations
+  RV->>RV: PO OPEN/PARTIAL, SEALED lines in whole cartons, arrivedAt not before lot manufacture
+  RV->>RV: non-GOOD lines must be CUSTODY, receivingLocationId only for ACCEPT at RECEIVING
+  RV->>DB: save GoodsArrival DRAFT + GoodsInspection DRAFT
+  RV-->>FE: receipt (resultRefs goods_arrivals)
+  opt edit or cancel the draft
+    FE->>API: PUT /goods-inspections/:id {expectedVersion, expectedPoVersion, lines}
+    FE->>API: POST /goods-inspections/:id/cancel {reason} (INS and ARR become CANCELLED)
+  end
+  W->>FE: Confirm inspection and choose a location for every ACCEPT line
+  FE->>API: POST /goods-inspections/:id/confirm {expectedVersion, expectedPoVersion, destinations[inspectionItemId, locationId]}
+  API->>RV: confirmInspection
+  RV->>DB: read PO and posted/draft GR quantities
+  RV->>RV: only GOOD may be ACCEPT, ACCEPT total ≤ PO acceptance headroom per line, destination type RECEIVING
+  alt check fails
+    RV-->>FE: 400
+  else valid
+    RV->>DB: save GoodsReceipt PURCHASE DRAFT for ACCEPT lines
+    RV->>DB: save CustodyReceipt DRAFT (owner SUPPLIER) for CUSTODY lines, REJECT lines create no document
+    RV->>DB: save INS CONFIRMED, ARR RECORDED, PO version bump (no stock movement)
+    RV-->>FE: receipt (resultRefs goods_receipts, custody_receipts)
+  end
+  opt correct a confirmed inspection
+    FE->>API: GET /goods-inspections/:id/correction-preflight
+    FE->>API: POST /goods-inspections/:id/corrections {expectedVersion, expectedPoVersion, reason, evidenceIds?, lines}
+    API->>CR: replaceInspection
+    CR->>CR: blocked until dependent GR and custody receipts are cancelled or reversed
+    CR->>DB: save new ARR + INS DRAFT with previousInspectionId
+  end
+```
+
+#### 1.4 Purchase Goods Receipt (GR)
+
+##### 1.4.1 Class Diagram
+
+```mermaid
+classDiagram
+  class GoodsReceiptRoutes {
+    <<goods-receipt.routes.js>>
+    +GET /goods-receipts, /:id
+    +GET /goods-receipts/purchase, /:id goods_receipt_inspection:read
+  }
+  class PurchaseReceiptRoutes {
+    <<po-receiving.routes.js receiptRouter at /goods-receipts/purchase>>
+    +POST /:id/post goods_receipt_inspection:post
+    +PATCH /:id/destinations goods_receipt_inspection:update
+    +POST /:id/cancel goods_receipt_inspection:update
+    +GET /:id/reversal-preflight
+    +POST /:id/reverse goods_receipt_inspection:reverse and :post
+  }
+  class CustodyRoutes {
+    <<po-receiving.routes.js custodyRouter>>
+    +GET /custody-receipts, /:id
+    +POST /:id/post goods_receipt_inspection:post
+    +POST /:id/cancel
+    +POST /:id/reverse
+  }
+  class PoReceivingService {
+    <<po-receiving.service.js>>
+    +postReceipt()
+    +changeDestinations()
+    +cancelDraft()
+    +postCustodyReceipt()
+    -intakePortions()
+  }
+  class PurchaseCorrectionService {
+    <<purchase-correction.service.js>>
+    +reversalPreflight()
+    +reverseReceipt()
+    +eligible()
+  }
+  class StockUtils {
+    <<shared/utils/stock.js>>
+    +guardLocations()
+    +locationAt()
+    +balanceAt()
+    +receiveStock()
+    +verifyCapacity()
+  }
+  class PurchaseReceipt {
+    <<goods_receipts documentKind PURCHASE>>
+    _id GR-warehouse-YYMMDD-seq
+    workflowStatus DRAFT POSTED REVERSED CANCELLED
+    header.purchaseOrderId, arrivalId, supplierId, receivedAt
+    items[].purchaseOrderItemId, inspectionId, inspectionResultId
+    items[].destinationLocationId, lotId, qtyBase
+    stockTransactionId, postedBy, postedAt
+  }
+  class CustodyReceipt {
+    <<custody_receipts>>
+    workflowStatus DRAFT POSTED CANCELLED REVERSED
+    header.ownerType SUPPLIER, ownerId
+  }
+  class InventoryBalance {
+    STORE owned at RECEIVING
+    SUPPLIER owned at CUSTODY or QUARANTINE
+  }
+  class StockTransaction {
+    PURCHASE_RECEIPT, CUSTODY_RECEIPT, REVERSAL
+  }
+  class StockReversal {
+    <<stock_reversals>>
+  }
+  class PurchaseOrder {
+    <<PARTIAL or COMPLETED>>
+  }
+  GoodsReceiptRoutes ..> PurchaseReceiptRoutes : mounts /purchase
+  PurchaseReceiptRoutes ..> PoReceivingService : calls
+  PurchaseReceiptRoutes ..> PurchaseCorrectionService : calls
+  CustodyRoutes ..> PoReceivingService : calls
+  CustodyRoutes ..> PurchaseCorrectionService : calls
+  PoReceivingService ..> StockUtils : posts stock
+  PurchaseCorrectionService ..> StockUtils : guards locations
+  PoReceivingService ..> PurchaseReceipt : posts
+  PoReceivingService ..> CustodyReceipt : posts
+  PoReceivingService ..> PurchaseOrder : sets PARTIAL or COMPLETED
+  PurchaseCorrectionService ..> StockReversal : writes
+  StockUtils ..> InventoryBalance : writes
+  StockUtils ..> StockTransaction : writes
+  PurchaseReceipt "0..*" --> "1" PurchaseOrder : purchaseOrderId
+  PurchaseReceipt "1" --> "0..1" StockTransaction : stockTransactionId
+  CustodyReceipt "1" --> "0..1" StockTransaction : stockTransactionId
+  StockReversal "0..1" --> "1" StockTransaction : originalTransactionId
+  StockTransaction "0..*" --> "1..*" InventoryBalance : movements
+```
+
+##### 1.4.2 Sequence — Post GR, custody receipt and reversal
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor W as Warehouse Staff
+  participant FE as GR detail page
+  participant API as /api/goods-receipts/purchase, /api/custody-receipts
+  participant RV as po-receiving.service
+  participant CR as purchase-correction.service
+  participant ST as shared stock utils
+  participant DB as MongoDB
+  W->>FE: Open GR DRAFT created by the confirmed inspection
+  opt change the receiving location before posting
+    FE->>API: PATCH /:id/destinations {expectedVersion, operationKey, reason, lines[lineId, receivingLocationId]}
+    RV->>RV: DRAFT only, location type RECEIVING in the same warehouse
+    RV->>DB: save GR destinations
+  end
+  FE->>API: POST /:id/post {expectedVersion, expectedPoVersion, operationKey, packaging?}
+  API->>RV: postReceipt
+  RV->>DB: read GR, PO, source INS lines
+  RV->>RV: GR DRAFT, PO OPEN/PARTIAL, no PO line over headroom
+  RV->>RV: source INS line still CONFIRMED, GOOD, ACCEPT, same lot, product and qty
+  RV->>ST: guardLocations (active, not locked by stocktake)
+  RV->>ST: balanceAt(RECEIVING, STORE, GOOD) + receiveStock (sealed, open or loose portions)
+  RV->>ST: verifyCapacity
+  alt check fails (headroom, source, location lock or capacity)
+    RV-->>FE: 400, transaction rolled back
+  else valid
+    RV->>DB: save StockTransaction PURCHASE_RECEIPT, GR POSTED (postedBy, postedAt, receivedAt)
+    RV->>DB: save PO COMPLETED when nothing is outstanding, else PARTIAL
+    RV-->>FE: receipt + stockTransactionId
+  end
+  Note over FE,DB: GR ends at POSTED. Moving goods from RECEIVING to STORAGE uses BF-03 relocation (capabilities.relocate). Purchase put-away routes were removed on 17/11/2026.
+  opt cancel a draft GR
+    FE->>API: POST /:id/cancel {expectedVersion, expectedPoVersion, operationKey, reason}
+    RV->>DB: save GR CANCELLED (PO headroom returned, INS stays CONFIRMED)
+  end
+  opt post custody goods from the inspection
+    FE->>API: POST /custody-receipts/:id/post {destinations[lineId, locationId], handedOverBy?, packaging?}
+    RV->>ST: guardLocations, SUPPLIER-owned balance at CUSTODY/QUARANTINE, verifyCapacity
+    RV->>DB: save StockTransaction CUSTODY_RECEIPT, custody receipt POSTED (PO received qty unchanged)
+  end
+  opt reverse a posted GR
+    FE->>API: GET /:id/reversal-preflight
+    FE->>API: POST /:id/reverse {expectedVersion, expectedPoVersion, operationKey, reason, evidenceIds?}
+    API->>CR: reverseReceipt
+    CR->>CR: eligible: movement not reversed, no dependent document, open TO, later stocktake count or active hold, qty still free
+    CR->>DB: save StockReversal POSTED + StockTransaction REVERSAL, GR REVERSED
+    CR->>DB: save PO PARTIAL or OPEN (a CLOSED PO keeps its status)
   end
 ```
 
@@ -2673,7 +3040,7 @@ Each command writes a `system_events` row with status `PENDING` in the same tran
 
 | Report 3 area | Status in code (14/11/2026) |
 |---|---|
-| BF-01 RR, PO, inspection, GR, custody, put-away, reversal (UC-01–16, 37, 45–46) | Implemented; UC-11 retired. |
+| BF-01 RR, PO, inspection, GR, custody, reversal (UC-01–16, 37, 45–46) | Implemented; UC-11 retired. Purchase put-away routes were removed on 17/11/2026; RECEIVING → STORAGE uses BF-03 relocation. |
 | BF-02 defects (UC-73–78) | Implemented. |
 | BF-03 relocation (UC-47–50) | Implemented. |
 | BF-04 transfer (UC-51–56, 120) | Implemented, including differences and partial close. |
