@@ -15,19 +15,31 @@ export async function completionBlocker(request,session) {
   }
   if(request.items.some(item=>!(dispatched.get(String(item._id))??exact('0')).eq(String(item.approvedQtyBase))))return 'Chưa xuất đủ lượng duyệt';
   const ids=dispatches.map(row=>row._id);
-  if(await StockDiscrepancy.exists({'header.sourceRef.documentId':{$in:ids},workflowStatus:{$ne:'RESOLVED'}}).session(session))return 'Còn hồ sơ chênh lệch chưa giải quyết';
+  if(await StockDiscrepancy.exists({'header.sourceRef.documentId':{$in:ids},workflowStatus:'OPEN'}).session(session))return 'Còn hồ sơ chênh lệch chưa giải quyết';
   const points=await StockHoldingPoint.find({dispatchLineId:{$in:[...requestByDispatchLine.keys()]}}).select('_id').session(session).lean();
   if(await InventoryBalance.exists({holdingPointId:{$in:points.map(row=>row._id)},quantityBase:{$gt:0}}).session(session))return 'Còn hàng đang chuyển hoặc chênh lệch chưa giải quyết';
   const receipts=await TransferReceipt.find({'header.dispatchId':{$in:ids},workflowStatus:'POSTED'})
     .select('_id items._id items.qtyBase items.details.dispatchLineId items.details.qualityCode').session(session).lean();
-  if(!receipts.length)return 'Chưa nhận hàng';
-  const effective=await effectiveQuantities(receipts,session),received=new Map();
+  const lost=await writtenOffByRequestLine(ids,requestByDispatchLine,session);
+  if(!receipts.length&&!lost.size)return 'Chưa nhận hàng';
+  // Transit loss written off by the owner counts as accounted for, alongside what was received.
+  const effective=await effectiveQuantities(receipts,session),received=new Map(lost);
   for(const receipt of receipts)for(const item of receipt.items){
     const key=requestByDispatchLine.get(String(item.details.dispatchLineId));
     received.set(key,(received.get(key)??exact('0')).plus(effective.get(String(item._id))??String(item.qtyBase)));
   }
   if(request.items.some(item=>!(received.get(String(item._id))??exact('0')).eq(String(item.approvedQtyBase))))return 'Chưa nhận đủ lượng duyệt';
   return putawayBlocker(receipts,session,ids);
+}
+export async function writtenOffByRequestLine(dispatchIds,requestByDispatchLine,session){
+  const rows=await StockDiscrepancy.find({'header.sourceRef.documentId':{$in:dispatchIds},workflowStatus:'RESOLVED','header.resolutionMode':'WRITE_OFF'})
+    .select('items.qtyBase items.details.sourceLineId').session(session).lean();
+  const totals=new Map();
+  for(const item of rows.flatMap(row=>row.items)){
+    const key=requestByDispatchLine.get(String(item.details.sourceLineId));
+    if(key)totals.set(key,(totals.get(key)??exact('0')).plus(String(item.qtyBase)));
+  }
+  return totals;
 }
 export async function putawayBlocker(receipts,session,dispatchIds=[]) {
   const good=receipts.filter(row=>row.items.some(item=>item.details.qualityCode!=='DAMAGED'));
