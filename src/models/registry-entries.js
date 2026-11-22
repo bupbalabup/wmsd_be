@@ -42,6 +42,7 @@ import { createSalesGoodsIssueSchema } from "./sales-goods-issue.model.js";
 import { createDefectReportSchema } from "./defect-report.model.js";
 import { createStockScrapRecordSchema } from "./stock-scrap-record.model.js";
 import { createStocktakeSchema } from "./stocktake.model.js";
+import { createStocktakePlanSchema } from "./stocktake-plan.model.js";
 import { createStockAdjustmentSchema } from "./stock-adjustment.model.js";
 import { createFailedDeliverySchema } from "./failed-delivery.model.js";
 import { createStockQualityChangeSchema } from "./stock-quality-change.model.js";
@@ -323,6 +324,11 @@ export function modelSchemaEntries() {
       name: "SalesInvoice",
       collection: "sales_invoices",
       schema: createSalesInvoiceSchema(),
+    },
+    {
+      name: "StocktakePlan",
+      collection: "stocktake_plans",
+      schema: createStocktakePlanSchema(),
     },
   ];
 }

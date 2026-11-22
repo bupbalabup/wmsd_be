@@ -9,11 +9,10 @@ import { dto, page, transaction } from '../../shared/utils/persistence.js';
 import { requirePermission, requireWarehouseAccess, hasPermission } from '../../shared/utils/access.js';
 import { currentRole } from '../../shared/utils/userRole.js';
 import { validationError, notFoundError } from '../../shared/utils/ApiError.js';
-import { guardLocations, sourceContext, freeQuantity, locationAt, balanceAt, beginStock, moveStock, remainingReservation, verifyCapacity } from '../../shared/utils/stock.js';
+import { guardLocations, sourceContext, freeQuantity, locationAt, balanceAt, beginStock, moveStock, remainingReservation, verifyCapacity, stocktakeLockedLocations } from '../../shared/utils/stock.js';
 import { orderSource, redactPrices } from './sales-read.service.js';
 import { escapeRegex } from '../../shared/utils/domain.js';
 import { issueSource } from '../goods-issues/goods-issue.service.js';
-import { blindCountScope } from '../../shared/utils/blind-count.js';
 const sum = (rows, field) => rows.reduce((n, row) => n.plus(String(row[field])), exact('0'));
 function unique(rows, key) { if (new Set(rows.map(r => r[key])).size !== rows.length)
     throw validationError('Không được lặp dòng nguồn'); }
@@ -342,14 +341,15 @@ export async function salesOptions(user) {
     const ids = warehouses.map(w => w._id);
     const locations = await m.WarehouseLocation.find({ warehouseId: { $in: ids }, isActive: true }).lean();
     const points = await m.StockHoldingPoint.find({ type: 'LOCATION', locationId: { $in: locations.map(l => l._id) } }).lean();
-    // Locations being blind counted are frozen and their balances equal the hidden book quantity, so they are not offered.
-    const blind = await blindCountScope(user);
-    const balances = (await m.InventoryBalance.find({ holdingPointId: { $in: points.map(p => p._id) }, ownerType: 'STORE', qualityStatus: 'GOOD', quantityBase: { $gt: 0 } }).lean()).filter(b => !blind.has(b._id));
+    const balances = (await m.InventoryBalance.find({ holdingPointId: { $in: points.map(p => p._id) }, ownerType: 'STORE', qualityStatus: 'GOOD', quantityBase: { $gt: 0 } }).lean());
+    // Stocktake-locked locations stay listed but flagged, with nothing selectable (same for every role).
+    const frozen = await stocktakeLockedLocations(locations.map(l => l._id));
+    const frozenPoints = new Set(points.filter(p => frozen.has(String(p.locationId))).map(p => String(p._id)));
     const chronology = await m.StockTransaction.aggregate([{ $unwind: '$movements' }, { $match: { 'movements.toBalanceId': { $in: balances.map(b=>b._id) } } }, { $group: { _id: '$movements.toBalanceId', firstReceivedAt: { $min: '$occurredAt' } } }]);
     balances.sort((a,b)=>(+(chronology.find(r=>same(r._id,a._id))?.firstReceivedAt || 8640000000000000))-(+(chronology.find(r=>same(r._id,b._id))?.firstReceivedAt || 8640000000000000)));
     const uoms=await m.Uom.find({isActive:true}).select('_id code name isCarton').lean();
     const conversions=await m.Conversion.find({uomId:{$in:uoms.map(u=>u._id)},validFrom:{$lte:new Date()}}).sort({validFrom:-1}).lean();
-    return { units:uoms.map(dto), conversions:conversions.filter((c,index,all)=>all.findIndex(x=>same(x.productId,c.productId)&&String(x.productBatchId||'')===String(c.productBatchId||'')&&same(x.uomId,c.uomId))===index).map(dto), customers: [], products: (await m.Product.find({ isActive: true }).select('_id name sku baseUnit').lean()).map(dto), batches: (await m.ProductBatch.find({ identificationStatus: 'VERIFIED' }).lean()).map(dto), warehouses: warehouses.map(dto), locations: locations.map(dto), holdingPoints: points.map(dto), balances: await Promise.all(balances.map(async (b) => ({ ...dto(b), firstReceivedAt: chronology.find(r=>same(r._id,b._id))?.firstReceivedAt?.toISOString() || null, availableQtyBase: (await freeQuantity(b)).toFixed() }))) };
+    return { units:uoms.map(dto), conversions:conversions.filter((c,index,all)=>all.findIndex(x=>same(x.productId,c.productId)&&String(x.productBatchId||'')===String(c.productBatchId||'')&&same(x.uomId,c.uomId))===index).map(dto), customers: [], products: (await m.Product.find({ isActive: true }).select('_id name sku baseUnit').lean()).map(dto), batches: (await m.ProductBatch.find({ identificationStatus: 'VERIFIED' }).lean()).map(dto), warehouses: warehouses.map(dto), locations: locations.map(l => ({ ...dto(l), lockedByStocktake: frozen.has(String(l._id)) })), holdingPoints: points.map(dto), balances: await Promise.all(balances.map(async (b) => { const lockedByStocktake = frozenPoints.has(String(b.holdingPointId)); return { ...dto(b), firstReceivedAt: chronology.find(r=>same(r._id,b._id))?.firstReceivedAt?.toISOString() || null, lockedByStocktake, availableQtyBase: lockedByStocktake ? '0' : (await freeQuantity(b)).toFixed() }; })) };
 }
 export async function listPicking(user, query) { requirePermission(user, 'picking_task:read'); const filter = { 'header.taskKind': 'PICK', 'sources.subjectCollection': 'sales_goods_issues', 'header.warehouseId': { $in: user.warehouseIds || [] } }; if (currentRole(user)?.code === 'OWNER')
     delete filter['header.warehouseId']; if (query.warehouseId) {

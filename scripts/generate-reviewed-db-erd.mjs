@@ -17,7 +17,7 @@ const groups = [
   ['F · Sales, delivery & invoice', '#DDEBF7', ['sales_orders', 'warehouse_issue_requests', 'delivery_orders', 'sales_goods_issues', 'delivery_confirmations', 'sales_invoices', 'external_payment_confirmations']],
   ['G · Customer return & custody', '#F4E1F1', ['failed_deliveries', 'delivery_demand_reopenings', 'delivery_commitment_transfers', 'sales_order_cancellations', 'customer_returns', 'return_inspections', 'return_quantity_claims', 'custody_receipts', 'custody_releases']],
   ['H · Defect & supplier return', '#FDE9D9', ['defect_reports', 'defect_resolution_plans', 'stock_scrap_records', 'stock_quality_changes', 'stock_discrepancies', 'supplier_returns', 'supplier_return_issues', 'supplier_acknowledgements']],
-  ['I · Stocktake, opening & reversal', '#E2F0D9', ['stocktakes', 'stocktake_snapshots', 'stocktake_counts', 'stocktake_location_locks', 'stocktake_resolution_plans', 'stock_adjustments', 'opening_stocks', 'stock_reversals']],
+  ['I · Stocktake, opening & reversal', '#E2F0D9', ['stocktakes', 'stocktake_snapshots', 'stocktake_counts', 'stocktake_location_locks', 'stocktake_resolution_plans', 'stocktake_plans', 'stock_adjustments', 'opening_stocks', 'stock_reversals']],
   ['J · Evidence, audit & events', '#E7E6E6', ['approval_history', 'attachments', 'notifications', 'audit_logs', 'system_events', 'operation_records', 'external_references', 'external_reference_lines']],
 ];
 

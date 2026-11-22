@@ -275,6 +275,12 @@
         "target": ""
       },
       {
+        "path": "lockReason",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "version",
         "type": "Number",
         "required": true,
@@ -506,6 +512,30 @@
         "path": "isActive",
         "type": "Boolean",
         "required": true,
+        "target": ""
+      },
+      {
+        "path": "stockOperationVersion",
+        "type": "Number",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "layout3d",
+        "type": "Mixed",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "layout3dApplied",
+        "type": "Mixed",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "layout3dAppliedAt",
+        "type": "Date",
+        "required": false,
         "target": ""
       },
       {
@@ -2562,6 +2592,18 @@
         "target": ""
       },
       {
+        "path": "correctsEmptyCountId",
+        "type": "ObjectId",
+        "required": false,
+        "target": "StocktakeCount"
+      },
+      {
+        "path": "correctionReason",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "countedBy",
         "type": "ObjectId",
         "required": true,
@@ -3588,6 +3630,18 @@
         "target": "Customer"
       },
       {
+        "path": "customerName",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "customerPhone",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "warehouseId",
         "type": "ObjectId",
         "required": false,
@@ -3755,6 +3809,42 @@
         "type": "String",
         "required": true,
         "target": ""
+      },
+      {
+        "path": "tone",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "calibre",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "verificationReference",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "notes",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "verifiedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "verifiedBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
       },
       {
         "path": "manufacturedOn",
@@ -4967,12 +5057,6 @@
         "target": ""
       },
       {
-        "path": "header.supplierConfirmation",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "header.approvedRequestRevision",
         "type": "Number",
         "required": false,
@@ -5285,24 +5369,6 @@
         "target": ""
       },
       {
-        "path": "items[].supplierConfirmedQtyBase",
-        "type": "Decimal128",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "items[].supplierConfirmedBy",
-        "type": "ObjectId",
-        "required": false,
-        "target": "User"
-      },
-      {
-        "path": "items[].supplierConfirmedAt",
-        "type": "Date",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "items[].cancelledRemainderQtyBase",
         "type": "Decimal128",
         "required": false,
@@ -5313,30 +5379,6 @@
         "type": "ObjectId",
         "required": false,
         "target": "ApprovalHistory"
-      },
-      {
-        "path": "items[].deliverySchedule",
-        "type": "Array",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "items[].deliverySchedule[].quantityBase",
-        "type": "Decimal128",
-        "required": true,
-        "target": ""
-      },
-      {
-        "path": "items[].deliverySchedule[].expectedAt",
-        "type": "Date",
-        "required": true,
-        "target": ""
-      },
-      {
-        "path": "items[].deliverySchedule[].supplierReference",
-        "type": "String",
-        "required": false,
-        "target": ""
       },
       {
         "path": "items[].{DocumentLine_REPLENISHMENT}.details",
@@ -5550,7 +5592,10 @@
           "unique": true,
           "partialFilterExpression": {
             "replenishmentRequestId": {
-              "$type": "objectId"
+              "$type": [
+                "objectId",
+                "string"
+              ]
             }
           }
         }
@@ -8309,6 +8354,18 @@
         "target": ""
       },
       {
+        "path": "header.closureMode",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.closureReason",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "updatedBy",
         "type": "ObjectId",
         "required": false,
@@ -10538,8 +10595,20 @@
       {
         "path": "header.customerId",
         "type": "ObjectId",
-        "required": true,
+        "required": false,
         "target": "Customer"
+      },
+      {
+        "path": "header.customerName",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.customerPhone",
+        "type": "String",
+        "required": false,
+        "target": ""
       },
       {
         "path": "header.neededOn",
@@ -13754,6 +13823,12 @@
         "target": ""
       },
       {
+        "path": "customerReceipts[]._id",
+        "type": "ObjectId",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "createdAt",
         "type": "Date",
         "required": false,
@@ -14638,12 +14713,6 @@
       {
         "path": "_id",
         "type": "DocumentIdentity",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "customerReceipts[]._id",
-        "type": "ObjectId",
         "required": false,
         "target": ""
       }
@@ -16938,6 +17007,36 @@
         "target": ""
       },
       {
+        "path": "header.selectedCounts",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.selectedCounts[].snapshotId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "StocktakeSnapshot"
+      },
+      {
+        "path": "header.selectedCounts[].countId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "StocktakeCount"
+      },
+      {
+        "path": "header.lastReconciledBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "header.lastReconciledAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "header.activatedBy",
         "type": "ObjectId",
         "required": false,
@@ -16960,6 +17059,126 @@
         "type": "ObjectId",
         "required": false,
         "target": ""
+      },
+      {
+        "path": "header.planPeriodNo",
+        "type": "Number",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.planPeriodDueAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.settledLines",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.settledLines[].snapshotId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "StocktakeSnapshot"
+      },
+      {
+        "path": "header.settledLines[].countId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "StocktakeCount"
+      },
+      {
+        "path": "header.settledLines[].outcome",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "header.settledLines[].deltaQtyBase",
+        "type": "Decimal128",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "header.settledLines[].baseUnitSnapshot",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.settledLines[].reasonCode",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.settledLines[].reasonNote",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.settledLines[].adjustmentId",
+        "type": "DocumentIdentity",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.settledLines[].settledBy",
+        "type": "ObjectId",
+        "required": true,
+        "target": "User"
+      },
+      {
+        "path": "header.settledLines[].settledAt",
+        "type": "Date",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "header.recountLines",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.recountLines[].snapshotId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "StocktakeSnapshot"
+      },
+      {
+        "path": "header.recountLines[].afterAttemptNo",
+        "type": "Number",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "header.recountLines[].requestedBy",
+        "type": "ObjectId",
+        "required": true,
+        "target": "User"
+      },
+      {
+        "path": "header.recountLines[].requestedAt",
+        "type": "Date",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "header.recountLines[].note",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.planId",
+        "type": "DocumentIdentity",
+        "required": false,
+        "target": "StocktakePlan"
       },
       {
         "path": "updatedBy",
@@ -18058,6 +18277,34 @@
           "createdAt": -1
         },
         {}
+      ],
+      [
+        {
+          "header.planId": 1,
+          "header.planPeriodNo": 1
+        },
+        {
+          "unique": true,
+          "name": "stocktake_plan_period_once",
+          "partialFilterExpression": {
+            "header.planId": {
+              "$exists": true
+            },
+            "workflowStatus": {
+              "$in": [
+                "PLANNED",
+                "COUNTING",
+                "RECONCILING",
+                "PENDING_APPROVAL",
+                "APPROVED",
+                "IN_PROGRESS",
+                "COMPLETED",
+                "CLOSED",
+                "POSTED"
+              ]
+            }
+          }
+        }
       ],
       [
         {
@@ -20007,8 +20254,20 @@
       {
         "path": "header.customerId",
         "type": "ObjectId",
-        "required": true,
+        "required": false,
         "target": "Customer"
+      },
+      {
+        "path": "header.customerName",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.customerPhone",
+        "type": "String",
+        "required": false,
+        "target": ""
       },
       {
         "path": "header.intakeMode",
@@ -20497,6 +20756,12 @@
         "target": ""
       },
       {
+        "path": "handbacks[]._id",
+        "type": "ObjectId",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "inspections",
         "type": "Array",
         "required": false,
@@ -20557,6 +20822,12 @@
         "target": ""
       },
       {
+        "path": "inspections[].portions[].packagingState",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "inspections[].portions[].installationStatus",
         "type": "String",
         "required": true,
@@ -20599,6 +20870,48 @@
         "target": ""
       },
       {
+        "path": "inspections[].portions[].measuredVolumeMm3",
+        "type": "Decimal128",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "inspections[].portions[].packagingSnapshot",
+        "type": "Embedded",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "inspections[].portions[].packagingSnapshot.packageUnit",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "inspections[].portions[].packagingSnapshot.baseUnitsPerPackage",
+        "type": "Decimal128",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "inspections[].portions[].packagingSnapshot.outerLengthMm",
+        "type": "Decimal128",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "inspections[].portions[].packagingSnapshot.outerWidthMm",
+        "type": "Decimal128",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "inspections[].portions[].packagingSnapshot.outerHeightMm",
+        "type": "Decimal128",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "inspections[]._id",
         "type": "ObjectId",
         "required": false,
@@ -20619,12 +20932,6 @@
       {
         "path": "_id",
         "type": "DocumentIdentity",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "handbacks[]._id",
-        "type": "ObjectId",
         "required": false,
         "target": ""
       }
@@ -26571,6 +26878,284 @@
             "status": "ISSUED"
           }
         }
+      ]
+    ]
+  },
+  {
+    "collection": "stocktake_plans",
+    "model": "StocktakePlan",
+    "sourceFile": "src/models/stocktake-plan.model.js",
+    "fields": [
+      {
+        "path": "documentNo",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "documentKind",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "workflowStatus",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "version",
+        "type": "Number",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "createdBy",
+        "type": "ObjectId",
+        "required": true,
+        "target": "User"
+      },
+      {
+        "path": "occurredAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "note",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header",
+        "type": "Embedded",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "header.warehouseId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "Warehouse"
+      },
+      {
+        "path": "header.title",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "header.reason",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.scope",
+        "type": "Embedded",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.scope.locationIds",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.scope.batchIds",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.scope.productIds",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.scope.areaCodes",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.assignedCounterIds",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.frequency",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "header.startDate",
+        "type": "Date",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "header.endDate",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.nextPeriodNo",
+        "type": "Number",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "header.nextDueAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.reminderDays",
+        "type": "Number",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "header.lastGeneratedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.generatedCount",
+        "type": "Number",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "header.pausedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.pausedBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "header.resumedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.endedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.endedBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "header.endReason",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.lastStocktakeId",
+        "type": "DocumentIdentity",
+        "required": false,
+        "target": "Stocktake"
+      },
+      {
+        "path": "updatedBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "tenLoaiPhieu",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "maDonVi",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "kyDanhSo",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "soThuTu",
+        "type": "Number",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "trangThaiTiengViet",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "createdAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "updatedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "_id",
+        "type": "DocumentIdentity",
+        "required": false,
+        "target": ""
+      }
+    ],
+    "indexes": [
+      [
+        {
+          "documentNo": 1
+        },
+        {
+          "unique": true,
+          "_autoIndex": false
+        }
+      ],
+      [
+        {
+          "workflowStatus": 1,
+          "header.nextDueAt": 1
+        },
+        {}
+      ],
+      [
+        {
+          "header.warehouseId": 1,
+          "workflowStatus": 1
+        },
+        {}
       ]
     ]
   }

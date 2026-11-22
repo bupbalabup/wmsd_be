@@ -24,6 +24,15 @@ export async function guardLocations(ids, session) {
     if (await StocktakeLocationLock.exists({ locationId, status: 'LOCKED' }).session(session)) throw validationError('Vị trí đang khóa kiểm kê');
   }
 }
+// Read-side helper for every option/lookup that offers stock (decision 22 Nov 2026, same for every role):
+// stock in a location held by an active stocktake lock (status LOCKED) has zero selectable quantity.
+// Returns the Set of those location ids (as strings). Writers keep their own guardLocations refusal.
+export async function stocktakeLockedLocations(locationIds, session) {
+  const ids = [...new Set((locationIds || []).filter(Boolean).map(String))];
+  if (!ids.length) return new Set();
+  const locks = await StocktakeLocationLock.find({ locationId: { $in: ids }, status: 'LOCKED' }).select('locationId').session(session).lean();
+  return new Set(locks.map(lock => String(lock.locationId)));
+}
 export async function locationAt(id, warehouseId, kinds, session) {
   const location = await WarehouseLocation.findOne({ _id: id, warehouseId, isActive: true }).session(session);
   if (!location || (kinds?.length && !kinds.includes(location.locationType))) throw validationError('Vị trí không thuộc kho hoặc sai loại');

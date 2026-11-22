@@ -13,7 +13,7 @@ const clone=()=>mongoose.mongo.BSON.EJSON.parse(mongoose.mongo.BSON.EJSON.string
 
 test('complete reviewed demo validates all schemas, links, balances and approved scenarios',async()=>{
   const result=await validateReviewedDemo(data,models);
-  assert.equal(result.collections,58);
+  assert.equal(result.collections,59);
   assert.equal(result.records,661 + data.conversions.length);
   assert.ok(data.permissions.every(p => !p.code.startsWith('putaway_task:')));
   assert.equal(data.transfer_orders.find(task => task.documentNo === 'TO-202610-001').header.taskKind, 'RELOCATE');
