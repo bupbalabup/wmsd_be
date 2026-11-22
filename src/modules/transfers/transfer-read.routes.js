@@ -19,6 +19,11 @@ router.get('/options', catchAsync(async (req,res) => {
   if(!parsed.success)throw new ApiError(400,'Bộ lọc lựa chọn điều chuyển không hợp lệ');
   formatApiResponse(res,{data:await service.transferOptions(req.user,parsed.data.warehouseId,parsed.data.mode)});
 }));
+router.get('/pick-assignees', catchAsync(async (req,res) => {
+  const parsed=optionsQuery.pick({warehouseId:true}).required().safeParse(req.query);
+  if(!parsed.success)throw new ApiError(400,'Chọn kho để lấy danh sách người thực hiện');
+  formatApiResponse(res,{data:await service.pickAssignees(req.user,parsed.data.warehouseId)});
+}));
 router.get('/dispatches', catchAsync(async (req, res) => {
   const parsed = dispatchListQuery.safeParse(req.query);
   if (!parsed.success) throw new ApiError(400, 'Bộ lọc phiếu xuất điều chuyển không hợp lệ');
