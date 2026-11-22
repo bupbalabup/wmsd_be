@@ -113,6 +113,10 @@ State/business refusals of this module use `400 ERR-CORE-400-001` with a Vietnam
 - Legacy in-flight slips in `PENDING_APPROVAL`/`APPROVED`/`IN_PROGRESS` cannot be closed through the removed endpoints; the Owner uses `POST /:id/recount` to bring them back to `COUNTING` and then the new flow. No automatic migration was run.
 - Permissions: `stock_adjustment:create`, `stock_adjustment:update`, `stock_adjustment:approve` are no longer used by any endpoint and are labelled "[Ngừng dùng từ 22/11/2026]" in the seed catalogue and `permissions.json`; they were **not deleted** (roles in existing databases reference them). `stock_adjustment:read` still guards the historical plan reads; `stock_adjustment:post` now guards `approve-differences`; `stocktake:create` additionally guards plan writes and `recount`.
 
+## Shortage approval fix (22 November 2026)
+
+`approve-differences` for a counted shortage now updates the balance's existing packaging portions in place (`retainPortions`) instead of reassigning plain objects, which previously failed with an immutable `createdAt` validation error on balances that already had portions. Contract unchanged. Evidence: [STOCKTAKE_E2E_WALKTHROUGH](../09_phat_trien/STOCKTAKE_E2E_WALKTHROUGH.md).
+
 ## Verification and number allocation follow-up (16 November 2026)
 
 Embedded resolution plans retain ObjectId identities while `documentNo` stores their `PAXLKK` number. The allocator now scans both embedded identity fields, instead of restarting the sequence when only ObjectId `_id` values are present. Existing numbers are not rewritten; no schema, index or migration is introduced. See [DOCUMENT_IDENTITIES](DOCUMENT_IDENTITIES.md) for the concurrency limits.

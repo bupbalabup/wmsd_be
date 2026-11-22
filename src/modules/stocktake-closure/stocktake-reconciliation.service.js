@@ -3,7 +3,7 @@ import { exact } from '../../models/model-utils.js';
 import { nextDocumentFields } from '../../shared/utils/document-number.js';
 import { command, checkVersion, saveVersion, same } from '../../shared/utils/document-command.js';
 import { validationError } from '../../shared/utils/ApiError.js';
-import { sourceContext, beginStock, receiveStock, splitPortions, remainingReservation, verifyCapacity, heldQuantity } from '../../shared/utils/stock.js';
+import { sourceContext, beginStock, receiveStock, splitPortions, retainPortions, remainingReservation, verifyCapacity, heldQuantity } from '../../shared/utils/stock.js';
 import { copyItem, sourceLink } from '../../shared/utils/document-copy.js';
 import { scoped } from './stocktake-commands.service.js';
 
@@ -189,7 +189,8 @@ export function approveStocktakeDifferences(user, id, input) {
                 // A counted shortfall that is not whole cartons proves a carton was opened (decision 18/11/2026):
                 // open one carton like goods issues do; loose/open portions are consumed first.
                 const { kept } = splitPortions(balance.packagingPortions, delta.abs(), actor._id, { allowOpening: true });
-                balance.packagingPortions = kept;
+                // Update the existing portions in place: reassigning plain objects would rewrite immutable createdAt.
+                retainPortions(balance, kept);
                 balance.quantityBase = before.plus(delta).toFixed();
                 await saveVersion(balance, balance.version, session);
                 posting.movements.push({ transactionId: posting._id, lineNo: posting.movements.length + 1, sourceLineId: item._id, fromBalanceId: balance._id, quantityBase: quantity, fromBefore: before.toFixed(), fromAfter: balance.quantityBase });

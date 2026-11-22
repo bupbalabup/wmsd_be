@@ -1,3 +1,17 @@
+## 22 November 2026 — Stocktake end-to-end walkthrough and shortage-approval fix
+
+**Source.** User asked for one complete end-to-end stocktake flow checked against the lecturer's feedback, with a screenshot of each step written into one docs file (22 Nov 2026). No new business rule.
+
+**Behavior.** Before: approving a counted **shortage** (`POST /api/stocktakes/:id/approve-differences`) failed with 400 `InventoryBalance validation failed: packagingPortions.0.createdAt: Path 'createdAt' is immutable` whenever the balance already had packaging portions, because the service reassigned plain portion objects to `balance.packagingPortions`. After: it calls `retainPortions(balance, kept)` like the other stock writers, so existing portions are updated in place. Surplus approval (`receiveStock`) is unchanged.
+
+**Files.** `src/modules/stocktake-closure/stocktake-reconciliation.service.js`; new Vietnamese walkthrough [STOCKTAKE_E2E_WALKTHROUGH](docs/09_phat_trien/STOCKTAKE_E2E_WALKTHROUGH.md) with 29 screenshots in `docs/09_phat_trien/images/stocktake-e2e/`; end-user guide [HUONG_DAN_SU_DUNG_KIEM_KHO.docx](docs/02_nghiep_vu/HUONG_DAN_SU_DUNG_KIEM_KHO.docx) (Vietnamese, written for Owner and Warehouse Staff, same 29 screenshots embedded in the single Word file, no developer content); README index; note in STOCKTAKE_LIFECYCLE.
+
+**Data impact.** None in shared databases. The browser run used an isolated local copy `wmsd_e2e_stocktake_20261122` on the local test replica set; no migration or seed.
+
+**Checks.** Two manual browser runs: first plan → slip → count → recount → approve a shortage (balance 62 → 61, adjustment `POSTED`; this run exposed the defect), second after the fix: quarterly plan → slip → count → recount → approve a surplus (balance 61 → 63, adjustment `POSTED`), 29 screenshots. `RUN_STOCKTAKE_RESOLUTION_TESTS=1 RUN_STOCKTAKE_LIFECYCLE_TESTS=1 node --test --test-concurrency=1 test/stocktake-resolution.integration.test.js test/stocktake-lifecycle.integration.test.js`: 11 pass, 0 fail. No automated test was added (project policy); the existing suites did not cover a shortage on a balance with seeded portions, which is why the defect escaped.
+
+**Open.** Monthly/yearly periods, pause/resume/end, found-not-in-book, multi-unit counting, export/print and mobile were not exercised in the walkthrough.
+
 ## 22 November 2026 — Frontend backlog: green checks, lazy chunks, explicit currency, locked-stock tag
 
 **Source.** User said "fix all the frontend too" (22 Nov 2026, relayed by the coordinator). Frontend repository `frontend/` only; no backend file other than this entry was changed. No new business rule.

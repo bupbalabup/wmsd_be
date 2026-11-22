@@ -33,6 +33,8 @@ Bản v8 là snapshot lịch sử có category. Registry hiện hành có 58 col
 | Tài liệu | Nội dung |
 |---|---|
 | [GitHub Actions CI](docs/09_phat_trien/GITHUB_ACTIONS_CI.md) | Trigger và lệnh kiểm tra cho hai repo FE và BE |
+| [Hướng dẫn sử dụng kiểm kho (Word)](docs/02_nghiep_vu/HUONG_DAN_SU_DUNG_KIEM_KHO.docx) | Tài liệu người dùng cuối: lập kế hoạch, tạo phiếu, đếm, đếm lại, duyệt chênh lệch; 29 ảnh nhúng trong một file (22/11/2026) |
+| [Stocktake end-to-end walkthrough](docs/09_phat_trien/STOCKTAKE_E2E_WALKTHROUGH.md) | Luồng kế hoạch → phiếu → đếm → đếm lại → duyệt, có ảnh từng bước (22/11/2026) |
 | [Docker](docs/09_phat_trien/DOCKER.md) | Dockerfile backend, compose ở thư mục gốc workspace |
 | [DB rebuild](docs/09_phat_trien/DB_REBUILD.md) | Registry mới, migration lịch sử và giới hạn runtime |
 | [Đọc code RR → nhập → cất hàng](docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md) | Từng hàm, biến, truy vấn MongoDB và rủi ro của luồng mua hàng |
