@@ -8606,6 +8606,42 @@
         "target": ""
       },
       {
+        "path": "items[].lotLabelSnapshot",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "items[].sourceLocations",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "items[].sourceLocations[].sourceBalanceId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "InventoryBalance"
+      },
+      {
+        "path": "items[].sourceLocations[].locationId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "WarehouseLocation"
+      },
+      {
+        "path": "items[].sourceLocations[].locationCode",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "items[].sourceLocations[].qtyBase",
+        "type": "Decimal128",
+        "required": true,
+        "target": ""
+      },
+      {
         "path": "items[].{DocumentLine_REPLENISHMENT}.details",
         "type": "Embedded",
         "required": true,

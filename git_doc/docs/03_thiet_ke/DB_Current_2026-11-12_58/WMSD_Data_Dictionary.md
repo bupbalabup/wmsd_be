@@ -2396,6 +2396,17 @@ Indexes:
 
 Model: [warehouse-transfer-request.model.js](../../../../src/models/warehouse-transfer-request.model.js).
 
+Source allocation is an optional embedded plan on each request item. Each allocation refers to one inventory balance and its storage location. Several request items across different requests may refer to the same bin or balance. The request line preserves the lot label and entered-unit conversion, while each allocation stores a positive base-unit quantity. The service checks scope, eligibility, live availability, and the exact line total. Saving the plan records the request without reserving stock. Historical lines may omit the fields, with no backfill or new index required. See the [BF04 contract](../../08_api/transfers/BF04_API.md#source-locations-on-transfer-requests--22-november-2026).
+
+| Additional field on `items[]` | Type | Required | Reference or meaning |
+|---|---|---|---|
+| `lotLabelSnapshot` | String | No | Verified manufacturer's lot code |
+| `sourceLocations` | Embedded array | No | One entry per selected source bin |
+| `sourceLocations[].sourceBalanceId` | ObjectId | Yes | `inventory_balances` |
+| `sourceLocations[].locationId` | ObjectId | Yes | `warehouse_locations` |
+| `sourceLocations[].locationCode` | String | Yes | Source bin code when the plan was saved |
+| `sourceLocations[].qtyBase` | Decimal128 | Yes | Positive quantity in the product base unit |
+
 | Trường | Kiểu | Bắt buộc | Liên kết |
 |---|---|---|---|
 | `documentNo` | String | true |  |
