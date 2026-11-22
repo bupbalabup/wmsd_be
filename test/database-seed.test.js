@@ -156,16 +156,12 @@ test('buildCompleteSeedData includes all 5 goods receipt kinds preserving all re
   }
 
   // Verify error-correction cases for OTHER
-  const postedOther = others.find((r) => r.workflowStatus === 'POSTED' && !r.header.originalReceiptId);
+  const postedOther = others.find((r) => r.workflowStatus === 'POSTED');
   assert.ok(postedOther.evidenceIds?.length, 'Posted OTHER has evidenceIds');
-  assert.ok(postedOther.approvedStockHash, 'Posted OTHER has approvedStockHash');
   assert.ok(postedOther.approvalDecisionId, 'Posted OTHER has approvalDecisionId');
 
   const reversedOther = others.find((r) => r.workflowStatus === 'REVERSED');
   assert.ok(reversedOther, 'Must have a REVERSED OTHER receipt');
-
-  const replacementOther = others.find((r) => r.header.originalReceiptId && String(r.header.originalReceiptId) === String(reversedOther._id));
-  assert.ok(replacementOther, 'Must have a replacement OTHER receipt referencing the reversed receipt');
 
   const draftOther = others.find((r) => r.workflowStatus === 'DRAFT');
   assert.ok(draftOther, 'Must have a DRAFT OTHER receipt');

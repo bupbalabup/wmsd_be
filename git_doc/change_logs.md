@@ -1,3 +1,22 @@
+## 22 November 2026 — Report 3 §4.2 use-case table renumbered from Project Tracking
+
+User request (22/11/2026): renumber only the Report 3 use-case table, following the Project Tracking WBS sheet, in English. Docs-only: no code, model, API or data change.
+
+- `docs/01_bao_cao/WMSD_Report3_Fix.docx.txt` §4.2 now lists the 164 WBS use cases numbered consecutively UC-01–UC-164 in WBS order (old WBS IDs UC-37–UC-171 shift down; UC-01–UC-32 keep their numbers). Names, features and descriptions come from the WBS sheet; the one Vietnamese description (UC-04) keeps the existing English text, and UC IDs cited inside descriptions use the new numbers. The State column and the previous 132-identifier ACTIVE/RETIRED list were removed because the WBS sheet has no retirement state; the table header (ID / Use Case / Feature / Use Case Description) and the §4.2 intro sentence now match the renumbered Report 3 docx (`WMSD_Report3_Fix_UC_renumbered.docx`, kept outside the repository).
+- Not changed, so still on the old numbering: the heading under II, §4.3 actor associations, §4.4 permission matrix, business-flow/data-rule tables and the use-case specifications; the WBS sheet itself; `src/seeds/data/permissions.data.js` `uc` traces.
+- Validation: row count and order checked against the WBS sheet; `npm run docs:check`.
+
+## 22 November 2026 — Other receipt (OTHER): replacement receipts and approval hash removed
+
+User decision (22/11/2026): keep the other-receipt flow but drop the replacement-receipt feature and the approval content hash, and delete the unused model fields without compatibility code.
+
+- **Backend.** `other-receipt.service.js` no longer links a new receipt to a reversed one (`replacementSource`, `REPLACES` source, copying lines) and no longer auto-approves on submit; submit always moves `DRAFT` → `PENDING_APPROVAL`. Approve stops writing `approvedStockHash`; post checks `APPROVED` and `approvedVersion === version` only (an approved receipt cannot be edited anyway). `POST /goods-receipts/other` now requires `lines`; create and update reject `originalReceiptId` (strict schema). A wrong posted receipt is reversed, then a new receipt is drafted and approved again.
+- **Model.** `goods_receipts` `OTHER` header drops `originalReceiptId`; the `OtherGoodsReceipt` discriminator drops `approvedStockHash`. No migration: existing local documents carrying these fields need a reseed.
+- **Frontend.** Removed the "Tham chiếu phiếu gốc" input and the "Phiếu gốc" detail row; API types no longer carry `originalReceiptId`.
+- **Seed.** `NK-202610-002` is a normal posted receipt drafted after reversing `NK-202610-002-OLD` (no `REPLACES` link); seed hashes removed.
+- **Docs.** `docs/08_api/GOODS_RECEIPTS.md` (Lệnh OTHER), `docs/09_phat_trien/SEED_CUA_HANG_GACH.md`, `DB_Current_2026-11-12_58` dictionary and schema snapshot (field row removed by hand; the generator would also rewrite unrelated pending sections), `src/models/CHANGELOG.md`.
+- **Tests.** `test/goods-receipt.integration.test.js` replaces the replacement/auto-approve section with missing-`lines` → 400 and a fresh draft → approve → post; `test/database-seed.test.js` drops replacement and hash asserts; FE `ReceiptCreatePage.test.tsx` asserts the update body has no `originalReceiptId`.
+
 ## 22 November 2026 — RR review: approve or reject only (REVISE removed)
 
 User decision (22/11/2026): the Owner reviewing a replenishment request (RR) either approves or rejects it with a reason. The "send back for revision" option is removed for RR only; transfers, adjustments and other documents keep theirs.
