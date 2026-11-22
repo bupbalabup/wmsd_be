@@ -11,8 +11,7 @@ import { notFoundError, validationError, forbiddenError, versionConflict } from 
 import { dto } from '../../shared/utils/persistence.js';
 import { command, scopedDocument, checkVersion, saveVersion, newId, same } from '../../shared/utils/document-command.js';
 import { makeItem } from '../../shared/utils/document-items.js';
-import { sourceContext, locationAt, guardLocations, pendingTaskQuantity, beginStock, balanceAt, moveStock, verifyCapacity, splitPortions } from '../../shared/utils/stock.js';
-import { blindCountScope } from '../../shared/utils/blind-count.js';
+import { sourceContext, locationAt, guardLocations, pendingTaskQuantity, beginStock, balanceAt, moveStock, verifyCapacity, splitPortions, stocktakeLockedLocations } from '../../shared/utils/stock.js';
 export { pendingTaskQuantity } from '../../shared/utils/stock.js';
 
 async function task(id, user, session) {
@@ -108,13 +107,15 @@ export async function locationMovementOptions(user, warehouseId) {
   requireWarehouseAccess(user, warehouseId);
   const locations = await WarehouseLocation.find({ warehouseId, isActive: true }).select(optionFields.location).lean();
   const points = await StockHoldingPoint.find({ locationId: { $in: locations.map(row=>row._id) } }).select(optionFields.point).lean();
-  const blind = await blindCountScope(user);
-  const balances = (await InventoryBalance.find({ holdingPointId: { $in: points.map(row=>row._id) }, quantityBase: { $gt: 0 } }).select(optionFields.balance+' packagingPortions.sealedPackCount packagingPortions.quantityBase').lean()).filter(row => !blind.has(row._id));
+  // Stocktake-locked locations (any role): their balances are not offered as relocation sources; the location stays listed with lockedByStocktake.
+  const frozen = await stocktakeLockedLocations(locations.map(row=>row._id));
+  const frozenPoints = new Set(points.filter(row=>frozen.has(String(row.locationId))).map(row=>String(row._id)));
+  const balances = (await InventoryBalance.find({ holdingPointId: { $in: points.map(row=>row._id) }, quantityBase: { $gt: 0 } }).select(optionFields.balance+' packagingPortions.sealedPackCount packagingPortions.quantityBase').lean()).filter(row=>!frozenPoints.has(String(row.holdingPointId)));
   const batches = await ProductBatch.find({ _id: { $in: balances.map(row=>row.batchId) } }).select(optionFields.batch).lean();
   const products = await Product.find({ _id: { $in: batches.map(row=>row.productId) } }).select(optionFields.product).lean();
   const [units,conversions] = await Promise.all([Uom.find({isActive:true}).select('_id code name isCarton').lean(),
     Conversion.find({productId:{$in:products.map(p=>p._id)},validFrom:{$lte:new Date()}}).select(optionFields.conversion).sort({validFrom:-1}).lean()]);
-  return { units: units.map(dto), conversions: conversions.map(dto), warehouses: warehouses.map(dto), locations: locations.map(dto), holdingPoints: points.map(dto), balances: balances.map(dto), batches: batches.map(dto), products: products.map(dto) };
+  return { units: units.map(dto), conversions: conversions.map(dto), warehouses: warehouses.map(dto), locations: locations.map(row=>({ ...dto(row), lockedByStocktake: frozen.has(String(row._id)) })), holdingPoints: points.map(dto), balances: balances.map(dto), batches: batches.map(dto), products: products.map(dto) };
 }
 export function editLocationMovement(user,id,input) {
   return command(user,'EDIT_RELOCATION','stock_relocation:create',id,input,replay,async(session,actor)=>{

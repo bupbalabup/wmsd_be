@@ -3,8 +3,7 @@ import { currentRole } from '../../shared/utils/userRole.js';
 import { nextDocumentFields } from '../../shared/utils/document-number.js';
 import { copyItem, sourceLink } from '../../shared/utils/document-copy.js';
 import { dto } from '../../shared/utils/persistence.js';
-import { freeQuantity } from '../../shared/utils/stock.js';
-import { blindCountScope } from '../../shared/utils/blind-count.js';
+import { freeQuantity, stocktakeLockedLocations } from '../../shared/utils/stock.js';
 const { m, exact, same, command, checkVersion, saveVersion, requireWarehouseAccess, requirePermission, validationError, notFoundError, sum } = s;
 const role = user => currentRole(user)?.code;
 const replay = (id, user, session) => access(user, id, session);
@@ -167,13 +166,11 @@ export async function options(user, query) {
     const points = await m.StockHoldingPoint.find({ type: 'LOCATION', locationId: { $in: locations.map(l => l._id) } }).session(session);
     const balances = await m.InventoryBalance.find({ holdingPointId: { $in: points.map(p => p._id) }, ownerType: 'STORE', qualityStatus: 'GOOD', quantityBase: { $gt: 0 } }).session(session);
     const batches = await m.ProductBatch.find({ _id: { $in: balances.map(b => b.batchId) }, identificationStatus: 'VERIFIED' }).session(session);
-    const stockSources = [];
-    // Locations being blind counted are frozen and their balances equal the hidden book quantity, so they are not offered.
-    const blind = await blindCountScope(user, session);
+    const stockSources = [], frozen = await stocktakeLockedLocations(locations.map(l => l._id), session);
     for (const balance of balances) {
-      if (blind.has(balance._id)) continue;
       const batch = batches.find(b => same(b._id, balance.batchId)); if (!batch) continue;
       const point = points.find(p => same(p._id, balance.holdingPointId)), location = locations.find(l => same(l._id, point.locationId));
+      if (frozen.has(String(location._id))) continue; // locked by a stocktake: nothing selectable
       const available = await freeQuantity(balance, session); if (!available.gt(0)) continue;
       stockSources.push({ id: String(balance._id), productId: String(batch.productId), lotId: String(batch._id), warehouseId: String(location.warehouseId), label: location.code + ' · ' + batch.manufacturerLot + ' · ' + available.toFixed(), availableQtyBase: available.toFixed() });
     }

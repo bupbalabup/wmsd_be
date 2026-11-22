@@ -160,17 +160,17 @@ export const PERMISSION_CATALOGUE = [
   { code: 'supplier_return:close', description: 'Đối chiếu và đóng phần kho SR (không cần Owner)', uc: ['UC-83'], roles: [ACCOUNTANT] },
 
   // ---------- FE-08: Kiểm kê, điều chỉnh (BF-05) ----------
-  { code: 'stocktake:read', description: 'Xem phiên kiểm kê', uc: ['UC-84', 'UC-85'], roles: [OWNER, WAREHOUSE] },
-  { code: 'stocktake:create', description: 'Lập kế hoạch phiên kiểm kê', uc: ['UC-86'], roles: [OWNER] },
+  { code: 'stocktake:read', description: 'Xem kế hoạch và phiếu kiểm kê', uc: ['UC-84', 'UC-85'], roles: [OWNER, WAREHOUSE] },
+  { code: 'stocktake:create', description: 'Lập kế hoạch kiểm kê định kỳ và phiếu kiểm kê, tạo phiếu từ kế hoạch, yêu cầu đếm lại (Owner)', uc: ['UC-86'], roles: [OWNER] },
   { code: 'stocktake:update', description: 'Đếm/đếm lại và ghi kết quả trong phạm vi khóa', uc: ['UC-87'], roles: [WAREHOUSE] },
   { code: 'stocktake:reconcile', description: 'Đối chiếu kết quả kiểm kê', uc: ['UC-88'], roles: [WAREHOUSE] },
   { code: 'stocktake:export', description: 'Xuất/in phiếu đếm', uc: ['UC-105'], roles: [OWNER, WAREHOUSE] },
 
   { code: 'stock_adjustment:read', description: 'Xem đề xuất điều chỉnh tồn', uc: ['UC-89', 'UC-90'], roles: [OWNER, WAREHOUSE] },
-  { code: 'stock_adjustment:create', description: 'Đề xuất điều chỉnh B1 (delta/RECLASS/vị trí)', uc: ['UC-91'], roles: [WAREHOUSE] },
-  { code: 'stock_adjustment:update', description: 'Sửa đề xuất / xác nhận đã thực hiện', uc: ['UC-91'], roles: [WAREHOUSE] },
-  { code: 'stock_adjustment:approve', description: 'Duyệt/trả lại phương án B1 (không phải người lập)', uc: ['UC-92'], roles: [OWNER] },
-  { code: 'stock_adjustment:post', description: 'Post batch B1 đã duyệt và mở khóa phạm vi', uc: ['UC-93'], roles: [OWNER] },
+  { code: 'stock_adjustment:create', description: '[Ngừng dùng từ 22/11/2026] Đề xuất phương án điều chỉnh B1 — quy trình phương án đã bị thay bằng duyệt chênh lệch', uc: ['UC-91'], roles: [WAREHOUSE] },
+  { code: 'stock_adjustment:update', description: '[Ngừng dùng từ 22/11/2026] Sửa đề xuất / xác nhận đã thực hiện phương án B1', uc: ['UC-91'], roles: [WAREHOUSE] },
+  { code: 'stock_adjustment:approve', description: '[Ngừng dùng từ 22/11/2026] Duyệt/trả lại phương án B1', uc: ['UC-92'], roles: [OWNER] },
+  { code: 'stock_adjustment:post', description: 'Duyệt và xóa chênh lệch kiểm kê (Clear Difference, UC-93): ghi tồn về số đã đếm và mở khóa phạm vi khi xử lý hết dòng', uc: ['UC-93'], roles: [OWNER] },
 
   // ---------- FE-09: Báo cáo, truy vết, tham chiếu ngoài, quản trị ----------
   { code: 'report:read', description: 'Xem báo cáo vận hành (theo nhóm báo cáo)', uc: ['UC-99'], roles: [OWNER, ACCOUNTANT, WAREHOUSE] },

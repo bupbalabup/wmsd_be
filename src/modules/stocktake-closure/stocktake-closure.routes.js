@@ -14,6 +14,7 @@ import { getCountSheet } from './stocktake-count-sheet.service.js';
 import { operation } from '../sales-orders/sales-execution.validation.js';
 import * as service from './stocktake-closure.service.js';
 import * as commands from './stocktake-commands.service.js';
+import * as reconciliation from './stocktake-reconciliation.service.js';
 import * as evidence from './stocktake-evidence.service.js';
 import { decimalStringSchema } from '../../shared/utils/domain.js';
 import { QUALITY_CODES } from '../../models/constants.js';
@@ -21,7 +22,13 @@ import { DISCREPANCY_REASONS } from '../../models/stocktake-resolution-details.s
 const qty = decimalStringSchema({ positive: true });
 const portion = z.object({ packagingState: z.enum(['SEALED', 'OPEN', 'LOOSE']), sealedPackCount: z.number().int().nonnegative().optional(), quantityBase: qty, measuredVolumeMm3: qty.optional(), extraOccupiedVolumeMm3: decimalStringSchema().optional(), packagingSnapshot: z.object({ packageUnit: z.string().min(1).max(60), baseUnitsPerPackage: qty, outerLengthMm: decimalStringSchema({ positive: true, scale: 3 }), outerWidthMm: decimalStringSchema({ positive: true, scale: 3 }), outerHeightMm: decimalStringSchema({ positive: true, scale: 3 }) }).strict().optional() }).strict();
 const packagingSchema = z.array(z.object({ lineId: objectId, portions: z.array(portion).min(1).max(100) }).strict()).max(200);
-export const closureBody = operation.extend({ planId: documentIdentifier.optional(), expectedPlanVersion: z.number().int().positive().optional(), reason: z.string().trim().min(1).max(2000), selectedCounts: z.array(z.object({ snapshotId: objectId, countId: objectId }).strict()).max(5000).optional(), packaging: packagingSchema.optional() }).strict().refine(v => v.planId ? !!v.expectedPlanVersion : !!v.selectedCounts, 'Chọn phương án/phiên bản hoặc kết quả đếm không lệch');
+// Approve/Clear Difference (22 Nov 2026). No closing reason: the optional per-line reasonCode/reasonNote only label a discrepancy.
+export const approveBody = operation.extend({
+    all: z.boolean().optional(),
+    lines: z.array(z.object({ snapshotId: objectId, reasonCode: z.enum(DISCREPANCY_REASONS).optional(), reasonNote: z.string().trim().min(1).max(500).optional() }).strict()).max(5000).optional(),
+    packaging: packagingSchema.optional(),
+}).strict().refine(v => v.all === true || !!v.lines?.length, 'Chọn ít nhất một dòng chênh lệch hoặc chọn tất cả');
+export const recountBody = operation.extend({ snapshotIds: z.array(objectId).min(1).max(5000), note: z.string().trim().min(1).max(1000).optional() }).strict();
 function parse(schema, value) { const r = schema.safeParse(value); if (!r.success)
     throw validationError('Dữ liệu kiểm kê không hợp lệ'); return r.data; }
 const oid = objectId;
@@ -36,11 +43,6 @@ const discovered = z.object({ locationId: oid, batchId: oid, ownerType: z.enum([
 const correctionBody = operation.extend({ emptyCountId: oid, discovered, countedQtyBase: nonnegative, quantityEntries: z.array(entry).max(100).optional(), correctionReason: text, conditionNote: z.string().max(2000).optional(), evidenceIds: z.array(oid).min(1).max(50) }).strict();
 const countBody = operation.extend({ targetType: z.enum(['STOCK', 'EMPTY_LOCATION']), snapshotId: oid.optional(), discovered: discovered.optional(), locationId: oid.optional(), countedQtyBase: nonnegative, quantityEntries: z.array(entry).max(100).optional(), previousCountId: oid.optional(), recountReason: text.optional(), conditionNote: z.string().max(2000).optional(), evidenceIds: z.array(oid).max(50).optional() }).strict()
     .refine(v => v.targetType === 'STOCK' ? !!v.snapshotId !== !!v.discovered && !v.locationId : !!v.locationId && !v.snapshotId && !v.discovered, 'Chọn mốc tồn, hàng phát hiện ngoài sổ hoặc vị trí trống');
-const selectedCount = z.object({ snapshotId: oid, countId: oid }).strict();
-const planItem = z.object({ snapshotId: oid, countId: oid, actionKind: z.enum(['DELTA','RECLASS','RELOCATE']), qtyBase: qty, deltaQty: z.string().regex(/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/).refine(v => v !== '0' && v !== '-0').optional(), fromBalanceId: oid.optional(), toBalanceId: oid.optional(), holdId: oid.optional(), reasonCode: z.enum(DISCREPANCY_REASONS), reasonNote: z.string().trim().max(500).optional() }).strict();
-const planBody = operation.extend({ scopeVersion: z.number().int().positive(), selectedCounts: z.array(selectedCount).min(1).max(5000), items: z.array(planItem).min(1).max(200), reason: text }).strict();
-const reviewBody = operation.extend({ expectedPlanVersion: z.number().int().positive(), decision: z.enum(['APPROVE','REJECT','REVISE']), reason: text }).strict();
-const executionBody = operation.extend({ expectedPlanVersion: z.number().int().positive(), itemId: oid, quantityBase: qty, evidenceIds: z.array(oid).min(1).max(50), note: z.string().max(2000).optional() }).strict();
 const router = Router();
 router.use(authenticate);
 router.get('/options', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.stocktakeOptions(req.user) })));
@@ -50,12 +52,11 @@ router.post('/:id/activate', catchAsync(async (req, res) => formatApiResponse(re
 router.post('/:id/counts', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.recordCount(req.user, parse(documentIdentifier, req.params.id), parse(countBody, req.body)) })));
 router.post('/:id/correct-empty-location', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.correctEmptyLocation(req.user, parse(documentIdentifier, req.params.id), parse(correctionBody, req.body)) })));
 router.post('/:id/cancel', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.cancelStocktake(req.user, parse(documentIdentifier, req.params.id), parse(operation.extend({ reason: text }).strict(), req.body)) })));
-router.post('/:id/reopen-counting', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.reopenCounting(req.user, parse(documentIdentifier, req.params.id), parse(operation.extend({ reason: text }).strict(), req.body)) })));
 router.post('/:id/reconcile', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.reconcileStocktake(req.user, parse(documentIdentifier, req.params.id), parse(operation.strict(), req.body)) })));
-router.post('/:id/resolution-plans', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.submitResolutionPlan(req.user, parse(documentIdentifier, req.params.id), parse(planBody, req.body)) })));
-router.post('/:id/resolution-plans/:planId/review', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.reviewResolutionPlan(req.user, parse(documentIdentifier, req.params.id), parse(oid, req.params.planId), parse(reviewBody, req.body)) })));
-router.post('/:id/resolution-plans/:planId/executions', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.recordExecution(req.user, parse(documentIdentifier, req.params.id), parse(oid, req.params.planId), parse(executionBody, req.body)) })));
+router.post('/:id/recount', catchAsync(async (req, res) => formatApiResponse(res, { data: await reconciliation.recountStocktake(req.user, parse(documentIdentifier, req.params.id), parse(recountBody, req.body)) })));
+router.post('/:id/approve-differences', catchAsync(async (req, res) => formatApiResponse(res, { data: await reconciliation.approveStocktakeDifferences(req.user, parse(documentIdentifier, req.params.id), parse(approveBody, req.body)) })));
 router.get('/', catchAsync(async (req, res) => formatApiResponse(res, { data: await service.listStocktakes(req.user, parse(stocktakeListQuery, req.query)) })));
+// Retired workflow, read-only: resolution plans of sessions created before 22 Nov 2026 stay readable.
 // Literal segments are registered before `/:id` so they are not parsed as a stocktake identifier.
 router.get('/resolution-plans', catchAsync(async (req, res) => formatApiResponse(res, { data: await resolution.listResolutionPlans(req.user, parse(resolutionListQuery, req.query)) })));
 router.get('/resolution-plans/:planId', catchAsync(async (req, res) => formatApiResponse(res, { data: await resolution.getResolutionPlan(req.user, parse(oid, req.params.planId)) })));
@@ -66,5 +67,4 @@ router.post('/:id/evidence', (req, res, next) => multipart(req, res, e => next(e
 router.get('/:id/evidence/:evidenceId', catchAsync(async (req, res) => formatApiResponse(res, { data: await evidence.downloadStocktakeEvidence(req.user, parse(documentIdentifier, req.params.id), parse(oid, req.params.evidenceId)) })));
 router.get('/:id/count-sheet', catchAsync(async (req, res) => formatApiResponse(res, { data: await getCountSheet(req.user, parse(documentIdentifier, req.params.id)) })));
 router.get('/:id', catchAsync(async (req, res) => formatApiResponse(res, { data: await service.getStocktake(req.user, parse(documentIdentifier, req.params.id)) })));
-router.post('/:id/close', catchAsync(async (req, res) => formatApiResponse(res, { data: await service.closeStocktake(req.user, parse(documentIdentifier, req.params.id), parse(closureBody, req.body)) })));
 export default router;

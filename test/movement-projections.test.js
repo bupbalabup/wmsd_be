@@ -26,6 +26,7 @@ function catalogue(){
   mock.method(m.InventoryBalance,'find',()=>query([{_id:'balance',holdingPointId:'point',batchId:'batch',version:2,quantityBase:'8',qualityStatus:'GOOD',ownerType:'STORE',packagingPortions:[{packagingState:'SEALED',sealedPackCount:1,quantityBase:'4',unused},{packagingState:'OPEN',quantityBase:'3',unused},{packagingState:'LOOSE',quantityBase:'1',unused}],unused}]));
   mock.method(m.ProductBatch,'find',()=>query([{_id:'batch',productId:'product',manufacturerLot:'LOT1',piecesPerCarton:4,identificationStatus:'VERIFIED',unused}]));
   mock.method(m.Product,'find',()=>query([{_id:'product',name:'Tile',sku:'T1',baseUnit:'PIECE',isActive:true,unused}]));
+  mock.method(m.StocktakeLocationLock,'find',()=>query([])); // option endpoints read active stocktake locks
   mock.method(m.Uom,'find',()=>query([{_id:'uom',code:'CARTON',name:'Thùng',isCarton:true,unused}]));
   mock.method(m.Conversion,'find',()=>query([{_id:'conv',productId:'product',productBatchId:'batch',uomId:'uom',basePerUnit:'4',unused}]));
 }

@@ -1,3 +1,7 @@
+## Stocktake plan and simplified reconciliation — 22 November 2026
+
+User decision 22 Nov 2026 following lecturer feedback (separate plan/slip, remove blind count, simplified reconciliation, drop closing reason). New collection `stocktake_plans` (model `StocktakePlan`, nested `stocktake-plan-header.schema.js`, reusing `stocktake-header-scope.schema.js`) makes the registry **59 collections**. `stocktakes.header` adds optional `planId` (document identity of `StocktakePlan`), `planPeriodNo`, `planPeriodDueAt`, `settledLines[]` (`stocktake-settled-line.schema.js`) and `recountLines[]` (`stocktake-recount-line.schema.js`); unique partial index `stocktake_plan_period_once` on `stocktakes` `{header.planId, header.planPeriodNo}` (partial on non-cancelled `workflowStatus`, so a cancelled slip frees its period; amended 22 Nov 2026). The embedded `resolutionPlans` and their schemas stay for historical sessions only (no new writes). `src/shared/utils/blind-count.js` is deleted. Contracts: [STOCKTAKE_PLANS.md](docs/08_api/STOCKTAKE_PLANS.md), [STOCKTAKE_LIFECYCLE.md](docs/08_api/STOCKTAKE_LIFECYCLE.md#redesign--22-november-2026-current-contract). Index and collection are definitions in code only; nothing was built on a shared database.
+
 ## BF03 mixed packaging — 18 November 2026
 
 `transfer_orders.items[].details.packagingState` (WAREHOUSE_TASK embedded schema) is optional `SEALED|LOOSE`, with no default. Explicit BF03 lines consume only that category; mixed entry creates separate items for independent partial progress. Historical absent values retain generic behavior. No collection, index, ref/relationship, ERD relationship or migration changes. See [contract](docs/08_api/location-movements/README.md#mixed-sealed-cartons-and-loose-pieces--18-november-2026) and current Data Dictionary. Other task kinds do not enable this mode.
@@ -18,7 +22,7 @@ Latest explicit user decision supersedes manual-sale and custody requirements fo
 
 # Bản đồ model WMSD
 
-Mốc schema 12/11/2026. Có 58 collection nghiệp vụ, gồm `conversions` theo sản phẩm và lô; không còn collection kỹ thuật bộ đếm. Năm loại phiếu nhập dùng chung `goods_receipts`. Không quản lý danh mục đội xe. Biển số xe được ghi trực tiếp trên lần bàn giao. Không có collection marker kỹ thuật.
+Mốc schema 22/11/2026 (bổ sung `stocktake_plans`; mốc 12/11/2026 gồm 58 collection). Có 59 collection nghiệp vụ, gồm `conversions` theo sản phẩm và lô; không còn collection kỹ thuật bộ đếm. Năm loại phiếu nhập dùng chung `goods_receipts`. Không quản lý danh mục đội xe. Biển số xe được ghi trực tiếp trên lần bàn giao. Không có collection marker kỹ thuật.
 
 [Từ điển dữ liệu](docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Data_Dictionary.md) · [Rà trường từng bảng](docs/03_thiet_ke/DB_Rebuild_Review/38_Ra_soat_truong_58_bang.md) · [Phiếu duyệt](docs/03_thiet_ke/DB_Rebuild_Review/01_Danh_muc_duyet.md)
 
@@ -98,7 +102,8 @@ receipts without an ITR use the explicit legacy open-task command. See [BF04 API
 | `sales_goods_issues` | GI_SALE/GI_OTHER: mã tham chiếu tay, sản phẩm/lượng/ghi chú; SALES tạo PENDING_APPROVAL, Owner duyệt cùng ID sang DRAFT, không đổi tồn. Kho phân bổ lô/ô vào PICK TO rồi PGI. OD/giá nguồn cũ vẫn tương thích; approval User refs và bàn giao nhúng. [Goods Issue + sơ đồ quan hệ](docs/08_api/GOODS_ISSUES.md). | [sales-goods-issue.model.js](../src/models/sales-goods-issue.model.js) |
 | `defect_reports` | Hồ sơ phần hàng nghi lỗi, nguồn phát hiện, dấu hiệu, bằng chứng và các lần kiểm. | [defect-report.model.js](../src/models/defect-report.model.js) |
 | `stock_scrap_records` | Phiếu thực hủy theo phương án duyệt; chỉ trừ đúng lượng thực hủy. | [stock-scrap-record.model.js](../src/models/stock-scrap-record.model.js) |
-| `stocktakes` | Đợt kiểm kê theo kho/phạm vi, lịch, người đếm, mốc kích hoạt và chốt; dòng phương án xử lý chênh lệch mang lý do (`details.reasonCode`, `details.reasonNote`, từ 18/11/2026). | [stocktake.model.js](../src/models/stocktake.model.js) |
+| `stocktakes` | Đợt kiểm kê theo kho/phạm vi, lịch, người đếm, mốc kích hoạt và chốt; dòng phương án xử lý chênh lệch mang lý do (`details.reasonCode`, `details.reasonNote`, từ 18/11/2026). Từ 22/11/2026 header thêm `planId`/`planPeriodNo`/`planPeriodDueAt` (phiếu sinh từ kế hoạch), `settledLines[]` (dòng đã duyệt chênh lệch) và `recountLines[]` (dòng Owner yêu cầu đếm lại); `resolutionPlans` chỉ còn là lịch sử. | [stocktake.model.js](../src/models/stocktake.model.js) |
+| `stocktake_plans` | Kế hoạch kiểm kê định kỳ (22/11/2026): kho, phạm vi (vị trí/khu vực/lô/sản phẩm), người đếm, tần suất MONTHLY/QUARTERLY/YEARLY, kỳ kế tiếp và phiếu đã sinh; không ghi tồn, không khóa ô. Mã `KHKK-<kho>-YYMMDD-<số>`. | [stocktake-plan.model.js](../src/models/stocktake-plan.model.js) |
 | `stock_adjustments` | Phiếu điều chỉnh số lượng theo phần thiếu/thừa được duyệt khi chốt kiểm kê. | [stock-adjustment.model.js](../src/models/stock-adjustment.model.js) |
 | `failed_deliveries` | Phần hàng đã xuất nhưng khách không nhận, gồm lý do, lượng và người đang giữ. | [failed-delivery.model.js](../src/models/failed-delivery.model.js) |
 | `stock_quality_changes` | Phiếu chuyển lượng giữa trạng thái chất lượng; tổng lượng và vị trí không tự thay đổi. | [stock-quality-change.model.js](../src/models/stock-quality-change.model.js) |

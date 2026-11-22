@@ -5,10 +5,10 @@ import { requirePermission, requireWarehouseAccess } from '../../shared/utils/ac
 import { ApiError, notFoundError, validationError } from '../../shared/utils/ApiError.js';
 import { newId, same } from '../../shared/utils/document-command.js';
 
-// Found-not-in-book counts (COUNTING) and plan executions (APPROVED/IN_PROGRESS) accept only
-// ATTACHED evidence owned by the stocktake and uploaded by the acting counter. Uploading creates
-// exactly that record without touching the stocktake, so the client's expectedVersion stays valid.
-const UPLOAD_PERMISSION = { COUNTING: 'stocktake:update', APPROVED: 'stock_adjustment:update', IN_PROGRESS: 'stock_adjustment:update' };
+// Found-not-in-book counts (COUNTING) accept only ATTACHED evidence owned by the stocktake and uploaded by the
+// acting counter. Uploading creates exactly that record without touching the stocktake, so the client's
+// expectedVersion stays valid. Plan-execution evidence ended on 22 Nov 2026 with the resolution-plan workflow.
+const UPLOAD_PERMISSION = { COUNTING: 'stocktake:update' };
 const resourceType = mediaType => mediaType === 'application/pdf' ? 'raw' : 'image';
 const format = mediaType => mediaType === 'application/pdf' ? 'pdf' : mediaType === 'image/png' ? 'png' : 'jpg';
 

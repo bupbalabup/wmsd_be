@@ -22,6 +22,7 @@ export const docType = () =>
   code([
     ...Object.values(documentCollections),
     "sales_invoices",
+    "stocktake_plans",
     "external_references",
   ]);
 export const warehouse = () => ({

@@ -4,7 +4,6 @@ import { serialize } from '../../shared/utils/persistence.js';
 import { requirePermission, requireWarehouseAccess } from '../../shared/utils/access.js';
 import { notFoundError } from '../../shared/utils/ApiError.js';
 import { buildResolutionScope, buildResolutionPlanFilter } from './stocktake-resolution.query.js';
-import { isBlind } from './stocktake-closure.service.js';
 
 const READ = 'stock_adjustment:read';
 const ids = rows => [...new Set(rows.filter(value => value != null).map(String))];
@@ -25,10 +24,8 @@ async function resolveLocationRefs(scope, locationId) {
 
 export async function listResolutionPlans(user, query) {
   requirePermission(user, READ);
-  // Plans of a session counting again (cancelled by "Mở lại bước đếm") are not listed: their lines, lots and
-  // locations would hint at the blind book. They reappear once the session is reconciled again.
-  // Same rule as isBlind: counting, or cancelled without ever being reconciled.
-  const scope = { ...buildResolutionScope(user, query), $nor: [{ workflowStatus: 'COUNTING' }, { workflowStatus: 'CANCELLED', 'header.lastReconciledAt': null, 'header.lastReconciledBy': null }] };
+  // Read-only history: resolution plans were retired on 22 Nov 2026 but plans of older sessions stay readable.
+  const scope = buildResolutionScope(user, query);
   const empty = { items: [], total: 0, page: query.page, limit: query.limit, lookups: { warehouses: [], users: [] } };
   let locationRefs = null;
   if (query.locationId) {
@@ -176,11 +173,5 @@ export async function getResolutionPlan(user, planId) {
       users: users.map(userLabel),
     },
   };
-  // While the session counts blind again, a cancelled plan keeps only its identity: lines, selected counts,
-  // executions, snapshots and counts would reveal the frozen book.
-  if (!isBlind(stocktake)) return result;
-  return {
-    ...result, plan: { ...result.plan, items: [], selectedCounts: [], executionRecords: [] }, snapshots: [], counts: [],
-    lookups: { ...result.lookups, locations: [], batches: [], products: [] },
-  };
+  return result;
 }
