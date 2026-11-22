@@ -37,22 +37,6 @@ const staff = (actor) => {
 const owner = (actor) => {
   if (currentRole(actor)?.code !== "OWNER") throw forbiddenError();
 };
-const stockContent = (doc) =>
-  hash({
-    warehouseId: doc.header.warehouseId,
-    items: doc.items.map((item) => ({
-      productId: item.productId,
-      lotId: item.lotId,
-      destinationLocationId: item.destinationLocationId,
-      qualityCode: item.qualityCode,
-      enteredUnit: item.enteredUnit,
-      enteredQty: item.enteredQty,
-      baseUnitSnapshot: item.baseUnitSnapshot,
-      baseUnitsPerUnit: item.baseUnitsPerUnit,
-      qtyBase: item.qtyBase,
-      packagingSnapshot: item.packagingSnapshot,
-    })),
-  });
 async function scoped(id, actor, session) {
   const doc = await OtherGoodsReceipt.findById(id).session(session);
   if (!doc) throw notFoundError();
@@ -61,29 +45,7 @@ async function scoped(id, actor, session) {
 }
 const replay = (id, actor, session) => scoped(id, actor, session);
 
-async function replacementSource(id, warehouseId, actor, session, draftId) {
-  const original = await scoped(id, actor, session);
-  if (original.workflowStatus !== 'REVERSED' || !original.approvedStockHash
-    || !same(original.header.warehouseId, warehouseId)) {
-    throw validationError('Phiếu gốc chưa được bỏ ghi và duyệt trong cùng kho');
-  }
-  if (await OtherGoodsReceipt.exists({
-    'header.originalReceiptId': original._id,
-    ...(draftId && { _id: { $ne: draftId } }),
-    workflowStatus: { $nin: ['CANCELLED', 'REVERSED'] },
-  }).session(session)) throw validationError('Phiếu gốc đã có phiếu thay thế còn hiệu lực');
-  // Claims for the same reversed receipt contend on the same row, including
-  // edits of separate draft receipts that otherwise write different documents.
-  const updatedAt = new Date(Math.max(Date.now(), (original.updatedAt?.getTime() ?? 0) + 1));
-  await OtherGoodsReceipt.updateOne({ _id: original._id }, { $set: { updatedAt } }, { session, timestamps: false });
-  return original;
-}
-
-const replacementLink = original => [{
-  subjectCollection: 'goods_receipts', documentId: original._id, relationCode: 'REPLACES',
-}];
-
-async function buildLines(receipt, lines, session, original) {
+async function buildLines(receipt, lines, session) {
   const items = [];
   const existing = [...receipt.items];
   for (const [index, line] of lines.entries()) {
@@ -91,7 +53,7 @@ async function buildLines(receipt, lines, session, original) {
       line.qualityCode === 'GOOD' ? ['RECEIVING', 'STORAGE'] : ['QUARANTINE'], session);
     const previousIndex = existing.findIndex(row => same(row.productId, line.productId) && same(row.lotId, line.lotId));
     const previous = previousIndex < 0 ? undefined : existing.splice(previousIndex, 1)[0];
-    const item = original ? original.items[index].toObject() : await makeItem(line, index + 1, session, { previous });
+    const item = await makeItem(line, index + 1, session, { previous });
     items.push({
       ...item, _id: previous?._id ?? newId(), lineNo: index + 1, lineKind: 'STANDARD',
       destinationLocationId: line.destinationLocationId, qualityCode: line.qualityCode,
@@ -112,18 +74,7 @@ export function createOtherReceipt(user, input) {
     async (session, actor) => {
       staff(actor);
       requireWarehouseAccess(actor, input.warehouseId);
-      const original = input.originalReceiptId && await replacementSource(input.originalReceiptId, input.warehouseId, actor, session);
-      const lines =
-        input.lines ??
-        original?.items.map((item) => ({
-          productId: item.productId,
-          lotId: item.lotId,
-          enteredUnit: item.enteredUnit,
-          enteredQty: String(item.enteredQty),
-          destinationLocationId: item.destinationLocationId,
-          qualityCode: item.qualityCode,
-        }));
-      if (!lines?.length) throw validationError("Phiếu phải có dòng hàng");
+      if (!input.lines?.length) throw validationError("Phiếu phải có dòng hàng");
       const receipt = new OtherGoodsReceipt({
         ...await nextDocumentFields(OtherGoodsReceipt,'OTHER',input.warehouseId,session),
         workflowStatus: "DRAFT",
@@ -134,12 +85,10 @@ export function createOtherReceipt(user, input) {
         header: {
           warehouseId: input.warehouseId,
           reason: input.reason,
-          originalReceiptId: original?._id,
         },
         items: [],
       });
-      receipt.items = await buildLines(receipt, lines, session, input.lines ? undefined : original);
-      if (original) receipt.sources = replacementLink(original);
+      receipt.items = await buildLines(receipt, input.lines, session);
       await receipt.save({ session });
       return { document: receipt };
     },
@@ -152,14 +101,6 @@ export function updateOtherReceipt(user, id, input) {
     const doc = await scoped(id, actor, session);
     checkVersion(doc, input.expectedVersion);
     if (doc.workflowStatus !== 'DRAFT') throw validationError('Phiếu không còn nháp');
-    if (input.originalReceiptId === null) {
-      doc.header.originalReceiptId = null;
-      doc.sources = doc.sources?.filter(source => source.relationCode !== 'REPLACES');
-    } else if (input.originalReceiptId && !same(input.originalReceiptId, doc.header.originalReceiptId)) {
-      const original = await replacementSource(input.originalReceiptId, doc.header.warehouseId, actor, session, doc._id);
-      doc.header.originalReceiptId = original._id;
-      doc.sources = replacementLink(original);
-    }
     doc.header.reason = input.reason;
     if (input.note !== undefined) doc.note = input.note;
     doc.items = await buildLines(doc, input.lines, session);
@@ -183,19 +124,7 @@ export function submitOtherReceipt(user, id, input) {
       if (doc.workflowStatus !== "DRAFT")
         throw validationError("Phiếu không còn nháp");
       await evidenceFor(actor, doc, doc.evidenceIds, session, true);
-      const original =
-        doc.header.originalReceiptId &&
-        (await scoped(doc.header.originalReceiptId, actor, session));
-      if (
-        original &&
-        original.workflowStatus === "REVERSED" &&
-        original.approvedStockHash === stockContent(doc)
-      ) {
-        doc.workflowStatus = "APPROVED";
-        doc.approvedStockHash = original.approvedStockHash;
-        doc.approvedVersion = doc.version + 1;
-        doc.approvalDecisionId = original.approvalDecisionId;
-      } else doc.workflowStatus = "PENDING_APPROVAL";
+      doc.workflowStatus = "PENDING_APPROVAL";
       return {
         document: await saveVersion(doc, input.expectedVersion, session),
         versionBefore: input.expectedVersion,
@@ -252,7 +181,6 @@ export function approveOtherReceipt(user, id, input) {
       }).save({ session });
       doc.workflowStatus = input.decision === "APPROVE" ? "APPROVED" : "DRAFT";
       if (input.decision === "APPROVE") {
-        doc.approvedStockHash = stockContent(doc);
         doc.approvedVersion = doc.version + 1;
         doc.approvalDecisionId = decision._id;
       }
@@ -279,8 +207,7 @@ export function postOtherReceipt(user, id, input) {
       checkVersion(doc, input.expectedVersion);
       if (
         doc.workflowStatus !== "APPROVED" ||
-        doc.approvedVersion !== doc.version ||
-        doc.approvedStockHash !== stockContent(doc)
+        doc.approvedVersion !== doc.version
       )
         throw validationError(
           "Nội dung ghi tồn chưa được duyệt đúng phiên bản",
