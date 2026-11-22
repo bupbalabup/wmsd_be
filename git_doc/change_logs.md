@@ -1,3 +1,18 @@
+## 22 November 2026 — Frontend backlog: green checks, lazy chunks, explicit currency, locked-stock tag
+
+**Source.** User said "fix all the frontend too" (22 Nov 2026, relayed by the coordinator). Frontend repository `frontend/` only; no backend file other than this entry was changed. No new business rule.
+
+**Behavior.**
+1. `formatCurrency` no longer assumes VNĐ: without a currency code it prints `(thiếu tiền tệ)`. VND-only entities (issue requests, purchase-order/replenishment forms, Owner dashboard mock) pass the explicit `VND_ONLY` option or code `VND`; API-backed screens keep using the record's `currencyCode`. `formatDecimal` rounds JS numbers to six decimals before formatting.
+2. Mounted mock screens now format money with `formatCurrency` and quantities with `formatQuantity`: issue-request list/detail/print/step, Owner dashboard blocks, PO create/edit modals, replenishment create-PO dialog. Unmounted legacy files were deliberately left untouched (list in the frontend report).
+3. Return-workflow stock picker: locked stock stays selectable for defect reports and now shows "Đang khóa kiểm kê — vẫn chọn được để báo hàng lỗi" (other purposes keep the disabled "Đang khóa kiểm kê" row).
+4. Excel export failures are toasted once (the global error middleware also shows `CUSTOM_ERROR` messages from `queryFn` endpoints); `Scene.tsx` probes WebGL2 once instead of setting state in an effect; `vite.config.ts` splits `three` into its own chunk and sets the chunk warning limit to 1000 kB because the only chunk above 700 kB is the lazily loaded prebuilt `exceljs.min` (~930 kB).
+5. Tests fixed (no new test files): the two mocks with a raw `<button>` use the shared `Button`; `return-workflows/usability.test.tsx` no longer selects a customer (customer comes from the source document); `issue-requests/detail/IssueRequestDetailPage.test.tsx` expects "VNĐ".
+
+**Data impact.** None (no database, seed or migration; the browser check used an isolated local database that was dropped afterwards).
+
+**Checks.** See the frontend report for exact numbers: `pnpm typecheck`, `pnpm lint` (0 errors, 0 warnings), `pnpm ui:check`, full vitest run and `pnpm build` (no chunk warning).
+
 ## 22 November 2026 — Stocktake follow-up: lot unit, lock-aware option lists, plan timezone, cancelled slips free their period
 
 **Source.** User said "fix all" for the remaining open items of the stocktake redesign (22 Nov 2026, relayed by the coordinator). No new business rule beyond the decision of the same day; contracts: [STOCKTAKE_PLANS.md](docs/08_api/STOCKTAKE_PLANS.md), [STOCKTAKE_LIFECYCLE.md](docs/08_api/STOCKTAKE_LIFECYCLE.md), [HIEUDT_WAREHOUSE_SCOPE.md](docs/08_api/HIEUDT_WAREHOUSE_SCOPE.md#option-lists-and-stocktake-locks-22-nov-2026), [RETURN_WORKFLOWS_NATIVE.md](docs/08_api/RETURN_WORKFLOWS_NATIVE.md).
