@@ -1,3 +1,45 @@
+## 22 November 2026 — Transfer review batch 5: assignee, destination requests, stop-forward, cleanup
+
+**Behavior.** The pick task can be assigned from a picker or defaults to the source warehouse keeper; destination staff can raise, edit and cancel requests asking for goods; the shipping warehouse and the owner can stop the remaining quantity; the transfer page shows the next step and who does it, with consistent units. Unused mock transfer screens were deleted.
+
+**Data and contracts.** No schema change. New `GET /warehouse-transfers/pick-assignees`; relaxed access on create, update, cancel, options and close-partial. See the [BF04 contract](docs/08_api/transfers/BF04_API.md#pick-assignee-picker-destination-initiated-requests-stop-forward--22-november-2026-batch-5).
+
+**Verification.** `node --check` and `tsc --noEmit` pass after the deletions. Not yet run against the live project; `/test` files not run.
+
+## 22 November 2026 — Transfer review batch 4: execution (short pick, handover, split receipt)
+
+**Behavior.** Pickers can confirm a lower picked quantity with a reason (the rest of the reservation is released); a pick task can be assigned to another warehouse user; handover records driver, phone and note; the receiving form splits good and damaged quantities per dispatch line; creating a dispatch also creates its pick task; the transfer page has a "Nhận hàng" button.
+
+**Data and contracts.** Additive: handover header `driverName`/`driverPhone`/`note`, dispatch header `shortPickReason`; new optional request fields `assigneeId`, `driverName`, `driverPhone`, `note`, `pickedLines`, `shortReason`. See the [BF04 contract](docs/08_api/transfers/BF04_API.md#execution-short-pick-assignee-handover-details-split-receipt--22-november-2026-batch-4).
+
+**Verification.** `node --check` and `tsc --noEmit` pass. Not yet run against the live project; `/test` files not run.
+
+## 22 November 2026 — Transfer review batch 3: per-line approval and stock check
+
+**Behavior.** The approver can lower or drop quantities per line, sees free source stock (per lot), destination stock and the needed-by date, and approval fails when a line exceeds free source stock. Approval no longer needs a note. Stock is checked, not reserved, at approval.
+
+**Data and contracts.** No schema change. New optional review field `lines[]`; read DTO adds `stockCheck[]` and `header.neededOn`. See the [BF04 contract](docs/08_api/transfers/BF04_API.md#per-line-approval-and-stock-check-at-review--22-november-2026-batch-3).
+
+**Verification.** `node --check` and `tsc --noEmit` pass, and the review body schema accepts and rejects the expected cases. Not yet run against the live project; `/test` files not run.
+
+## 22 November 2026 — Transfer review batches 1–2: transit loss and lot mixing
+
+**Behavior.** Batch 1 lets the owner resolve a transit discrepancy by write-off or receipt so a request can complete; batch 2 blocks silent lot mixing on dispatch unless the dispatcher confirms. Frontend: discrepancy dialog, review reason banners, written-off column, dispatch lot/staging selection with planned-picking preview.
+
+**Data and contracts.** Optional `resolutionMode`/`liableParty` on discrepancy headers; `mixedLots`/`mixedLotAcceptedBy` on dispatch headers; `acceptMixedLots` request field. Additive, no migration. See the [BF04 contract](docs/08_api/transfers/BF04_API.md#transit-loss-and-discrepancy-resolution--22-november-2026-batch-1). Data dictionary, ERD, schema.json and model map are not updated yet.
+
+**Verification.** Batch 1 was exercised end to end against the running project (request completed with 6 received and 6 written off). Batch 2 passed `tsc --noEmit` and `node --check`; the `/test` files were intentionally not run.
+
+## 22 November 2026 — Transfer request source locations and partial allocations
+
+**Decision.** The user requested per-bin quantities after choosing a product and lot, with immediate stock checks. The follow-up explicitly allows a partial allocation such as 40 of 160 pieces.
+
+**Behavior.** The transfer editor saves a partial or full allocation, displays the unallocated remainder, and checks available stock for each selected bin. Request detail and the Transfer Goods Issue form show the saved bin quantities. Dispatch uses planned balances first and may source the unallocated remainder from eligible stock of the same lot. The server checks cumulative planned and unplanned dispatch quantities across non-cancelled documents inside the existing reservation transaction.
+
+**Data and contracts.** `warehouse_transfer_requests.items[]` stores optional `lotLabelSnapshot` and `sourceLocations[]`. Existing documents continue to load. The additive schema needs no data migration or index build. The API, model map, current data dictionary, ERD, and frontend context describe the change. See the [BF04 contract](docs/08_api/transfers/BF04_API.md#source-locations-on-transfer-requests--22-november-2026).
+
+**Verification.** Eleven targeted backend read, availability, completion and schema tests and two isolated localhost replica-set transfer tests passed. Thirty-six focused frontend tests passed, including the 40/160 case, and Chrome verified the form at 1440px and 390px with sample stock.
+
 ## 22 November 2026 — Frontend backlog: green checks, lazy chunks, explicit currency, locked-stock tag
 
 **Source.** User said "fix all the frontend too" (22 Nov 2026, relayed by the coordinator). Frontend repository `frontend/` only; no backend file other than this entry was changed. No new business rule.
