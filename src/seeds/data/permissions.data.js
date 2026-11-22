@@ -113,29 +113,8 @@ export const PERMISSION_CATALOGUE = [
   { code: 'delivery_order:report_issue', description: 'Báo cáo vấn đề và chọn vị trí lấy bù', uc: ['UC-48'], roles: [WAREHOUSE] },
 
   { code: 'issue_request:read', description: 'Xem yêu cầu xuất kho liên kết (WIR)', uc: ['UC-109'], roles: BUSINESS_ROLES },
-  { code: 'issue_request:create', description: 'Tạo WIR / nhu cầu ròng tái mở', uc: ['UC-109'], roles: [SALES] },
-  { code: 'issue_request:update', description: 'Sửa/hủy phần WIR đủ điều kiện', uc: ['UC-109'], roles: [SALES] },
-
-  { code: 'outbound_delivery:read', description: 'Xem lệnh giao hàng (OD)', uc: ['UC-49', 'UC-50'], roles: BUSINESS_ROLES },
-  { code: 'outbound_delivery:create', description: 'Lập OD', uc: ['UC-51'], roles: [SALES] },
-  { code: 'outbound_delivery:update', description: 'Cập nhật/tái sử dụng cam kết OD', uc: ['UC-51'], roles: [SALES] },
-
-  { code: 'picking_task:read', description: 'Xem nhiệm vụ soạn hàng', uc: ['UC-52', 'UC-53'], roles: BUSINESS_ROLES },
-  { code: 'picking_task:create', description: 'Tạo nhiệm vụ soạn hàng', uc: ['UC-54'], roles: [WAREHOUSE] },
-  { code: 'picking_task:confirm', description: 'Xác nhận soạn hàng', uc: ['UC-55'], roles: [WAREHOUSE] },
 
   { code: 'goods_issue:read', description: 'Xem phiếu xuất bán (GI-S)', uc: ['UC-56', 'UC-57'], roles: BUSINESS_ROLES },
-  { code: 'goods_issue:create', description: 'Lập GI-S nháp trước khi soạn', uc: ['UC-58'], roles: [WAREHOUSE] },
-  { code: 'goods_issue:post', description: 'Post xuất kho (PGI) khi bàn giao thực tế', uc: ['UC-58'], roles: [WAREHOUSE] },
-
-  { code: 'fulfilment_option:read', description: 'Xem phương án đáp ứng thiếu hàng', uc: ['UC-103'], roles: [OWNER, WAREHOUSE, SALES] },
-  { code: 'fulfilment_option:select', description: 'Chọn phương án tồn / xác nhận với khách', uc: ['UC-103'], roles: [WAREHOUSE, SALES] },
-
-  { code: 'delivery_confirmation:read', description: 'Xem xác nhận giao hàng (POD)', uc: ['UC-110'], roles: BUSINESS_ROLES },
-  { code: 'delivery_confirmation:confirm', description: 'Xác nhận/sửa POD kèm ảnh tại kho được giao', uc: ['UC-110'], roles: [WAREHOUSE] },
-
-  { code: 'payment_confirmation:read', description: 'Xem xác nhận thu tiền (PAY-CFM)', uc: ['UC-111'], roles: BUSINESS_ROLES },
-  { code: 'payment_confirmation:confirm', description: 'Xác nhận đã thu đủ tiền ngoài sau DELIVERED', uc: ['UC-111'], roles: [SALES] },
 
   // ---------- FE-07: Hàng lỗi, trả hàng (BF-02, BF-07, BF-08) ----------
   { code: 'defect:read', description: 'Xem hàng lỗi', uc: ['UC-63', 'UC-64'], roles: [OWNER, WAREHOUSE] },

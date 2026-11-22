@@ -5,11 +5,7 @@ import operationalReportsRouter from './modules/operational-reports/operational-
 import locationMovementRouter from "./modules/location-movements/location-movement.routes.js";
 import transferReadRouter from "./modules/transfers/transfer-read.routes.js";
 import transferWriteRouter from "./modules/transfers/transfer-write.routes.js";
-import {
-  salesOrderRouter,
-  outboundDeliveryRouter,
-  pickingRouter,
-} from "./modules/sales-orders/sales-read.routes.js";
+import { salesOrderRouter } from "./modules/sales-orders/sales-read.routes.js";
 import { deliveryScheduleRouter, deliveryOrderRouter } from "./modules/delivery-orders/delivery-order.routes.js";
 import healthRouter from "./modules/health/health.routes.js";
 import authRouter from "./modules/auth/auth.routes.js";
@@ -41,8 +37,6 @@ router.use("/warehouse-transfers", transferWriteRouter, transferReadRouter);
 router.use("/sales-orders", salesOrderRouter);
 router.use("/delivery-schedules", deliveryScheduleRouter);
 router.use("/delivery-orders", deliveryOrderRouter);
-router.use("/outbound-deliveries", outboundDeliveryRouter);
-router.use('/picking-tasks',pickingRouter);
 
 router.use("/health", healthRouter);
 router.use("/auth", authRouter);

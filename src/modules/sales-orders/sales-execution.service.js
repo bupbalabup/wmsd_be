@@ -345,7 +345,7 @@ export async function listSalesOrders(user, query) {
     return result;
 }
 export async function salesOptions(user) {
-    if (!hasPermission(user, 'sales_order:create') && !hasPermission(user, 'outbound_delivery:create') && !hasPermission(user, 'picking_task:create'))
+    if (!hasPermission(user, 'sales_order:create') && !hasPermission(user, 'delivery_order:create'))
         requirePermission(user, 'sales_order:create');
     const warehouseFilter = currentRole(user)?.code === 'OWNER' || hasPermission(user, 'sales_order:create') ? {} : { _id: { $in: user.warehouseIds || [] } };
     const warehouses = await m.Warehouse.find({ ...warehouseFilter, isActive: true }).lean();
