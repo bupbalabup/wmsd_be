@@ -52,7 +52,7 @@ Quyền xem và thao tác vẫn theo tài khoản và kho được phân công. 
 - `opening_stocks`: các dòng thùng nguyên theo lô có locationId, số thùng và quy cách. Nguồn tồn này có người kho lập, Owner xác minh, transaction và movement tương ứng.
 - `inventory_balances.packagingPortions[]`: SEALED ghi số thùng nguyên và quy cách; OPEN/LOOSE ghi hàng mở/lẻ và thể tích đo. Đây là bố trí cùng lượng tồn, không cộng thêm lần nữa; không có bảng storage_stacks/storage_stack_items.
 - `warehouse_transfer_requests`, `transfer_dispatches`, `goods_receipts` với `documentKind: "TRANSFER"`: TR có nhiều phiếu xuất, một phiếu xuất có nhiều lần nhận. Liên kết bằng ID dòng và header nguồn.
-- `goods_receipts` với `documentKind: "OTHER"`: nhập thủ công, phê duyệt và các tình huống sửa sai (`NK-202610-001` đã ghi sổ kèm chứng cứ, `NK-202610-002-OLD` đã bỏ ghi `REVERSED`, `NK-202610-002` thay thế liên kết `originalReceiptId`, `NK-202610-003` nháp có chứng cứ).
+- `goods_receipts` với `documentKind: "OTHER"`: nhập thủ công, phê duyệt và các tình huống sửa sai (`NK-202610-001` đã ghi sổ kèm chứng cứ, `NK-202610-002-OLD` đã bỏ ghi `REVERSED`, `NK-202610-002` phiếu mới lập lại sau khi đảo, không liên kết phiếu cũ, `NK-202610-003` nháp có chứng cứ).
 - `transfer_orders`: lọc `{ "header.taskKind": "RELOCATE" }` cho BF03 hoặc PICK/PUTAWAY cho BF04.
 - `sales_invoices`: hóa đơn `HD-202610-001` có hai phiếu xuất khác ngày, 12 viên khách nhận, giá mô phỏng 50.000 đồng/viên, tổng 600.000 đồng. Mở goodsIssueId để đối chiếu phiếu xuất.
 - `stocktake_counts`: lọc `{ "attemptNo": 2 }` để xem đếm lại và liên kết lần đếm cũ.
