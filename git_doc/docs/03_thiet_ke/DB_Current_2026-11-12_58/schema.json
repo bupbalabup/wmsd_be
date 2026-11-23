@@ -7395,12 +7395,6 @@
         "target": ""
       },
       {
-        "path": "{OtherGoodsReceipt}.approvedStockHash",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "{OtherGoodsReceipt}.approvedVersion",
         "type": "Number",
         "required": false,

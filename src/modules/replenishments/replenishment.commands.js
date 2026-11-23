@@ -282,7 +282,7 @@ export async function requireEditableRequest(user, requestId) {
   const document = await readRequest(requestId, user);
   if (!same(document.createdBy, user._id))
     throw forbiddenError("Chỉ người lập được sửa");
-  if (!["DRAFT", "REVISION_REQUIRED"].includes(document.workflowStatus))
+  if (document.workflowStatus !== "DRAFT")
     throw validationError("Yêu cầu không còn được sửa");
   if (await PurchaseOrder.exists({ replenishmentRequestId: requestId }))
     throw validationError("Yêu cầu đã có đơn mua");
@@ -416,7 +416,7 @@ export function updateReplenishment(user, id, input) {
       checkVersion(document, input.expectedVersion);
       if (!same(document.createdBy, actor._id))
         throw forbiddenError("Chỉ người lập được sửa");
-      if (!["DRAFT", "REVISION_REQUIRED"].includes(document.workflowStatus))
+      if (document.workflowStatus !== "DRAFT")
         throw validationError("Yêu cầu không còn được sửa");
       if (
         await PurchaseOrder.exists({ replenishmentRequestId: id }).session(
@@ -448,7 +448,7 @@ export function submitReplenishment(user, id, input) {
       checkVersion(document, input.expectedVersion);
       if (!same(document.createdBy, actor._id))
         throw forbiddenError("Chỉ người lập được gửi");
-      if (!["DRAFT", "REVISION_REQUIRED"].includes(document.workflowStatus))
+      if (document.workflowStatus !== "DRAFT")
         throw validationError("Yêu cầu không thể gửi ở trạng thái hiện tại");
       await assessSavedRequest(document, actor, session, input.evaluations);
       document.version = input.expectedVersion + 1;
@@ -554,11 +554,8 @@ export function reviewReplenishment(user, id, input) {
       document.header.latestDecisionId = approval._id;
       if (input.decision === "APPROVE")
         document.header.approvedRevision = document.version;
-      document.workflowStatus = {
-        APPROVE: "APPROVED",
-        REJECT: "REJECTED",
-        REVISE: "REVISION_REQUIRED",
-      }[input.decision];
+      document.workflowStatus =
+        input.decision === "APPROVE" ? "APPROVED" : "REJECTED";
       return {
         document: await saveVersion(document, input.expectedVersion, session),
         versionBefore: input.expectedVersion,
@@ -591,7 +588,7 @@ export function cancelReplenishment(user, id, input) {
       if (document.workflowStatus === "APPROVED") {
         if (!isOwner(actor)) throw forbiddenError("Owner xử lý phần đã duyệt");
       } else if (
-        !["DRAFT", "SUBMITTED", "REVISION_REQUIRED"].includes(
+        !["DRAFT", "SUBMITTED"].includes(
           document.workflowStatus,
         ) ||
         !same(document.createdBy, actor._id)

@@ -84,7 +84,6 @@ export function createGoodsReceiptVariants() {
   const otherHeader = new Schema({
     warehouseId: ref('Warehouse'),
     reason: text(2000),
-    originalReceiptId: ref('GoodsReceipt', false),
   }, { _id: false, strict: 'throw' });
   return [
     ['PurchaseReceipt', 'PURCHASE', variant(createPurchaseReceiptHeaderSchema())],
@@ -93,7 +92,7 @@ export function createGoodsReceiptVariants() {
     ['TransferReceipt', 'TRANSFER', variant(createTransferReceiptHeaderSchema())],
     ['OtherGoodsReceipt', 'OTHER', new Schema({
       header: { type: otherHeader, required: true },
-      approvedStockHash: opt(64), approvedVersion: integer(1, { required: false }),
+      approvedVersion: integer(1, { required: false }),
       approvalDecisionId: ref('ApprovalHistory', false),
     }, { _id: false, strict: 'throw' })],
   ];
