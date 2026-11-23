@@ -1,3 +1,7 @@
+## 23/11/2026 — Sửa đóng gói API catalogue trên Cloudflare
+
+Dùng Router do Express xuất ra trong routeRegistry.js để Wrangler phân giải được dependency sau khi cài pnpm production. Xem [hướng dẫn Cloudflare Workers](docs/09_phat_trien/CLOUDFLARE_WORKERS.md).
+
 ## 23/11/2026 — Quản trị hệ thống, dashboard thật, cảnh báo tồn, email, tìm kiếm, dọn mã
 
 **Quyết định.** Yêu cầu của người dùng ngày 23/11/2026 (11 hạng mục, liệt kê trong [SYSTEM_ADMIN](docs/08_api/SYSTEM_ADMIN.md)).
