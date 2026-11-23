@@ -18,6 +18,10 @@ export async function purchaseOrderQuantities(po,session){
       outstandingQtyBase:outstanding.toFixed(),openDraftCommitmentQtyBase:draft.toFixed(),acceptanceHeadroomQtyBase:outstanding.minus(draft).toFixed(),quantityState:'KNOWN'};
   });
 }
+// Status of a PO that still has something to receive: PARTIAL once any stock was posted.
+export const receivingStatus=quantities=>quantities.some(row=>exact(row.receivedQtyBase).gt(0))?'PARTIAL':'OPEN';
+// A CLOSED PO has nothing outstanding until one of its receipts is reversed (user decision 23/11/2026).
+export const reopenable=(po,quantities)=>po.workflowStatus==='CLOSED'&&quantities.some(row=>exact(row.outstandingQtyBase).gt(0));
 // A PO is cancellable while nothing physical or financial refers to it yet.
 // Every receiving document starts from a GoodsArrival or a PurchaseReceipt.
 export async function cancelBlocker(po, session) {
@@ -93,7 +97,7 @@ export async function getPurchaseOrder(user,id){
   }
 
   const cancellable=['DRAFT','OPEN'].includes(po.workflowStatus)&&!(await cancelBlocker(po));
-  const result={...dto(po),warehouse:mappedWarehouse,draftEdit,cancellable,hasOpenReceivingWork:(await openReceivingWorkIds([po])).has(String(po._id)),quantities,arrivals:arrivals.map(dto),receipts:receipts.map(dto),
+  const result={...dto(po),warehouse:mappedWarehouse,draftEdit,cancellable,reopenable:reopenable(po,quantities),hasOpenReceivingWork:(await openReceivingWorkIds([po])).has(String(po._id)),quantities,arrivals:arrivals.map(dto),receipts:receipts.map(dto),
     ...(financial(user)&&{history:history.map(dto),approvals:approvals.map(dto)})};
   await enrichLineItems(result.items);
   return financial(user)?result:redactPrices(result);

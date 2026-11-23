@@ -457,11 +457,12 @@ export function postReceipt(user, id, input) {
       receipt.header.receivedAt = new Date();
       const saved = await saveVersion(receipt, input.expectedVersion, session);
       const remaining = await purchaseOrderQuantities(po, session);
-      po.workflowStatus = remaining.every((row) =>
-        exact(row.outstandingQtyBase).isZero(),
-      )
-        ? "COMPLETED"
-        : "PARTIAL";
+      if (remaining.every((row) => exact(row.outstandingQtyBase).isZero())) {
+        // Fully settled with a short-closed line: CLOSED, not COMPLETED (user decision 23/11/2026).
+        const shortClosed = remaining.some((row) => exact(row.cancelledQtyBase).gt(0));
+        po.workflowStatus = shortClosed ? "CLOSED" : "COMPLETED";
+        if (shortClosed) po.header.closedAt = new Date();
+      } else po.workflowStatus = "PARTIAL";
       await saveVersion(po, po.version, session);
       return {
         document: saved,

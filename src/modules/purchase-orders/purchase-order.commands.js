@@ -26,7 +26,7 @@ import {
   newDocument,
   evidenceFor,
 } from "../po-receiving/purchase-core.js";
-import { purchaseOrderQuantities, cancelBlocker } from "./purchase-order.service.js";
+import { purchaseOrderQuantities, cancelBlocker, receivingStatus, reopenable } from "./purchase-order.service.js";
 
 // A changed or new expected date may not be in the past; an unchanged saved date stays editable.
 function checkExpectedOn(next, saved) {
@@ -401,6 +401,35 @@ export function closeRemainder(user, id, input) {
             after: { lines: input.lines, evidenceIds: input.evidenceIds ?? [] },
           },
         ],
+      };
+    },
+  );
+}
+// The Accountant reopens a CLOSED PO whose receipt was reversed (user decision 23/11/2026).
+// Only the reversed quantity becomes receivable again; the short-closed quantity stays closed.
+export function reopenPurchaseOrder(user, id, input) {
+  return command(
+    user,
+    "REOPEN_PURCHASE_ORDER",
+    "purchase_order:update",
+    id,
+    input,
+    replayPurchase,
+    async (session, actor) => {
+      const po = await findPurchase(id, actor, session, { kind: "PO" });
+      checkVersion(po, input.expectedVersion);
+      if (po.workflowStatus !== "CLOSED")
+        throw validationError("PO không ở trạng thái đã đóng");
+      const quantities = await purchaseOrderQuantities(po, session);
+      if (!reopenable(po, quantities))
+        throw validationError("PO không có lượng chưa nhận để mở lại");
+      po.workflowStatus = receivingStatus(quantities);
+      po.header.closedAt = undefined;
+      return {
+        document: await saveVersion(po, input.expectedVersion, session),
+        versionBefore: input.expectedVersion,
+        reason: input.reason,
+        auditChanges: [{ field: "workflowStatus", before: "CLOSED", after: po.workflowStatus }],
       };
     },
   );

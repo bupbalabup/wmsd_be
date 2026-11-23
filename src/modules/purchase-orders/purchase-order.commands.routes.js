@@ -21,6 +21,7 @@ router.post('/:id/expected-on', validate(schema(action({ expectedOn: z.string().
 // Evidence is optional for closing the remainder (user decision 16/11/2026).
 const optionalEvidence = z.array(oid).max(20).refine(a => new Set(a).size === a.length).optional();
 router.post('/:id/close-remainder', validate(schema(action({ reason, evidenceIds: optionalEvidence, lines: closeLines }))), handle((u,v) => c.closeRemainder(u,v.params.id,v.body)));
+router.post('/:id/reopen', validate(schema(action({ reason }))), handle((u,v) => c.reopenPurchaseOrder(u,v.params.id,v.body)));
 router.post('/:id/cancel', validate(schema(action({ reason }))), handle((u,v) => c.cancelPurchaseOrder(u,v.params.id,v.body)));
 export default router;
 

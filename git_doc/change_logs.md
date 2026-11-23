@@ -1,3 +1,56 @@
+## 24 November 2026 — Warehouse Staff may update product lots
+
+User decision (24/11/2026): Warehouse Staff may update existing product lot information, not only create lots. Same guards as for the Store Owner: lot identity and carton specification cannot change once the lot has documents or stock.
+
+- `be/src/seeds/data/permissions.data.js`: `product_lot:update` now granted to OWNER and WAREHOUSE.
+- `fe/src/shared/hooks/useCurrentRole.ts`: warehouse default permissions include `product_lot:update`, so the lot edit button shows for Warehouse Staff.
+- Existing databases keep the old grant until `npm run seed:sync-permissions` is run; that command resets the default roles to the seed permission list.
+- Report 3: UC-27 Update Product Lot Information lists Warehouse Staff in §4.2, §4.3, §4.4 and the UC-27 specification.
+- Validation: FE `useCurrentRole` and lots tests pass; BE permission/lot integration tests were skipped (no test MongoDB in this run).
+
+## 24 November 2026 — Report 3 §4.2/§4.3: use-case catalogue reconciled with code
+
+User decisions (23–24/11/2026), after reconciling the catalogue with the backend routes, frontend screens and the five use-case diagrams: one use case covers exactly one user operation (an approve/reject/return decision is one "Review" operation); keep only use cases implemented in both backend and frontend and reachable from the menu; the delivery scope is dropped; in the replenishment, purchase order, goods inspection and purchase receipt groups, saving a draft and sending it on (submit, issue, confirm) are steps of the creating use case, while editing a draft stays a use case of its own. Docs-only: no code, model, API or data change.
+
+- `docs/01_bao_cao/WMSD_Report3_Fix.docx.txt` §4.2 now lists 159 use cases, UC-01–UC-159, numbered consecutively by feature; §4.3 actor associations are regenerated from the same list and current role permissions.
+- Removed: Outbound Delivery list/details/create, Picking Task list/details, Issue Request list/details/create/update/cancel, Inspect Failed-Delivery Intake, the three fulfilment-option UCs, Close Stocktake Without Variance, Propose/Confirm/Approve Stocktake Resolution, and the inventory adjustment request list/details (legacy page, not in the menu).
+- Merged: Cancel Unreceived PO Remainder + Close Purchase Order → Close Purchase Order; Create goods receipt from PO → Create Goods Inspection; Evaluate Replenishment Suggestions → Create/Update Replenishment Request; Approve Stocktake Resolution and Close Without Variance → Approve Stocktake Differences; Inspect and Post Transfer Receipt → Post Transfer Receipt (one API command); Submit Replenishment Request → Create/Update Replenishment Request; Issue Purchase Order → Create Purchase Order; Confirm Goods Inspection → Create Goods Inspection.
+- Added or split: Reopen Purchase Order, Cancel Purchase Order, Update Purchase Order (DRAFT only); Update Goods Inspection (DRAFT only); Create/Update/Submit/Review Other Goods Receipt (outside the merged groups, so Submit stays); Update UOM, Change UOM Status; View Warehouse List/Details; Post and Cancel Opening Stock Document; Create/Cancel Transfer Dispatch, Create/Confirm Transfer Picking Task, Confirm Transfer Put-away Task, Propose Transfer Difference; Receive Undelivered Goods; Record Supplier Return Agreement/Acknowledgement, Close Supplier Return; Record Stocktake Difference Reason; Change Stocktake Plan Status; Reset Own Password by Email; View Role List, Create Role, Update Role Permissions.
+- Kept on user decision: Inspect Customer Return (includes reassessment) and Post Customer Return Receipt (includes hand-back); no separate Change Staff Account Email. Custody UCs (reinspect, resolution decision, convert to purchase receipt, release) stay although the frontend has no screen for them yet — pending user decision.
+- §4.4 permission matrix regenerated for UC-01–UC-159: one row per use case, existing cell wording reused where the operation and role are unchanged, new rows default to View / Perform within existing scope, Sign in and Reset Own Password are "Own account" for every role.
+- Not changed, still on the old numbering: the heading under II, business-flow/data-rule tables and the use-case specifications.
+- Validation: UC-01–UC-159 contiguous, names unique (script check); `npm run docs:check`.
+
+## 23/11/2026 — Mở lại PO đã đóng sau khi đảo phiếu nhập
+
+**Quyết định.** User, 23/11/2026: chọn phương án A (lệnh mở lại PO) cho trường hợp PO `CLOSED` có phiếu nhập bị đảo; và PO có dòng đã chốt thiếu, khi nhận hết phần còn lại, về `CLOSED` thay vì `COMPLETED`. Bổ sung, không thay, quyết định 11/11 (đảo phiếu giữ `CLOSED`) và 16/11 (lượng chốt thiếu không hoàn tác).
+
+**Lý do.** Trước đây PO đóng sau chốt thiếu mà bị đảo phiếu nhập sẽ treo phần chưa nhận: không kiểm/nhập lại được (`activePo` chỉ nhận `OPEN`/`PARTIAL`), không chốt thiếu tiếp được, cũng không lập PO thứ hai từ cùng RR.
+
+**Hành vi.** `POST /api/purchase-orders/:id/reopen` (`purchase_order:update`, lý do bắt buộc, AuditLog `REOPEN_PURCHASE_ORDER`, thông báo kho). Chỉ cho PO `CLOSED` còn dòng chưa nhận; về `PARTIAL` hoặc `OPEN`; gỡ `closedAt`, giữ `closureReason` và `cancelledRemainderQtyBase`. Chi tiết PO trả `reopenable`. `postReceipt` đặt `CLOSED` + `closedAt` khi hết phần chưa nhận mà có dòng chốt thiếu. Báo cáo vận hành nhóm mua hàng trừ thêm lượng chốt thiếu khỏi lượng chưa nhận và không còn ép PO `CLOSED` về 0. FE: nút "Mở lại đơn" trên chi tiết PO cho Kế toán; hộp thoại đảo phiếu nhập nhắc PO đã đóng vẫn giữ đóng.
+
+**Tệp.** BE: `purchase-order.service.js` (`receivingStatus`, `reopenable`), `purchase-order.commands.js`, `purchase-order.commands.routes.js`, `purchase-correction.service.js`, `po-receiving.service.js`, `notifications/rules.js`, `operational-reports.service.js`, `test/native-api.integration.test.js`. FE: `purchaseOrdersApi.ts`, `ReopenPurchaseOrderModal.tsx`, `PurchaseOrderDraftActions.tsx`, `PurchaseReceiptReverseModal.tsx`, `PurchaseOrderDraftActions.test.tsx`. Tài liệu: [NATIVE_MODEL_RUNTIME](docs/08_api/NATIVE_MODEL_RUNTIME.md), [HUONG_DAN_CODE_RR_NHAP_CAT_HANG](docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md), sơ đồ lớp Report 4, `docs/rtm.md`, `src/models/CHANGELOG.md`, FE `context.md` và `docs/rtm.md`.
+
+**Dữ liệu.** Không đổi model, không cần migration. PO đã ở `COMPLETED` dù có dòng chốt thiếu (theo quy tắc cũ) giữ nguyên trạng thái.
+
+**Còn lại (lỗi có sẵn, chưa sửa).** Đảo phiếu nhập có nguồn giữ hộ trả hàng về số dư NCC; nhập lại phần đó phải qua luồng chấp nhận hàng giữ hộ, không lập phiếu kiểm mới. `pendingRequestQuantity` tính lại phần duyệt RR chưa dùng khi PO mở. Lập phiếu kiểm thay thế không khóa PO nên có thể chạy chồng với chốt thiếu.
+
+**Kiểm thử.** BE, MongoDB local `rs0`: `RUN_NATIVE_API_TESTS=1 node --test test/native-api.integration.test.js test/operational-reports.test.js test/replenishment-evaluation.integration.test.js` đạt 70/70, không bỏ qua ca nào. Ba ca mới gồm: mở lại về `OPEN` (400 sai trạng thái/không còn lượng chưa nhận, 403 Owner, 409 sai phiên bản, body lạ 400, phát lại cùng `operationKey`, audit, hủy PO vẫn bị chặn, nhập lại thì về `CLOSED`, đảo lần nữa giữ `CLOSED`); hai lệnh mở lại song song về `PARTIAL` chỉ ghi một lần, báo cáo mua hàng và `reconcilePurchasing` khớp, chốt thiếu lại; chốt thiếu một phần rồi nhận hết thì `CLOSED`. `npm run docs:check` đạt. FE: `npx vitest run src/features/purchase-orders` 86/86, `npx tsc --noEmit` đạt. Trình duyệt (BE và FE trên DB local `wmsd_reopen_check`, seed demo): dựng PO 100 → nhập 80 → chốt thiếu 20 → đảo phiếu bằng service; Kế toán thấy "Mở lại đơn", bỏ trống lý do thì báo lỗi, mở lại được → "Chờ nhận hàng"; Thủ kho "Kiểm hàng" 80 rồi "Nhập kho" → PO "Đã đóng", có `closedAt`, AuditLog `REOPEN_PURCHASE_ORDER`, sự kiện thông báo được tạo; console không lỗi. Chưa chạy toàn bộ suite. Tài liệu báo cáo: thêm mô tả lượng chưa nhận nhóm `purchases` vào [OPERATIONAL_REPORTS](docs/08_api/OPERATIONAL_REPORTS.md).
+
+## 23 November 2026 — Report 3 §4.2: Inspect and Post use cases split
+
+User decision (23/11/2026): "Inspect and Post" must not be one use case in the report; scope limited to §4.2 of Report 3 with the following UCs renumbered. Docs-only: no code, model, API or data change.
+
+- `docs/01_bao_cao/WMSD_Report3_Fix.docx.txt` §4.2: UC-33 "Inspect and Post Goods Receipt" is now UC-33 Inspect Goods Receipt + UC-34 Post Goods Receipt; old UC-114 "Inspect and Post Transfer Receipt" is now UC-115 Inspect Transfer Receipt + UC-116 Post Transfer Receipt. The catalogue is 166 UCs, UC-01–UC-166 (old UC-34–UC-113 shift +1, old UC-115–UC-164 shift +2). UC IDs cited inside §4.2 descriptions follow the new numbers; the old UC-114 citation became UC-115, UC-116. Descriptions of the four new rows only partition the existing UC-33/UC-114 text.
+- Not changed, so still on the old numbering: the heading under II, §4.3 actor associations, §4.4 permission matrix, business-flow/data-rule tables and the use-case specifications (UC-37 and UC-114/UC-120 there are still the combined "Inspect and Post"); the Project Tracking WBS sheet and `WMSD_Report3_Fix_UC_renumbered.docx` (outside the repository), so §4.2 no longer matches the WBS order; `src/seeds/data/permissions.data.js` `uc` traces and `docs/rtm.md`.
+- Transfer receipt is one step in the current API (a destination user receives against the posted TD); the split exists in the report only. Not verified against code.
+- Validation: UC-01–UC-166 sequence checked contiguous in §4.2; spot-checked shifted IDs and in-description citations; `npm run docs:check`.
+
+## 23 November 2026 — MongoDB design overview layout
+
+The user requested a single canvas for the MongoDB overview used in the graduation report. Removed the group frames, placed related collection cards closer together and routed connections through the gaps. Refreshed the matching PNG export.
+
+Verified that all 59 collection cards and 74 connections retain their original content and endpoints. Checked the rendered diagram for overlapping cards, labels and shared wire segments. The update affects diagram presentation only and requires no migration.
 ## 23/11/2026 — Sửa đóng gói API catalogue trên Cloudflare
 
 Dùng Router do Express xuất ra trong routeRegistry.js để Wrangler phân giải được dependency sau khi cài pnpm production. Xem [hướng dẫn Cloudflare Workers](docs/09_phat_trien/CLOUDFLARE_WORKERS.md).

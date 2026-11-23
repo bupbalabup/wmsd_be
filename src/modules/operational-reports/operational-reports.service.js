@@ -119,7 +119,7 @@ export async function operationalReport(user, query) {
             const result={product:i.productNameSnapshot,qtyBase:String(i.qtyBase),unit:i.baseUnitSnapshot};
             if(query.group==='purchases'){
                 const received=receipts.flatMap(r=>r.items).filter(x=>same(x.purchaseOrderItemId,i._id)).reduce((n,x)=>n.plus(postedReceipts.get(String(x._id)) || '0'),exact('0'));
-                Object.assign(result,{receivedQtyBase:received.toFixed(),outstandingQtyBase:['CANCELLED','CLOSED'].includes(d.workflowStatus)?'0':ExactDecimal.max(0,exact(i.qtyBase).minus(received)).toFixed()});
+                Object.assign(result,{receivedQtyBase:received.toFixed(),outstandingQtyBase:d.workflowStatus==='CANCELLED'?'0':ExactDecimal.max(0,exact(i.qtyBase).minus(received).minus(String(i.cancelledRemainderQtyBase??'0'))).toFixed()});
             }
             if(query.group==='issues'){
                 const lines=issues.flatMap(d=>d.items).filter(x=>same(x.details.outboundDeliveryLineId,i._id));
