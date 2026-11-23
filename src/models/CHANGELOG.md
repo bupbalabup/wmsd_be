@@ -1,3 +1,7 @@
+## 23/11/2026 — Mở lại PO đã đóng sau khi đảo phiếu nhập
+
+Không đổi model. Lệnh mới `REOPEN_PURCHASE_ORDER` chỉ đổi `workflowStatus` và gỡ `header.closedAt` có sẵn; PO nhận hết phần còn lại khi có dòng chốt thiếu thì về `CLOSED`. Chi tiết ở `git_doc/change_logs.md`.
+
 ## 23/11/2026 — Collection quản trị hệ thống và `users.lastLoginAt`
 
 Theo yêu cầu người dùng ngày 23/11/2026 (dashboard thật, chính sách bán hàng lưu DB, danh mục API trong DB, nhật ký lỗi cho admin, sửa "Lần đăng nhập cuối"):

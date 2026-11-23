@@ -6,7 +6,7 @@ import { command, checkVersion, saveVersion, same } from '../../shared/utils/doc
 import { dto } from '../../shared/utils/persistence.js';
 import { copyItem, sourceLink } from '../../shared/utils/document-copy.js';
 import { guardLocations, sourceContext, splitPortions, beginStock, freeQuantity, verifyCapacity } from '../../shared/utils/stock.js';
-import { purchaseOrderQuantities } from '../purchase-orders/purchase-order.service.js';
+import { purchaseOrderQuantities, receivingStatus } from '../purchase-orders/purchase-order.service.js';
 import { findPurchase, newDocument, evidenceFor, replayPurchase } from './purchase-core.js';
 import { restoredCustodyPortions, transferCustodyStock } from './purchase-custody.service.js';
 import { prepare, activePo, inspectionSource } from './po-receiving.service.js';
@@ -175,10 +175,8 @@ export function reverseReceipt(user, id, input, kind = 'GR_PURCHASE') {
       await saveVersion(receipt, receipt.version, session);
       if (po) {
         // CLOSED POs keep their approved cancellation of the unreceived remainder.
-        if (po.workflowStatus !== 'CLOSED') {
-          const quantities = await purchaseOrderQuantities(po, session);
-          po.workflowStatus = quantities.some(row => exact(row.receivedQtyBase).gt(0)) ? 'PARTIAL' : 'OPEN';
-        }
+        // The Accountant reopens it with POST /purchase-orders/:id/reopen (user decision 23/11/2026).
+        if (po.workflowStatus !== 'CLOSED') po.workflowStatus = receivingStatus(await purchaseOrderQuantities(po, session));
         await saveVersion(po, po.version, session);
       }
       reversal.workflowStatus = 'POSTED';

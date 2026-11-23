@@ -31,6 +31,7 @@ export const rules = {
   ],
   CONFIRM_PURCHASE_ORDER: po('Đơn mua hàng đã xác nhận'),
   RESCHEDULE_PO_EXPECTED_ON: po('Đơn mua hàng đã đổi ngày dự kiến'),
+  REOPEN_PURCHASE_ORDER: po('Đơn mua hàng đã mở lại để nhận tiếp'),
   POST_PURCHASE_CUSTODY: () => [send('Hàng giữ hộ chờ quyết định', 'purchase_custody:decide')],
   DECIDE_PURCHASE_CUSTODY: () => [send('Hàng giữ hộ đã có quyết định xử lý', 'purchase_custody:execute')],
   SUBMIT_OTHER_RECEIPT: ({ op }) => op.resultCode === 'PENDING_APPROVAL'

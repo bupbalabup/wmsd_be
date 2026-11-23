@@ -19,6 +19,7 @@ import { makeItem } from '../src/shared/utils/document-items.js';
 import { transaction } from '../src/shared/utils/persistence.js';
 import { pendingTaskQuantity } from '../src/shared/utils/stock.js';
 import { reconcilePurchasing } from '../src/modules/po-receiving/purchase-reconciliation.js';
+import { operationalReport } from '../src/modules/operational-reports/operational-reports.service.js';
 const enabled=process.env.RUN_NATIVE_API_TESTS==='1';
 const run=(name,fn)=>test(name,{skip:!enabled},fn);
 let owner,worker,accountant,warehouse,product,batch,supplier,receivingLocation,storageLocation;
@@ -1289,6 +1290,183 @@ run('HTTP PO lifecycle supports draft edits, expected-date changes, receiving hi
  }
 });
 
+async function postAdditionalPurchaseReceipt(poId, enteredQty) {
+ const order = await m.PurchaseOrder.findById(poId);
+ const inspection = await receiving.createInspection(worker, poId, {
+  creationKey: key(), expectedPoVersion: order.version, arrivedAt: new Date().toISOString(),
+  lines: [{ poLineId: String(order.items[0]._id), lotId: String(batch._id), enteredUnit: 'PIECE', enteredQty,
+   qualityCode: 'GOOD', ownershipDecision: 'ACCEPT', packagingCondition: 'LOOSE' }],
+ });
+ const inspected = await m.GoodsInspection.findById(inspection.id);
+ const confirmed = await receiving.confirmInspection(worker, inspection.id, {
+  ...input(), expectedVersion: inspected.version, expectedPoVersion: order.version,
+  destinations: [{ inspectionItemId: String(inspected.items[0]._id), locationId: String(receivingLocation._id) }],
+ });
+ const receiptId = confirmed.resultRefs.find(ref => ref.documentType === 'goods_receipts').documentId;
+ const draft = await m.PurchaseReceipt.findById(receiptId);
+ await receiving.postReceipt(worker, receiptId, {
+  ...input(), expectedVersion: draft.version, expectedPoVersion: (await m.PurchaseOrder.findById(poId)).version,
+ });
+ return m.PurchaseReceipt.findById(receiptId);
+}
+
+async function reversePurchaseReceipt(api, receipt, expectedPoVersion) {
+ const reversed = await api('POST', '/goods-receipts/purchase/' + encodeURIComponent(receipt._id) + '/reverse', {
+  ...input(), expectedVersion: receipt.version, expectedPoVersion, reason: 'Ghi nhầm phiếu',
+ });
+ assert.equal(reversed.status, 200, JSON.stringify(reversed.body));
+}
+
+run('PO reopen to OPEN preserves the short closure and recloses after re-receiving', async t => {
+ const api = await receivingApi(t);
+ const receipt = await postedReceipt('LOOSE', false, 'GOOD', { qtyBase: '4' });
+ const id = String(receipt.header.purchaseOrderId);
+ const path = '/purchase-orders/' + encodeURIComponent(id);
+ const detail = async () => {
+  const response = await api('GET', path, undefined, accountant);
+  assert.equal(response.status, 200, response.body.message);
+  return response.body.data;
+ };
+ const reopen = (expectedVersion, user = accountant) => api('POST', path + '/reopen', {
+  ...input(), expectedVersion, reason: 'Receive the corrected delivery',
+ }, user);
+ const partial = await detail();
+ assert.equal(partial.workflowStatus, 'PARTIAL');
+ assert.equal(partial.reopenable, false);
+ const wrongStatus = await reopen(partial.version);
+ assert.equal(wrongStatus.status, 400);
+ assert.equal(wrongStatus.body.message, 'PO không ở trạng thái đã đóng');
+
+ const closureReason = 'Supplier will not deliver the other four pieces';
+ const closed = await api('POST', path + '/close-remainder', {
+  ...input(), expectedVersion: partial.version, reason: closureReason,
+  lines: [{ poLineId: partial.items[0]._id, qtyBase: '4' }],
+ }, accountant);
+ assert.equal(closed.status, 200, closed.body.message);
+ assert.equal(closed.body.data.workflowStatus, 'CLOSED');
+ const settled = await detail();
+ assert.ok(settled.header.closedAt);
+ assert.equal(settled.reopenable, false);
+ const noOutstanding = await reopen(settled.version);
+ assert.equal(noOutstanding.status, 400);
+ assert.equal(noOutstanding.body.message, 'PO không có lượng chưa nhận để mở lại');
+
+ await reversePurchaseReceipt(api, receipt, settled.version);
+ const reversed = await detail();
+ assert.equal(reversed.workflowStatus, 'CLOSED');
+ assert.equal(reversed.reopenable, true);
+ assert.equal(reversed.quantities[0].outstandingQtyBase, '4');
+ assert.equal((await reopen(reversed.version, owner)).status, 403);
+ assert.equal((await reopen(settled.version)).status, 409);
+
+ const payload = { ...input(), expectedVersion: reversed.version, reason: 'Receive the corrected delivery' };
+ assert.equal((await api('POST', path + '/reopen', { ...payload, unexpected: true }, accountant)).status, 400);
+ const opened = await api('POST', path + '/reopen', payload, accountant);
+ assert.equal(opened.status, 200, opened.body.message);
+ assert.equal(opened.body.data.workflowStatus, 'OPEN');
+ assert.equal(opened.body.data.version, reversed.version + 1);
+ assert.equal(opened.body.data.replayed, false);
+ const reopened = await detail();
+ assert.equal(reopened.workflowStatus, 'OPEN');
+ assert.equal(reopened.reopenable, false);
+ assert.equal(reopened.items[0].cancelledRemainderQtyBase, '4');
+ assert.equal(reopened.header.closureReason, closureReason);
+ assert.ok(!Object.hasOwn(reopened.header, 'closedAt'));
+
+ const replay = await api('POST', path + '/reopen', payload, accountant);
+ assert.equal(replay.status, 200, replay.body.message);
+ assert.deepEqual(replay.body.data, { ...opened.body.data, replayed: true });
+ const audits = await m.AuditLog.find({ subjectId: id, action: 'REOPEN_PURCHASE_ORDER' }).lean();
+ assert.equal(audits.length, 1);
+ assert.equal(audits[0].reason, payload.reason);
+ const { field, before, after } = audits[0].changes[0];
+ assert.deepEqual({ field, before, after }, { field: 'workflowStatus', before: 'CLOSED', after: 'OPEN' });
+ const cancel = await api('POST', path + '/cancel', {
+  ...input(), expectedVersion: reopened.version, reason: 'Cancel after reopen',
+ }, accountant);
+ assert.equal(cancel.status, 400);
+ assert.equal(cancel.body.message, 'PO đã chốt thiếu một phần');
+
+ const replacement = await postAdditionalPurchaseReceipt(id, '4');
+ const reclosed = await detail();
+ assert.equal(reclosed.workflowStatus, 'CLOSED');
+ assert.ok(reclosed.header.closedAt);
+ assert.equal(reclosed.quantities[0].outstandingQtyBase, '0');
+ assert.equal(reclosed.reopenable, false);
+ await reversePurchaseReceipt(api, replacement, reclosed.version);
+ const reversedAgain = await detail();
+ assert.equal(reversedAgain.workflowStatus, 'CLOSED');
+ assert.equal(reversedAgain.reopenable, true);
+});
+
+run('concurrent PO reopen to PARTIAL commits once and preserves purchasing quantities', async t => {
+ const api = await receivingApi(t);
+ const first = await postedReceipt('LOOSE', false, 'GOOD', { qtyBase: '2' });
+ const id = String(first.header.purchaseOrderId);
+ const path = '/purchase-orders/' + encodeURIComponent(id);
+ const lineId = String(first.items[0].purchaseOrderItemId);
+ const second = await postAdditionalPurchaseReceipt(id, '3');
+ const close = (expectedVersion, qtyBase) => api('POST', path + '/close-remainder', {
+  ...input(), expectedVersion, reason: 'Close outstanding pieces', lines: [{ poLineId: lineId, qtyBase }],
+ }, accountant);
+ const partial = await m.PurchaseOrder.findById(id);
+ const closed = await close(partial.version, '3');
+ assert.equal(closed.status, 200, closed.body.message);
+ assert.equal(closed.body.data.workflowStatus, 'CLOSED');
+ await reversePurchaseReceipt(api, second, closed.body.data.version);
+
+ const assertPurchasesReport = async status => {
+  const report = await operationalReport(accountant, { group: 'purchases', warehouseId: String(warehouse._id) });
+  const row = report.rows.find(row => row.id === id);
+  assert.equal(row?.status, status);
+  const { qtyBase, receivedQtyBase, outstandingQtyBase } = row.items[0];
+  assert.deepEqual({ qtyBase, receivedQtyBase, outstandingQtyBase }, { qtyBase: '8', receivedQtyBase: '2', outstandingQtyBase: '3' });
+ };
+ const reversed = await m.PurchaseOrder.findById(id);
+ assert.equal(reversed.workflowStatus, 'CLOSED');
+ await assertPurchasesReport('CLOSED');
+ const reopen = () => api('POST', path + '/reopen', {
+  ...input(), expectedVersion: reversed.version, reason: 'Receive three replacement pieces',
+ }, accountant);
+ const results = await Promise.all([reopen(), reopen()]);
+ const successes = results.filter(result => result.status === 200);
+ assert.equal(successes.length, 1, JSON.stringify(results));
+ assert.ok([400, 409].includes(results.find(result => result.status !== 200).status), JSON.stringify(results));
+ assert.equal(successes[0].body.data.workflowStatus, 'PARTIAL');
+ assert.equal(await m.AuditLog.countDocuments({ subjectId: id, action: 'REOPEN_PURCHASE_ORDER' }), 1);
+ const reopened = await m.PurchaseOrder.findById(id);
+ assert.equal(reopened.workflowStatus, 'PARTIAL');
+ assert.equal(String(reopened.items[0].cancelledRemainderQtyBase), '3');
+ await assertPurchasesReport('PARTIAL');
+ assert.deepEqual((await reconcilePurchasing()).issues, []);
+
+ const reclosed = await close(reopened.version, '3');
+ assert.equal(reclosed.status, 200, reclosed.body.message);
+ assert.equal(reclosed.body.data.workflowStatus, 'CLOSED');
+ const order = await m.PurchaseOrder.findById(id);
+ assert.equal(String(order.items[0].cancelledRemainderQtyBase), '6');
+ assert.ok(order.header.closedAt);
+});
+
+run('posting the balance after a partial short closure closes the PO', async () => {
+ const first = await postedReceipt('LOOSE', false, 'GOOD', { qtyBase: '4' });
+ const id = String(first.header.purchaseOrderId);
+ const partial = await m.PurchaseOrder.findById(id);
+ assert.equal(partial.workflowStatus, 'PARTIAL');
+ const shortened = await po.closeRemainder(accountant, id, {
+  ...input(), expectedVersion: partial.version, reason: 'Supplier reduced the final delivery',
+  lines: [{ poLineId: String(partial.items[0]._id), qtyBase: '1' }],
+ });
+ assert.equal(shortened.workflowStatus, 'PARTIAL');
+ await postAdditionalPurchaseReceipt(id, '3');
+ const closed = await getPurchaseOrder(accountant, id);
+ assert.equal(closed.workflowStatus, 'CLOSED');
+ assert.ok(closed.header.closedAt);
+ assert.equal(closed.quantities[0].receivedQtyBase, '7');
+ assert.equal(closed.quantities[0].cancelledQtyBase, '1');
+ assert.equal(closed.quantities[0].outstandingQtyBase, '0');
+});
+
 run('cancelling a PO frees its RR for a new PO and the RR list joins only live POs', async () => {
  const { listReplenishments, getReplenishment } = await import('../src/modules/replenishments/replenishment.service.js');
  const body = { creationKey: key(), action: 'SUBMIT', warehouseId: String(warehouse._id), neededOn: '2026-12-01', triggerReason: 'Cancel PO',
@@ -1320,6 +1498,10 @@ run('cancelling a PO frees its RR for a new PO and the RR list joins only live P
  assert.equal(await listed(true), undefined);
  assert.deepEqual((await listed(false)).purchaseOrders, []);
  assert.deepEqual((await getReplenishment(owner, created.id)).purchaseOrders.map(row => row.workflowStatus), ['CANCELLED']);
+ const report = await operationalReport(accountant, { group: 'purchases', warehouseId: String(warehouse._id) });
+ const cancelledRow = report.rows.find(row => row.id === first.id);
+ assert.equal(cancelledRow?.status, 'CANCELLED');
+ assert.equal(cancelledRow.items[0].outstandingQtyBase, '0');
 
  // Issued but untouched: still cancellable, and the RR accepts another PO.
  const second = await po.createPurchaseOrder(accountant, orderBody());

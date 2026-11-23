@@ -68,7 +68,7 @@ export const PERMISSION_CATALOGUE = [
 
   { code: 'product_lot:read', description: 'Xem lô hàng', uc: ['UC-24', 'UC-25'], roles: [OWNER, WAREHOUSE] },
   { code: 'product_lot:create', description: 'Tạo lô hàng', uc: ['UC-26'], roles: [OWNER, WAREHOUSE] },
-  { code: 'product_lot:update', description: 'Cập nhật lô hàng (Warehouse chỉ được tạo)', uc: ['UC-27'], roles: [OWNER] },
+  { code: 'product_lot:update', description: 'Cập nhật lô hàng', uc: ['UC-27'], roles: [OWNER, WAREHOUSE] },
 
   { code: 'supplier:read', description: 'Xem nhà cung cấp', uc: ['UC-28', 'UC-29'], roles: [OWNER, ACCOUNTANT] },
   { code: 'supplier:create', description: 'Tạo nhà cung cấp', uc: ['UC-30'], roles: [ACCOUNTANT] },

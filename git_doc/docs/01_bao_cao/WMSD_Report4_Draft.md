@@ -2031,6 +2031,7 @@ classDiagram
     +POST /:id/confirm purchase_order:update
     +POST /:id/expected-on purchase_order:update
     +POST /:id/close-remainder purchase_order:update
+    +POST /:id/reopen purchase_order:update
     +POST /:id/cancel purchase_order:update
   }
   class PurchaseOrderCommands {
@@ -2040,6 +2041,7 @@ classDiagram
     +confirmPurchaseOrder()
     +rescheduleExpectedOn()
     +closeRemainder()
+    +reopenPurchaseOrder()
     +cancelPurchaseOrder()
     -draftItems()
     -validateClose()
