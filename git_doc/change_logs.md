@@ -1,3 +1,17 @@
+## 23/11/2026 — Quản trị hệ thống, dashboard thật, cảnh báo tồn, email, tìm kiếm, dọn mã
+
+**Quyết định.** Yêu cầu của người dùng ngày 23/11/2026 (11 hạng mục, liệt kê trong [SYSTEM_ADMIN](docs/08_api/SYSTEM_ADMIN.md)).
+
+**Hành vi.** README BE có mục "Tài khoản demo"; trang đăng nhập không còn hiển thị/điền sẵn tài khoản. `/owner` và Chính sách bán hàng & ngưỡng kho đọc/ghi DB. Thêm Nhật ký hệ thống, Danh mục API (lưu DB, đồng bộ từ router, admin thêm/sửa), Giám sát server + nhật ký lỗi, tìm kiếm nhanh (Ctrl+K), cảnh báo tồn dưới ngưỡng (thông báo + email), gửi email cho mọi thông báo. "Lần đăng nhập cuối" lấy từ `users.lastLoginAt`. Bỏ menu "Cài đặt hệ thống".
+
+**Dữ liệu và hợp đồng.** Thêm collection `app_settings`, `api_endpoints`, `error_logs` (58 → 61), trường `users.lastLoginAt`, 2 index `audit_logs`, 7 quyền mới, 17 endpoint mới. Cần `npm run seed:sync-permissions` trên DB đang chạy. Biến môi trường tuỳ chọn `NOTIFICATION_EMAIL`, `LOW_STOCK_SCAN_MINUTES`. Cập nhật MODEL_MAP, từ điển dữ liệu và ERD (sinh lại bằng script), `src/models/CHANGELOG.md`, ba file hướng dẫn agent, `context.md`.
+
+**Dọn mã.** FE xoá 251 file không còn tham chiếu (trang giả lập cũ và test chỉ kiểm tra chúng). BE không có file thừa.
+
+**Kiểm thử.** BE: `test/system-admin.test.js` mới; toàn bộ `node --test test/*.test.js` 297 đạt, 136 bỏ qua (cần DB tích hợp), lỗi duy nhất phát sinh (`public-routing`: router gốc chặn 404 thành 401) đã sửa và chạy lại đạt. FE: `systemAdmin.test.tsx` mới; toàn bộ vitest còn 14 lỗi đều đã có trên bản `main` gốc (xuất kho chuyển kho 5, phiếu nhập 2, kiểm kê 1, chuyển kho 2, tạo tài khoản 4), 2 lỗi do thay đổi (phân nhóm menu, quyền `/owner`) đã sửa.
+
+**Giới hạn.** `/issue-requests` và `/lots/create` vẫn dùng dữ liệu giả; 4/5 trường chính sách chưa áp dụng tự động; số liệu yêu cầu của theo dõi server tính trong bộ nhớ từng tiến trình.
+
 ## 23/11/2026 — Quên mật khẩu: chọn nhận OTP hoặc mật khẩu mới
 
 **Quyết định.** Người dùng yêu cầu ngày 23/11/2026: người quên mật khẩu được chọn nhận OTP (rồi tự đặt mật khẩu) hoặc nhận mật khẩu mới ngẫu nhiên như trước.
