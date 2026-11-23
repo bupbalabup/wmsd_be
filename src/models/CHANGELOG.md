@@ -1,3 +1,14 @@
+## 23/11/2026 — Collection quản trị hệ thống và `users.lastLoginAt`
+
+Theo yêu cầu người dùng ngày 23/11/2026 (dashboard thật, chính sách bán hàng lưu DB, danh mục API trong DB, nhật ký lỗi cho admin, sửa "Lần đăng nhập cuối"):
+
+- Thêm `app_settings` (`key` duy nhất, `value` Mixed, `version`, `updatedBy`), `api_endpoints` (`method`, `url`, `name`, `description`, `module`, `source` SYSTEM/MANUAL, `isPresent`, `isActive`, `discoveredAt`; duy nhất `{method,url}`) và `error_logs` (`fingerprint` duy nhất, `level`, `source`, `statusCode`, `method`, `path`, `message`, `errorName`, `stack`, `count`, `firstSeenAt`, `lastSeenAt`, `lastUserId`, `resolvedAt`, `resolvedBy`). Registry 58 → 61.
+- `users` thêm `lastLoginAt` (tuỳ chọn), ghi khi đăng nhập thành công, không đổi `updatedAt`.
+- `audit_logs` thêm index `{occurredAt:-1,_id:-1}` và `{actorId:1,occurredAt:-1}`.
+- Không cần migration: collection mới bắt đầu rỗng; tài khoản cũ có `lastLoginAt` rỗng (hiển thị "Chưa ghi nhận") tới lần đăng nhập kế tiếp. Index mới được Mongoose tạo khi `autoIndex` bật hoặc qua quy trình triển khai index hiện có.
+- Seed demo: ba collection mới là mảng rỗng; danh mục quyền thêm 7 quyền (xem [SYSTEM_ADMIN](../../git_doc/docs/08_api/SYSTEM_ADMIN.md)).
+- Kiểm thử: `test/consolidation`, `database-seed`, `document-identities`, `reviewed-demo` cập nhật số collection/bản ghi và đạt.
+
 ## 22/11/2026 — Tinh gọn DB đợt 1
 
 Theo yêu cầu triển khai đợt 1, bỏ khóa RR cũ, bộ đếm planning trên đơn bán và executionStatus trên yêu cầu chuyển kho. Đồng bộ registry, seed, script kiểm tra, từ điển và ERD. Quy trình khôi phục nằm trong git_doc/docs/09_phat_trien/DB_PHASE_ONE.md.
