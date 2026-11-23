@@ -1,6 +1,7 @@
 import { ApiError, ERROR_CODES } from "../shared/utils/ApiError.js";
+import { recordError } from "../shared/utils/errorLog.js";
 
-export const errorHandler = (err, _req, res, next) => {
+export const errorHandler = (err, req, res, next) => {
   if (res.headersSent) {
     return next(err);
   }
@@ -36,6 +37,8 @@ export const errorHandler = (err, _req, res, next) => {
 
   if (statusCode >= 500) {
     console.error(err);
+    // Grouped in error_logs for the administrator's monitoring screen; never blocks the response.
+    void recordError({ source: "HTTP", error: err, statusCode, method: req?.method, path: req?.originalUrl, userId: req?.user?._id });
   }
 
   return res.status(statusCode).json(response);
