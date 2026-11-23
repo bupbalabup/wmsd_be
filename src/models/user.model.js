@@ -14,6 +14,8 @@ export function createUserSchema() {
       email: optionalText(254),
       isActive: active(),
       lockReason: optionalText(2000),
+      // Set on each successful sign-in (23/11/2026); never derived from updatedAt.
+      lastLoginAt: { type: Date, default: undefined },
       version: version(),
     },
     options("users"),
