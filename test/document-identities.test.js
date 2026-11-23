@@ -7,7 +7,7 @@ import { documentIdentifier } from '../src/shared/utils/document-id.validation.j
 import { createBody as locationCreate } from '../src/modules/location-movements/location-movement.validation.js';
 const coded='ĐBH - KD - 261112 - 000001';
 test('document models and references accept immutable codes while catalogue and item IDs remain ObjectIds',()=>{
- assert.equal(m.models.size,58);assert.equal(m.models.has('document_sequences'),false);
+ assert.equal(m.models.size,61);assert.equal(m.models.has('document_sequences'),false);
  for(const Model of m.models.values())if(Model.schema.path('documentNo'))assert.equal(Model.schema.path('_id').instance,'DocumentIdentity',Model.modelName);
  assert.equal(m.SalesOrder.schema.path('header.customerId').instance,'ObjectId');
  assert.equal(m.SalesOrder.schema.path('items._id').instance,'ObjectId');
