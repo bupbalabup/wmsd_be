@@ -11,9 +11,6 @@ await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000, autoCreate: false,
 try {
   const models = registerModels(mongoose.connection);
   const requests = await models.get('replenishment_requests').find({ workflowStatus: { $in: ['DRAFT','SUBMITTED','APPROVED'] } }).lean();
-  let indexes = [];
-  try { indexes = await mongoose.connection.collection('replenishment_locks').indexes(); }
-  catch (error) { if (error.code !== 26) throw error; }
   const unresolved = [], manual = [], groups = new Map();
   for (const rr of requests) for (const line of rr.items ?? []) {
     const ref = { requestId: String(rr._id), itemId: String(line._id) };
@@ -50,10 +47,9 @@ try {
     const entries = groups.get(key) ?? []; entries.push(ref); groups.set(key, entries);
   }
   const report = { mode: 'DRY_RUN_READ_ONLY', activeRequests: requests.length,
-    uniqueWarehouseProductIndex: indexes.some(i => i.unique && i.key.warehouseId === 1 && i.key.productId === 1),
     unresolvedSources: unresolved, manualLinesPreserved: manual.length,
     sharedSourceCandidates: [...groups].filter(([, entries]) => entries.length > 1).map(([key, lines]) => ({ key, lines })),
     note: 'Shared-source candidates require quantity/lineage review; they are not automatically duplicates. No records changed.' };
   console.log(JSON.stringify(report, null, 2));
-  if (unresolved.length || !report.uniqueWarehouseProductIndex) process.exitCode = 2;
+  if (unresolved.length) process.exitCode = 2;
 } finally { await mongoose.disconnect(); }

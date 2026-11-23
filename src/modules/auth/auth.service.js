@@ -4,6 +4,9 @@ import { User } from "../../models/runtime.js";
 import { ApiError } from "../../shared/utils/ApiError.js";
 import { rolePermissions, userRoleDto } from "../../shared/utils/userRole.js";
 import { generateRefreshToken } from "../../config/jwt.js";
+import { escapeRegex } from "../../shared/utils/domain.js";
+import { appendAudit } from "../../shared/utils/audit.js";
+import { generatePassword, sendMail, passwordMail } from "../../shared/utils/mailer.js";
 
 const JWT_SECRET =
   process.env.JWT_SECRET || "wmsd_default_super_secret_jwt_key_2026";
@@ -56,6 +59,35 @@ export const loginUser = async (username, password) => {
     ...sessionResult(user),
     refreshToken: generateRefreshToken(user._id),
   };
+};
+
+const RESET_COOLDOWN_MS = 60 * 1000;
+const lastReset = new Map();
+
+// Forgot password: set a new random password and email it. Unknown, locked or ambiguous addresses are ignored silently.
+export const forgotPassword = async (rawEmail) => {
+  const email = rawEmail.trim().toLowerCase();
+  const matches = await User.find({ email: new RegExp(`^${escapeRegex(email)}$`, "i") }).select("+passwordHash").limit(2);
+  if (matches.length !== 1 || !matches[0].isActive) return;
+  // One request per minute per address keeps strangers from locking someone out by spamming the form.
+  const last = lastReset.get(email) ?? 0;
+  if (Date.now() - last < RESET_COOLDOWN_MS) return;
+  lastReset.set(email, Date.now());
+  const user = matches[0];
+  const previousHash = user.passwordHash;
+  const password = generatePassword();
+  user.passwordHash = await bcrypt.hash(password, 10);
+  await user.save();
+  try {
+    await sendMail({ to: email, ...passwordMail({ fullName: user.fullName, username: user.username, password, reason: "reset" }) });
+  } catch (error) {
+    // The mail never left: put the old password back so the account is not locked out.
+    user.passwordHash = previousHash;
+    await user.save();
+    lastReset.delete(email);
+    throw error;
+  }
+  await appendAudit({ actorId: user._id, action: "RESET_PASSWORD", entityType: "users", entityId: user._id, details: { channel: "email" } }).catch(() => undefined);
 };
 
 export const getCurrentUser = async (userId) =>

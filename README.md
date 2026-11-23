@@ -87,8 +87,7 @@ npm test         # Runs node --test suite
 
 ## Demo seed data
 
-Run `npm run seed` from `be/`, or start the server with `SEED_ON_STARTUP=true`
-(the default). The seeder inserts data **only when the entire database is empty**.
+Run `npm run seed` from the backend directory to explicitly load demo data. The seeder inserts data **only when the entire database is empty**.
 One existing document in any non-system collection, including a legacy collection,
 skips all seed inserts. Empty collections and indexes alone do not block seeding.
 An existing database with only accounts/roles is also skipped; this is not a migration.

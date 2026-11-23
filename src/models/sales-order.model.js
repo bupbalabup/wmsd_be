@@ -36,7 +36,6 @@ export function createSalesOrderSchema() {
       documentKind: code(["SALES_ORDER"], { default: "SALES_ORDER" }),
       workflowStatus: text(40),
       version: integer(1),
-      replenishmentPlanningVersion: integer(0, { default: 0 }),
       createdBy: ref("User"),
       occurredAt: Date,
       note: text(2000, { required: false }),
@@ -78,5 +77,7 @@ export function createSalesOrderSchema() {
     "deliveryConfirmations",
     createDeliveryConfirmationSchema(),
   );
+  // Versioned saves serialize hydrated documents, including pre-migration fields.
+  schema.set("toObject", { transform(_doc, row) { delete row.replenishmentPlanningVersion; } });
   return schema;
 }

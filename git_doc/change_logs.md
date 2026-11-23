@@ -1,3 +1,21 @@
+## 23/11/2026 — Seed thủ công
+
+API và server thử FE06 chỉ kết nối DB khi khởi động. Bỏ tự tạo dữ liệu mẫu và đồng bộ mật khẩu mẫu ở local. Dùng `npm run seed` khi cần nạp demo.
+
+## 22/11/2026 — Tinh gọn DB đợt 1
+
+Theo yêu cầu triển khai đợt 1, bỏ khóa RR cũ, bộ đếm planning trên đơn bán và executionStatus trên yêu cầu chuyển kho. Đồng bộ registry, seed, script kiểm tra, từ điển và ERD. Quy trình khôi phục nằm trong git_doc/docs/09_phat_trien/DB_PHASE_ONE.md.
+
+Ngày 23/11/2026 đã áp dụng trên wmsd_database, từ 59 còn 58 collection. Bản sao gồm 6 khóa và index, 45 giá trị planning và 0 executionStatus. Đã so khớp mã băm của tất cả trường còn lại trên 45 đơn bán và 5 phiếu chuyển. Kiểm thử local gồm 57 test model/seed, 21 test tích hợp và hai lần chạy mỗi chiều apply/restore trên DB diễn tập. Phân bổ 40/160 viên đã lưu và đọc lại thành công.
+
+## 22 November 2026 — Passwords are generated and emailed, never set by an admin
+
+**Behavior.** Creating an account requires an email and emails a random password; admins can no longer set or change a password; "Quên mật khẩu?" opens `/forgot`, where the account's email receives a new random password that takes effect immediately.
+
+**Data and contracts.** No schema change. `POST /users` drops `password` and requires `email`; `PUT /users/:id` drops `password`; new public `POST /auth/forgot-password`. New SMTP environment variables and a new dependency, `nodemailer` (run `npm install`). See [User access status](docs/08_api/USER_ACCESS_STATUS.md#mật-khẩu-qua-email--22112026).
+
+**Verification.** `node --check` and `tsc --noEmit` pass; mail is now sent through `nodemailer`, which could not be installed or run in the build sandbox, so real sending is untested (an earlier hand-written client had been tried against a fake SMTP server and was replaced). The HTTP endpoints were not run against a database and the `/test` files were not run.
+
 ## 22 November 2026 — Transfer review batch 5: assignee, destination requests, stop-forward, cleanup
 
 **Behavior.** The pick task can be assigned from a picker or defaults to the source warehouse keeper; destination staff can raise, edit and cancel requests asking for goods; the shipping warehouse and the owner can stop the remaining quantity; the transfer page shows the next step and who does it, with consistent units. Unused mock transfer screens were deleted.
@@ -1946,3 +1964,6 @@ FE tạo TR chỉ chọn kho nguồn/kho đích, sản phẩm, lô và đơn v�
 - **Tài liệu**: phiếu duyệt 13 (mục đặt PO, `note`), NATIVE_MODEL_RUNTIME, CONVERSIONS.
 - **Dữ liệu**: không migration. PO nháp đã tách dòng phải gộp lại trước khi lưu; PO đã phát hành giữ nguyên.
 - **Kiểm thử**: BE `RUN_NATIVE_API_TESTS=1 npm test`; FE test PO. Chưa kiểm trực quan trình duyệt.
+## 23/11/2026 — Gỡ Dockerfile backend
+
+Theo yêu cầu người dùng, gỡ Dockerfile của BE và cập nhật hướng dẫn chạy bằng `npm run dev`.

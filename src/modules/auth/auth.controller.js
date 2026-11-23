@@ -19,6 +19,12 @@ export const login = catchAsync(async (req, res) => {
   });
 });
 
+export const forgotPassword = catchAsync(async (req, res) => {
+  await authService.forgotPassword(req.body.email);
+  // Same answer whether or not the address exists, so the form cannot be used to discover accounts.
+  formatApiResponse(res, { message: "Nếu email thuộc một tài khoản đang hoạt động, mật khẩu mới đã được gửi tới email đó" });
+});
+
 export const getMe = catchAsync(async (req, res) => {
   const result = await authService.getCurrentUser(req.user._id);
   formatApiResponse(res, { data: result });

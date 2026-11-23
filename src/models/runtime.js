@@ -27,7 +27,6 @@ export const Notification = models.get("notifications");
 export const AuditLog = models.get("audit_logs");
 export const SystemEvent = models.get("system_events");
 export const OperationRecord = models.get("operation_records");
-export const ReplenishmentLock = models.get("replenishment_locks");
 export const ReturnSourceLock = models.get("return_source_locks");
 export const ExternalReference = models.get("external_references");
 export const ProductBatch = models.get("product_batches");

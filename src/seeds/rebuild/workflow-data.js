@@ -166,7 +166,7 @@ export function addTransferExamples(context) {
   post(data,'putaway-remaining',putaway,putItem,receivingBalance,destinationBalance);
   const originalRequest=context.document(originalDispatch.header.requestId);
   originalRequest.workflowStatus='COMPLETED';
-  Object.assign(originalRequest.header,{approvalStatus:'APPROVED',executionStatus:'COMPLETED',approvedRevision:1,closedBy:receiver,closedAt:demoDate(28)});
+  Object.assign(originalRequest.header,{approvalStatus:'APPROVED',approvedRevision:1,closedBy:receiver,closedAt:demoDate(28)});
   originalRequest.items[0].approvedQtyBase=originalRequest.items[0].qtyBase;
   for(const discrepancy of data.stock_discrepancies) {
     discrepancy.workflowStatus='RESOLVED';
@@ -179,7 +179,7 @@ export function addTransferExamples(context) {
   // One approved TR, two dispatches. Each picking TO posts both staging and in-transit in one transaction.
   const request=createDocument(data,'TR-TWO-DISPATCHES','TRANSFER_REQUEST',sourceActor,
     {sourceWarehouseId:sourceWarehouse._id,destinationWarehouseId:destinationWarehouse._id,approvedRevision:1,
-      approvalStatus:'APPROVED',executionStatus:'COMPLETED',closedBy:receiver,closedAt:demoDate(29)},'COMPLETED',29);
+      approvalStatus:'APPROVED',closedBy:receiver,closedAt:demoDate(29)},'COMPLETED',29);
   const requested=addItem(request,'multi-request',product,batch,'8');
   requested.approvedQtyBase=decimalValue(8);
   approve(data,request,owner,'stock_transfer:approve','TRANSFER_APPROVAL');

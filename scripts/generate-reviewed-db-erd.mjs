@@ -11,7 +11,7 @@ const output = resolve(root, 'git_doc/docs/03_thiet_ke/DB_Current_2026-11-12_58/
 const groups = [
   ['A · Access', '#DDEBFF', ['users', 'roles', 'permissions']],
   ['B · Warehouse & catalogue', '#E0F6ED', ['warehouses', 'warehouse_locations', 'customers', 'categories', 'uoms', 'products', 'product_batches', 'conversions', 'stock_thresholds', 'suppliers', 'storage_stacks', 'storage_stack_items']],
-  ['C · Inventory & controls', '#FFF2CC', ['stock_holding_points', 'inventory_balances', 'stock_transactions', 'stock_movements', 'stock_reservations', 'supply_allocations', 'stock_holds', 'replenishment_locks', 'return_source_locks']],
+  ['C · Inventory & controls', '#FFF2CC', ['stock_holding_points', 'inventory_balances', 'stock_transactions', 'stock_movements', 'stock_reservations', 'supply_allocations', 'stock_holds', 'return_source_locks']],
   ['D · Purchasing & receiving', '#FCE4D6', ['replenishment_requests', 'purchase_orders', 'goods_arrivals', 'goods_inspections', 'goods_receipts']],
   ['E · Inter-warehouse transfer', '#EADCF8', ['warehouse_transfer_requests', 'transfer_dispatches', 'internal_transfer_requirements', 'transfer_orders']],
   ['F · Sales, delivery & invoice', '#DDEBF7', ['sales_orders', 'warehouse_issue_requests', 'delivery_orders', 'sales_goods_issues', 'delivery_confirmations', 'sales_invoices', 'external_payment_confirmations']],

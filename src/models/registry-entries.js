@@ -22,7 +22,6 @@ import { createNotificationSchema } from "./notification.model.js";
 import { createAuditLogSchema } from "./audit-log.model.js";
 import { createSystemEventSchema } from "./system-event.model.js";
 import { createOperationRecordSchema } from "./operation-record.model.js";
-import { createReplenishmentLockSchema } from "./replenishment-lock.model.js";
 import { createReturnSourceLockSchema } from "./return-source-lock.model.js";
 import { createExternalReferenceSchema } from "./external-reference.model.js";
 import { createProductBatchSchema } from "./product-batch.model.js";
@@ -164,11 +163,6 @@ export function modelSchemaEntries() {
       name: "OperationRecord",
       collection: "operation_records",
       schema: createOperationRecordSchema(),
-    },
-    {
-      name: "ReplenishmentLock",
-      collection: "replenishment_locks",
-      schema: createReplenishmentLockSchema(),
     },
     {
       name: "ReturnSourceLock",

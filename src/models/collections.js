@@ -81,5 +81,4 @@ export const modelNames = Object.freeze({
   DemandReopening: 'DeliveryDemandReopening', OdCommitmentTransfer: 'DeliveryCommitmentTransfer',
   DefectHold: 'StockHold', CountAttempt: 'StocktakeCount', LocationLock: 'StocktakeLocationLock',
   AuditEvent: 'AuditLog', OutboxEvent: 'SystemEvent', BusinessOperation: 'OperationRecord',
-  ReplenishmentPlanningGuard: 'ReplenishmentLock',
 });

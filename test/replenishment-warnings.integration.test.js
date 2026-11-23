@@ -23,9 +23,7 @@ test.before(async () => {
   if (!enabled) return;
   // A new isolated test database each run. Never use the application's URI.
   await mongoose.connect(
-    "mongodb://127.0.0.1:27017/wmsd_api_test_rr_warnings_" +
-      key() +
-      "?replicaSet=rs0",
+    `mongodb://127.0.0.1:${process.env.MONGODB_TEST_PORT || 27017}/wmsd_api_test_rr_warnings_${key()}?replicaSet=${process.env.MONGODB_TEST_REPLICA_SET || "rs0"}`,
     { serverSelectionTimeoutMS: 5000 },
   );
   for (const Model of m.models.values()) {

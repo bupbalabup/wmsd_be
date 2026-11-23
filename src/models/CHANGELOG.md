@@ -1,3 +1,9 @@
+## 22/11/2026 — Tinh gọn DB đợt 1
+
+Theo yêu cầu triển khai đợt 1, bỏ khóa RR cũ, bộ đếm planning trên đơn bán và executionStatus trên yêu cầu chuyển kho. Đồng bộ registry, seed, script kiểm tra, từ điển và ERD. Quy trình khôi phục nằm trong git_doc/docs/09_phat_trien/DB_PHASE_ONE.md.
+
+Ngày 23/11/2026 đã áp dụng trên wmsd_database, từ 59 còn 58 collection. Bản sao gồm 6 khóa và index, 45 giá trị planning và 0 executionStatus. Đã so khớp mã băm của tất cả trường còn lại trên 45 đơn bán và 5 phiếu chuyển. Kiểm thử local gồm 57 test model/seed, 21 test tích hợp và hai lần chạy mỗi chiều apply/restore trên DB diễn tập. Phân bổ 40/160 viên đã lưu và đọc lại thành công.
+
 ## 22 November 2026 — Source locations on transfer request lines
 
 User decision: select multiple bins and validate quantities per selected product and lot. `warehouse_transfer_requests.items[]` adds optional `lotLabelSnapshot` and optional `sourceLocations[]` with `sourceBalanceId`, `locationId`, `locationCode`, and positive Decimal128 `qtyBase`. The transaction checks the balance scope, available stock, and the total. No new collection, index, or backfill is required. See the [BF04 contract](../../git_doc/docs/08_api/transfers/BF04_API.md#source-locations-on-transfer-requests--22-november-2026).

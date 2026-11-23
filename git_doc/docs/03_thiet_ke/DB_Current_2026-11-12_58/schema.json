@@ -2925,6 +2925,15 @@
           "createdAt": -1
         },
         {}
+      ],
+      [
+        {
+          "recipientId": 1,
+          "archivedAt": 1,
+          "occurredAt": -1,
+          "_id": -1
+        },
+        {}
       ]
     ]
   },
@@ -3431,66 +3440,6 @@
       [
         {
           "operationKey": 1
-        },
-        {
-          "unique": true
-        }
-      ]
-    ]
-  },
-  {
-    "collection": "replenishment_locks",
-    "model": "ReplenishmentLock",
-    "sourceFile": "src/models/replenishment-lock.model.js",
-    "fields": [
-      {
-        "path": "warehouseId",
-        "type": "ObjectId",
-        "required": true,
-        "target": "Warehouse"
-      },
-      {
-        "path": "productId",
-        "type": "ObjectId",
-        "required": true,
-        "target": "Product"
-      },
-      {
-        "path": "version",
-        "type": "Number",
-        "required": true,
-        "target": ""
-      },
-      {
-        "path": "lastOperationId",
-        "type": "ObjectId",
-        "required": false,
-        "target": "OperationRecord"
-      },
-      {
-        "path": "_id",
-        "type": "ObjectId",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "createdAt",
-        "type": "Date",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "updatedAt",
-        "type": "Date",
-        "required": false,
-        "target": ""
-      }
-    ],
-    "indexes": [
-      [
-        {
-          "warehouseId": 1,
-          "productId": 1
         },
         {
           "unique": true
@@ -8318,12 +8267,6 @@
         "target": ""
       },
       {
-        "path": "header.executionStatus",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "header.reviewedBy",
         "type": "ObjectId",
         "required": false,
@@ -9560,6 +9503,24 @@
         "target": "Warehouse"
       },
       {
+        "path": "header.mixedLots",
+        "type": "Boolean",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.mixedLotAcceptedBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "header.shortPickReason",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "header.requestId",
         "type": "DocumentIdentity",
         "required": true,
@@ -10106,6 +10067,24 @@
         "target": ""
       },
       {
+        "path": "handovers[].header.driverName",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "handovers[].header.driverPhone",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "handovers[].header.note",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "handovers[].header.relatedDocumentId",
         "type": "DocumentIdentity",
         "required": true,
@@ -10522,12 +10501,6 @@
       },
       {
         "path": "version",
-        "type": "Number",
-        "required": true,
-        "target": ""
-      },
-      {
-        "path": "replenishmentPlanningVersion",
         "type": "Number",
         "required": true,
         "target": ""
@@ -14394,6 +14367,24 @@
       },
       {
         "path": "handovers[].header.vehiclePlate",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "handovers[].header.driverName",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "handovers[].header.driverPhone",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "handovers[].header.note",
         "type": "String",
         "required": false,
         "target": ""
@@ -23017,6 +23008,18 @@
       {
         "path": "header.reportedAt",
         "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.resolutionMode",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.liableParty",
+        "type": "String",
         "required": false,
         "target": ""
       },

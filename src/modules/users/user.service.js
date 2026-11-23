@@ -4,6 +4,10 @@ import { ApiError } from '../../shared/utils/ApiError.js';
 import { escapeRegex } from '../../shared/utils/domain.js';
 import { userRoleDto, rolePermissions } from '../../shared/utils/userRole.js';
 import { appendAudit } from '../../shared/utils/audit.js';
+import { generatePassword, sendMail, passwordMail } from '../../shared/utils/mailer.js';
+
+const normalizeEmail = (value) => value.trim().toLowerCase();
+const emailTaken = async (email, exceptId) => Boolean(await User.exists({ email: new RegExp(`^${escapeRegex(email)}$`, 'i'), ...(exceptId && { _id: { $ne: exceptId } }) }));
 
 export const listUsers = async ({ page = 1, limit = 10, search = '', role = '', status = 'all' }) => {
   const query = {};
@@ -79,7 +83,8 @@ export const getUserById = async (id) => {
   };
 };
 
-export const createUser = async ({ username, fullName, password, roleCode, phone, email, warehouseIds = [], isActive = true }) => {
+export const createUser = async ({ username, fullName, roleCode, phone, email: rawEmail, warehouseIds = [], isActive = true }) => {
+  const email = normalizeEmail(rawEmail);
   const normalizedUsername = username.trim().toLowerCase();
   const existing = await User.findOne({ username: normalizedUsername });
   if (existing) {
@@ -92,6 +97,9 @@ export const createUser = async ({ username, fullName, password, roleCode, phone
   }
 
   if(await Warehouse.countDocuments({_id:{$in:warehouseIds},isActive:true})!==warehouseIds.length)throw new ApiError(400,'Kho phân công không hợp lệ');
+  if (await emailTaken(email)) throw new ApiError(400, 'Email đã được sử dụng cho tài khoản khác');
+  // Nobody (not even an admin) chooses the password: a random one is generated and emailed to the account.
+  const password = generatePassword();
   const passwordHash = await bcrypt.hash(password, 10);
   const created = await User.create({
     username: normalizedUsername,
@@ -102,6 +110,13 @@ export const createUser = async ({ username, fullName, password, roleCode, phone
     isActive,
   });
 
+  try {
+    await sendMail({ to: email, ...passwordMail({ fullName: created.fullName, username: created.username, password, reason: 'created' }) });
+  } catch (error) {
+    // Without the email nobody could ever log in, so do not leave a half-created account behind.
+    await User.deleteOne({ _id: created._id });
+    throw error;
+  }
   return getUserById(created._id);
 };
 
@@ -112,7 +127,11 @@ export const updateUser = async (id, updates) => {
   }
 
   if(updates.warehouseIds){if(await Warehouse.countDocuments({_id:{$in:updates.warehouseIds},isActive:true})!==updates.warehouseIds.length)throw new ApiError(400,'Kho phân công không hợp lệ');user.warehouseIds=updates.warehouseIds;}
-  if(updates.email!==undefined)user.email=updates.email;
+  if(updates.email!==undefined){
+    const email=normalizeEmail(updates.email);
+    if(await emailTaken(email,user._id))throw new ApiError(400,'Email đã được sử dụng cho tài khoản khác');
+    user.email=email;
+  }
   if (updates.fullName) user.fullName = updates.fullName.trim();
   if (updates.phone !== undefined) user.phone = updates.phone;
 
@@ -122,10 +141,6 @@ export const updateUser = async (id, updates) => {
       throw new ApiError(400, 'Vai trò không hợp lệ');
     }
     user.roleId = roleDoc._id;
-  }
-
-  if (updates.password) {
-    user.passwordHash = await bcrypt.hash(updates.password, 10);
   }
 
   await user.save();

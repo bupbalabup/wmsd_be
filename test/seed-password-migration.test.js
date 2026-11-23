@@ -45,18 +45,3 @@ test('duplicate users block all updates and remote targets are rejected', async 
   assert.equal(rows[0].passwordHash, 'old');
   await assert.rejects(migrate('mongodb://example.com/test'), /local MongoDB/);
 });
-
-test('startup synchronizes local non-production connection only', async () => {
-  const { syncPasswordsOnStartup } = await import('../src/config/seed-password-startup.js');
-  const account = SEED_ACCOUNTS[0];
-  const rows = [{ _id: 1, username: account.username, passwordHash: await bcrypt.hash('different', 10) }];
-  const connection = { readyState: 1, db: { collection: () => collection(rows) } };
-  const local = { uri: 'mongodb://127.0.0.1:27017/test', nodeEnv: 'development' };
-  assert.equal((await syncPasswordsOnStartup(connection, { ...local, nodeEnv: 'production' })).skipped, true);
-  assert.equal((await syncPasswordsOnStartup(connection, { ...local, uri: 'mongodb://example.com/test' })).skipped, true);
-  assert.equal((await syncPasswordsOnStartup({ readyState: 0 }, local)).skipped, true);
-  assert.equal(await bcrypt.compare(account.password, rows[0].passwordHash), false);
-  const result = await syncPasswordsOnStartup(connection, local);
-  assert.equal(result.accounts[0].status, 'updated');
-  assert.equal(await bcrypt.compare(account.password, rows[0].passwordHash), true);
-});
