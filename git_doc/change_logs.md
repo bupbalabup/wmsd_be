@@ -1,3 +1,9 @@
+## 23 November 2026 — MongoDB design overview layout
+
+The user requested a single canvas for the MongoDB overview used in the graduation report. Removed the group frames, placed related collection cards closer together and routed connections through the gaps. Refreshed the matching PNG export.
+
+Verified that all 59 collection cards and 74 connections retain their original content and endpoints. Checked the rendered diagram for overlapping cards, labels and shared wire segments. The update affects diagram presentation only and requires no migration.
+
 ## 22 November 2026 — Report 3 §4.2 use-case table renumbered from Project Tracking
 
 User request (22/11/2026): renumber only the Report 3 use-case table, following the Project Tracking WBS sheet, in English. Docs-only: no code, model, API or data change.
