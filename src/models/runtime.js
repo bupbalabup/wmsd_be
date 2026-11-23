@@ -64,3 +64,6 @@ export const CustodyRelease = models.get("custody_releases");
 export const StockReversal = models.get("stock_reversals");
 export const OpeningStock = models.get("opening_stocks");
 export const SalesInvoice = models.get("sales_invoices");
+export const AppSetting = models.get("app_settings");
+export const ApiEndpoint = models.get("api_endpoints");
+export const ErrorLog = models.get("error_logs");

@@ -1,4 +1,56 @@
-## 23 November 2026 — Counter chooses the stocktake discrepancy reason
+## 23/11/2026 — Sửa đóng gói API catalogue trên Cloudflare
+
+Dùng Router do Express xuất ra trong routeRegistry.js để Wrangler phân giải được dependency sau khi cài pnpm production. Xem [hướng dẫn Cloudflare Workers](docs/09_phat_trien/CLOUDFLARE_WORKERS.md).
+
+## 23/11/2026 — Quản trị hệ thống, dashboard thật, cảnh báo tồn, email, tìm kiếm, dọn mã
+
+**Quyết định.** Yêu cầu của người dùng ngày 23/11/2026 (11 hạng mục, liệt kê trong [SYSTEM_ADMIN](docs/08_api/SYSTEM_ADMIN.md)).
+
+**Hành vi.** README BE có mục "Tài khoản demo"; trang đăng nhập không còn hiển thị/điền sẵn tài khoản. `/owner` và Chính sách bán hàng & ngưỡng kho đọc/ghi DB. Thêm Nhật ký hệ thống, Danh mục API (lưu DB, đồng bộ từ router, admin thêm/sửa), Giám sát server + nhật ký lỗi, tìm kiếm nhanh (Ctrl+K), cảnh báo tồn dưới ngưỡng (thông báo + email), gửi email cho mọi thông báo. "Lần đăng nhập cuối" lấy từ `users.lastLoginAt`. Bỏ menu "Cài đặt hệ thống".
+
+**Dữ liệu và hợp đồng.** Thêm collection `app_settings`, `api_endpoints`, `error_logs` (58 → 61), trường `users.lastLoginAt`, 2 index `audit_logs`, 7 quyền mới, 17 endpoint mới. Cần `npm run seed:sync-permissions` trên DB đang chạy. Biến môi trường tuỳ chọn `NOTIFICATION_EMAIL`, `LOW_STOCK_SCAN_MINUTES`. Cập nhật MODEL_MAP, từ điển dữ liệu và ERD (sinh lại bằng script), `src/models/CHANGELOG.md`, ba file hướng dẫn agent, `context.md`.
+
+**Dọn mã.** FE xoá 251 file không còn tham chiếu (trang giả lập cũ và test chỉ kiểm tra chúng). BE không có file thừa.
+
+**Kiểm thử.** BE: `test/system-admin.test.js` mới; toàn bộ `node --test test/*.test.js` 297 đạt, 136 bỏ qua (cần DB tích hợp), lỗi duy nhất phát sinh (`public-routing`: router gốc chặn 404 thành 401) đã sửa và chạy lại đạt. FE: `systemAdmin.test.tsx` mới; toàn bộ vitest còn 14 lỗi đều đã có trên bản `main` gốc (xuất kho chuyển kho 5, phiếu nhập 2, kiểm kê 1, chuyển kho 2, tạo tài khoản 4), 2 lỗi do thay đổi (phân nhóm menu, quyền `/owner`) đã sửa.
+
+**Giới hạn.** `/issue-requests` và `/lots/create` vẫn dùng dữ liệu giả; 4/5 trường chính sách chưa áp dụng tự động; số liệu yêu cầu của theo dõi server tính trong bộ nhớ từng tiến trình.
+
+## 23/11/2026 — Quên mật khẩu: chọn nhận OTP hoặc mật khẩu mới
+
+**Quyết định.** Người dùng yêu cầu ngày 23/11/2026: người quên mật khẩu được chọn nhận OTP (rồi tự đặt mật khẩu) hoặc nhận mật khẩu mới ngẫu nhiên như trước.
+
+**Hợp đồng.** Thêm `POST /api/auth/forgot-password/otp` và `POST /api/auth/forgot-password/reset` (công khai). `POST /api/auth/forgot-password` giữ nguyên. Tách lõi OTP thành `src/shared/utils/otpChallenge.js`, `emailChange.js` dùng lại lõi này (hành vi không đổi). Chính sách mật khẩu tự chọn dùng chung một quy tắc trong `auth.validation.js`. Không đổi schema, quyền hay seed. Chi tiết: [USER_ACCESS_STATUS](docs/08_api/USER_ACCESS_STATUS.md#quên-mật-khẩu-bằng-otp--23112026).
+
+**Kiểm thử.** `node --test test/forgot-password-otp.test.js test/email-change-otp.test.js test/auth-account.test.js test/user-account-update.test.js test/user-status-commands.test.js test/user-status-validation.test.js test/auth-logout.test.js`: 49/49 đạt (model được mock). FE: thêm `ForgotPasswordPage.test.tsx`; tsc, eslint và vitest `src/features/auth`, `src/features/profile`, `src/features/accounts/detail` đạt. Chạy thử trên DB nháp local `wmsd_profile_review_20261123`: chọn OTP ở `/forgot` cho `banhang01` → nhận mã, đặt mật khẩu mới qua UI → mật khẩu cũ 401, mới 200, audit `RESET_PASSWORD`, thư báo gửi tới email tài khoản; email không tồn tại nhận cùng thông báo và cùng dạng dữ liệu, không có thư nào được gửi. Đã xem UI ở 1440px và 390px.
+
+**Giới hạn.** Lỗi gửi thư với tài khoản có thật trả 502/503 nên có thể để lộ email tồn tại (giống cách nhận mật khẩu mới). Bộ đếm OTP trong bộ nhớ tiến trình.
+
+## 23/11/2026 — Đổi email bằng OTP (tự đổi và quản trị viên)
+
+**Quyết định.** Người dùng yêu cầu ngày 23/11/2026: người dùng được đổi email nhưng cần OTP; quản trị viên đổi email cho người dùng cũng cần OTP; bỏ hiển thị mã tài khoản ở trang Thông tin tài khoản. Gửi OTP tới email mới là lựa chọn triển khai, ghi trong tài liệu API.
+
+**Hợp đồng.** Thêm `POST /api/auth/me/email/otp`, `POST /api/auth/me/email`, `POST /api/users/:id/email/otp`, `POST /api/users/:id/email`. `PUT /api/users/:id` không còn nhận `email` (400). Audit mới `CHANGE_EMAIL`. Không đổi schema, quyền hay seed. Chi tiết: [USER_ACCESS_STATUS](docs/08_api/USER_ACCESS_STATUS.md#đổi-email-bằng-otp--23112026).
+
+**File.** `src/shared/utils/emailChange.js` (mới), `src/modules/auth/*`, `src/modules/users/user.{routes,controller,service,validation}.js`, `test/email-change-otp.test.js` (mới), `test/user-account-update.test.js` (theo hợp đồng mới; hai ca lỗi sẵn do kiểm tra trùng email chưa được mock nay đạt).
+
+**Kiểm thử.** `node --test test/email-change-otp.test.js test/auth-account.test.js test/user-account-update.test.js test/user-status-commands.test.js test/user-status-validation.test.js test/auth-logout.test.js`: 44/44 đạt (model được mock, thư in qua `MAIL_TRANSPORT=console`). Chạy thử end-to-end trên DB nháp local `wmsd_profile_review_20261123` với `MAIL_TRANSPORT=console`: `banhang01` tự đổi email qua UI (mã sai báo còn 4 lần, mã đúng đổi thành công, thư báo gửi tới email cũ, audit `CHANGE_EMAIL` đúng trước/sau); tài khoản `admin` đổi lại email cho `banhang01` từ trang chi tiết tài khoản bằng mã gửi tới email mới. FE: `tsc --noEmit`, eslint các file đổi, vitest `src/features/profile` (8) và `src/features/accounts` đạt, trừ 5 ca cũ tìm ô "Mật khẩu" trong `CreateAccountPage.test.tsx`/`accounts.test.tsx` — đã chạy lại trên bản `main` gốc và lỗi y hệt (ô mật khẩu bị bỏ từ 22/11), không do thay đổi này.
+
+**Giới hạn.** Bộ đếm OTP nằm trong bộ nhớ tiến trình, không chia sẻ giữa nhiều instance.
+
+## 23/11/2026 — Thông tin tài khoản và tự đổi mật khẩu
+
+**Quyết định.** Người dùng yêu cầu ngày 23/11/2026 dựng chức năng "Thông tin tài khoản" (BE + FE) và cho chủ tài khoản đang đăng nhập tự đặt mật khẩu mới.
+
+**Hành vi và hợp đồng.** `GET /api/auth/me` bổ sung email, tên vai trò, kho phân công, version và thời điểm tạo/cập nhật. Thêm `PATCH /api/auth/me` (họ tên, số điện thoại, khoá theo version) và `POST /api/auth/me/password` (cần mật khẩu hiện tại). Audit mới `UPDATE_PROFILE`, `CHANGE_PASSWORD`. `PUT /api/users/:id` nay tăng `users.version`. Không đổi schema, quyền hay seed. Chi tiết: [USER_ACCESS_STATUS](docs/08_api/USER_ACCESS_STATUS.md#thông-tin-tài-khoản-tự-phục-vụ--23112026). FE thêm trang `/account/profile`.
+
+**File.** `src/modules/auth/auth.{routes,controller,service,validation}.js`, `src/modules/users/user.service.js`, `test/auth-account.test.js`.
+
+**Kiểm thử.** Đã chạy `node --test test/auth-account.test.js test/auth-logout.test.js test/user-status-commands.test.js` (21/21 đạt, model được mock, không chạy DB). `test/user-account-update.test.js` có 2 ca lỗi do `User.exists` (kiểm tra trùng email) chưa được mock — lỗi đã có trước thay đổi này, tái hiện trên bản gốc. Chạy thử end-to-end trên DB nháp local `wmsd_profile_review_20261123` (chỉ sao chép users/roles/permissions/warehouses từ `wmsd_demo_tile_shop_v8`, tài khoản `banhang01`): `GET /me` trả đủ vai trò/3 kho/31 quyền, không có hash; PATCH sai version → 409, gửi email → 400; sửa số điện thoại qua UI lưu được; đổi mật khẩu qua UI xong thì mật khẩu cũ 401, mật khẩu mới 200; audit có `UPDATE_PROFILE` (kèm trước/sau) và `CHANGE_PASSWORD`. Đã xem UI ở 1440px và 390px (không cuộn ngang trang). FE: `tsc --noEmit`, eslint các file đổi, vitest `src/features/profile` (6), `PermissionChecklist`, `warehouseNavigation`, `routeAccess`, `MainLayout.*`, `router.session` đều đạt.
+
+**Giới hạn.** Đổi mật khẩu không thu hồi phiên đã cấp; chưa giới hạn số lần nhập sai mật khẩu hiện tại.
+
+## 23/11/2026 — CORS và chẩn đoán kết nối Worker
 
 **Decision.** User decision (23 Nov 2026): the reason for a counted difference is chosen by the Warehouse Staff counter and only approved by the Owner. Reason list unchanged (Vỡ/hỏng, Mất/thất lạc, Để nhầm vị trí/chất lượng, Thừa/tìm thấy, Sai sót ghi sổ, Khác); "Khác" requires a typed reason. The reason is required on every differing line before results are sent; the Owner cannot edit it and requests a recount when they disagree.
 

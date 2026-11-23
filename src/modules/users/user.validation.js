@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { objectIdString as oid } from '../../shared/utils/domain.js';
+import { requestEmailOtpBody, confirmEmailBody } from '../auth/auth.validation.js';
 
 export const listUsersSchema = z.object({
   query: z.object({
@@ -31,7 +32,8 @@ export const updateUserSchema = z.object({
     fullName: z.string().min(2).optional(),
     roleCode: z.string().trim().min(1).max(60).optional(),
     phone: z.string().max(30).optional(),
-    email: z.email().max(254).optional(), warehouseIds:z.array(oid).max(100).refine(ids=>new Set(ids).size===ids.length).optional(),
+    // Email is no longer accepted here: it changes only through the OTP flow (POST /users/:id/email/otp).
+    warehouseIds:z.array(oid).max(100).refine(ids=>new Set(ids).size===ids.length).optional(),
   }),
 });
 
@@ -44,3 +46,6 @@ export const toggleStatusSchema = z.object({
     reason: z.string().trim().min(1).max(2000).optional(),
   }).refine(value => value.isActive || !!value.reason, { message: 'Cần nhập lý do khóa tài khoản', path: ['reason'] }),
 });
+
+export const requestUserEmailOtpSchema = z.object({ params: z.object({ id: oid }), body: requestEmailOtpBody });
+export const confirmUserEmailSchema = z.object({ params: z.object({ id: oid }), body: confirmEmailBody });

@@ -185,6 +185,14 @@ export const PERMISSION_CATALOGUE = [
   { code: 'access_control:create', description: 'Gán vai trò/kho cho tài khoản', uc: ['UC-98'], roles: [ADMIN] },
   { code: 'access_control:update', description: 'Cập nhật quyền của vai trò', uc: ['UC-98'], roles: [ADMIN] },
   { code: 'warehouse_layout_function:update', description: 'Thêm/sửa/xóa chức năng khu vực Kho 3D', uc: [], roles: [ADMIN] },
+  // System administration and owner overview (user decision 23/11/2026).
+  { code: 'dashboard:read', description: 'Xem bảng điều hành của Chủ cửa hàng (việc chờ duyệt, cảnh báo tồn, biến động nhập xuất)', uc: [], roles: [OWNER] },
+  { code: 'sales_policy:read', description: 'Xem chính sách bán hàng và ngưỡng kho', uc: [], roles: [OWNER] },
+  { code: 'sales_policy:update', description: 'Cập nhật chính sách bán hàng và ngưỡng kho', uc: [], roles: [OWNER] },
+  { code: 'audit_log:read', description: 'Xem nhật ký hệ thống (mọi thao tác đã ghi audit)', uc: [], roles: [ADMIN, OWNER] },
+  { code: 'api_catalogue:read', description: 'Xem danh mục API của hệ thống', uc: [], roles: [ADMIN] },
+  { code: 'api_catalogue:update', description: 'Đồng bộ, thêm và sửa danh mục API', uc: [], roles: [ADMIN] },
+  { code: 'system_monitor:read', description: 'Xem tình trạng server và nhật ký lỗi; đánh dấu lỗi đã xử lý', uc: [], roles: [ADMIN] },
 ];
 
 export const PERMISSION_CODES = PERMISSION_CATALOGUE.map((p) => p.code);

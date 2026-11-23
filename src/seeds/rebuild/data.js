@@ -232,5 +232,9 @@ export async function buildReviewedDemo({ consolidate = true } = {}) {
   }));
   // Recurring stocktake plans have no historical source; the collection starts empty (22 Nov 2026).
   result.stocktake_plans = [];
+  // System administration collections start empty; the API catalogue is filled by its sync action (23 Nov 2026).
+  result.app_settings = [];
+  result.api_endpoints = [];
+  result.error_logs = [];
   return result;
 }
