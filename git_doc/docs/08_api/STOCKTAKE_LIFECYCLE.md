@@ -29,6 +29,7 @@ Decision source: **User decision 22 Nov 2026 following lecturer feedback (separa
 | `GET /` | `stocktake:read` | New optional query `planId`. No redaction of any field. |
 | `GET /:id` | `stocktake:read` | Same document as before, **no field is redacted while `COUNTING`**, plus `lines[]` (reconciliation view), `uomCode/uomName` on `snapshots[]` and `counts[]`, `lookups.units`, `uomCode/uomName` on `lookups.products[]`. `header` additionally exposes `planId?`, `planPeriodNo?`, `planPeriodDueAt?`, `settledLines[]`, `recountLines[]`. |
 | `GET /:id/count-sheet` | `stocktake:export` | Each row now also has `uomCode`, `uomName` and `bookQtyBase` (`baseUnit` kept). Still read-only and no counts, locks or balances are read. |
+| `POST /:id/count-reason` | `stocktake:update` (assigned counter) | **New 23 Nov 2026.** Counter's reason for a differing line; see below. |
 | `POST /:id/recount` | `stocktake:create` (Owner) | **New.** Replaces `reopen-counting`. |
 | `POST /:id/approve-differences` | `stock_adjustment:post` (Owner) | **New.** Replaces `close`, `resolution-plans`, `…/review`, `…/executions`. |
 | `POST /:id/cancel` | `stocktake:create` | As before, plus: refused once any line has been settled (stock was already posted). |
@@ -52,11 +53,22 @@ One entry per snapshot line, built from the frozen snapshot, every count attempt
   "attempts": [ { "countId": "…", "attemptNo": 1, "countedQtyBase": "10", "uomCode": "PIECE", "uomName": "Viên", "quantityEntries": [ … ], "countedBy": "…", "countedAt": "…", "recountReason": null },
                 { "countId": "…", "attemptNo": 2, "countedQtyBase": "9", "recountReason": "Recount after Owner request", "…": "…" } ],
   "settlement": null,
+  "countReason": { "reasonCode": "LOST", "reasonNote": null, "setBy": "…", "setAt": "…" },
   "recount": null
 }
 ```
 
+`countReason` (23 Nov 2026) is the counter's reason for the **newest** attempt of the line, or `null` when none was chosen for that attempt (a recount needs a new one).
+
 `status`: `NOT_COUNTED` (no attempt yet), `MATCHED` (newest count equals book, not yet closed), `DIFFERENCE` (newest count differs), `RECOUNT_REQUESTED` (Owner sent it back; `recount = { afterAttemptNo, requestedBy, requestedAt, note }`), `SETTLED` (`settlement = { outcome: "POSTED"|"MATCHED", deltaQtyBase, uomCode, uomName, reasonCode?, reasonNote?, adjustmentId?, settledBy, settledAt }`). All quantities are exact decimal strings in the product base unit. `differenceBase = countedQtyBase − bookQtyBase`.
+
+### `POST /:id/count-reason` (23 November 2026)
+
+User decision 23 Nov 2026: the Warehouse Staff counter chooses why a counted line differs from the book; the Owner only approves it or sends the line back for recount.
+
+Body (strict): `{ "idempotencyKey": "…", "expectedVersion": 7, "snapshotId": "…", "countId": "<newest count of the line>", "reasonCode": "DAMAGED|LOST|MISPLACED|FOUND|RECORD_ERROR|OTHER", "reasonNote": "≤ 500, required for OTHER" }`.
+
+Rules: state `COUNTING`; caller assigned to the slip; the snapshot belongs to the current `scopeVersion` and is not settled; `countId` is still the newest attempt of that line; its counted quantity differs from the book. Effect: `header.countReasons[]` keeps one `{ snapshotId, countId, reasonCode, reasonNote?, setBy, setAt }` per line (a new choice replaces it). No stock change. `POST /:id/reconcile` now refuses with `Còn N dòng chênh lệch chưa chọn lý do` while any line whose newest count differs from the book has no reason for that attempt.
 
 ### `POST /:id/recount`
 
@@ -73,12 +85,12 @@ Body (strict):
   "idempotencyKey": "6b0…",
   "expectedVersion": 9,
   "all": false,
-  "lines": [ { "snapshotId": "…", "reasonCode": "LOST", "reasonNote": "Broken pallet" } ],
+  "lines": [ { "snapshotId": "…" } ],
   "packaging": [ { "lineId": "<snapshotId>", "portions": [ … ] } ]
 }
 ```
 
-`all: true` selects every unsettled line (`lines`, when also given, only labels them); otherwise `lines` is the checkbox selection. One of the two is required. `packaging` is optional and only used for a surplus (counted > book) to describe the received portions, exactly as the old close did; without it the batch carton data is used.
+`all: true` selects every unsettled line; otherwise `lines` is the checkbox selection. Since 23 Nov 2026 `lines[]` items carry only `snapshotId` (a `reasonCode`/`reasonNote` is refused by the strict schema): each posted line takes the counter's `countReason` for the approved attempt into `settledLines[].reasonCode/reasonNote` and the adjustment item `reason`; slips reconciled before that date may have none and post with the default reason. One of the two is required. `packaging` is optional and only used for a surplus (counted > book) to describe the received portions, exactly as the old close did; without it the batch carton data is used.
 
 Preconditions (all re-checked inside the transaction): state `RECONCILING` and fully reconciled; `expectedVersion` current; every scoped location still `LOCKED`; the newest attempt of each selected line is the reconciled one; the frozen balance still equals the snapshot (quantity, owner, quality, version) and has no active defect hold; reservations stay below the new quantity. **Separation of duties:** the approver may not be the counter of any selected line (`Người đếm không được tự duyệt chênh lệch của chính mình`). Creator of the slip is *not* restricted (same as before; see risks).
 
@@ -94,12 +106,12 @@ Idempotency: the same `idempotencyKey` and payload replays the receipt without p
 
 ### Errors
 
-State/business refusals of this module use `400 ERR-CORE-400-001` with a Vietnamese `message` (existing convention for stocktake), e.g. `Đợt chưa đối chiếu hoặc đang đếm lại; chưa thể duyệt chênh lệch`, `Dòng đã được duyệt trước đó`, `Số dư không còn khớp mốc kiểm kê`, `Còn phần hàng bị chặn chưa xử lý; giữ khóa kiểm kê`, `Còn dòng được yêu cầu đếm lại chưa có kết quả mới`, `Đợt đang đếm lại: chỉ nhận kết quả cho các dòng được yêu cầu đếm lại`. `403` for a missing permission or unassigned warehouse, `404` for an unknown slip, `409 ERR-CORE-409-001` for a stale version, `409 ERR-CORE-409-003` for a reused key with a different payload.
+State/business refusals of this module use `400 ERR-CORE-400-001` with a Vietnamese `message` (existing convention for stocktake), e.g. `Đợt chưa đối chiếu hoặc đang đếm lại; chưa thể duyệt chênh lệch`, `Dòng đã được duyệt trước đó`, `Số dư không còn khớp mốc kiểm kê`, `Còn phần hàng bị chặn chưa xử lý; giữ khóa kiểm kê`, `Còn dòng được yêu cầu đếm lại chưa có kết quả mới`, `Còn N dòng chênh lệch chưa chọn lý do`, `Lý do "Khác" cần ghi rõ lý do`, `Lần đếm không còn là kết quả mới nhất của dòng`, `Dòng khớp sổ không cần lý do chênh lệch`, `Đợt đang đếm lại: chỉ nhận kết quả cho các dòng được yêu cầu đếm lại`. `403` for a missing permission or unassigned warehouse, `404` for an unknown slip, `409 ERR-CORE-409-001` for a stale version, `409 ERR-CORE-409-003` for a reused key with a different payload.
 
 ### Frontend contract notes (22 Nov 2026)
 
 - Remove every blind-count UI assumption: show `bookQtyBase` (+ `uomName`) to counters as soon as the slip is `COUNTING`; stop reading `blindCount`, `blindCountedLocations` and null quantities. Render every stocktake quantity as number + `uomName` (fallback `uomCode`).
-- Drive the Owner reconciliation screen from `GET /:id` `lines[]` (`status`, `differenceBase`, `attempts`, `settlement`, `recount`) instead of recomputing from `snapshots`/`counts`/`header.selectedCounts`. Checkbox selection → `POST /:id/approve-differences { lines: [{ snapshotId }] }`, "select all" → `{ all: true }`, "recount" → `POST /:id/recount { snapshotIds }`. There is no closing-reason input any more; a per-line reason is an optional label.
+- Drive the Owner reconciliation screen from `GET /:id` `lines[]` (`status`, `differenceBase`, `attempts`, `settlement`, `recount`) instead of recomputing from `snapshots`/`counts`/`header.selectedCounts`. Checkbox selection → `POST /:id/approve-differences { lines: [{ snapshotId }] }`, "select all" → `{ all: true }`, "recount" → `POST /:id/recount { snapshotIds }`. There is no closing-reason input any more. Since 23 Nov 2026 the counter picks the reason per differing line on the count screen (`POST /:id/count-reason`, "Khác" opens a text box) and the Owner sees it read-only from `lines[].countReason`.
 - After a partial approval the slip stays `RECONCILING` and `lines[].status` shows `SETTLED` for the approved ones; reload the slip (the receipt's `version` is the new `expectedVersion`). When it returns `COMPLETED` the locks are already released.
 - "Found outside the book" form: `GET /api/lots` `items[]` now carries the product base unit as `uomCode` (`Product.baseUnit`) and `uomName` (`Uom.name`, `null` when the code is unknown) — the same two names and semantics as stocktake `lines[]`; `GET /api/lots/:id` carries them too. `GET /api/lots` has no `lookups` block, so there is nothing else to extend.
 - Plan screens use `/api/stocktake-plans` ([STOCKTAKE_PLANS.md](STOCKTAKE_PLANS.md)); show the due notice from `isDue`/`dueSoon`/`dueState`/`daysUntilDue` and disable "generate" when `canGenerate` is false. The generated slip id is `resultRefs[0].documentId` of the generate receipt.

@@ -337,6 +337,32 @@ export function correctEmptyLocation(user, id, input) {
     }, 'CORRECT_EMPTY_LOCATION');
 }
 
+// Counter's reason for a line whose newest count differs from the book (user decision 23 Nov 2026). It is tied to
+// that attempt: a later count of the line needs a new reason. The Owner only approves or sends the line back.
+export function setCountReason(user, id, input) {
+    return command(user, 'SET_STOCKTAKE_COUNT_REASON', 'stocktake:update', id, input, (sid, actor, session) => scoped(actor, sid, session), async (session, actor) => {
+        const document = await scoped(actor, id, session);
+        if (document.workflowStatus !== 'COUNTING')
+            throw validationError('Đợt không còn ở bước đếm; không đổi được lý do chênh lệch');
+        checkVersion(document, input.expectedVersion);
+        assigned(document, actor);
+        const header = document.header;
+        const snapshot = await m.StocktakeSnapshot.findOne({ _id: input.snapshotId, stocktakeId: document._id, scopeVersion: header.scopeVersion }).session(session);
+        if (!snapshot)
+            throw validationError('Dòng không thuộc đợt hoặc phiên bản phạm vi hiện tại');
+        if (header.settledLines.some(row => same(row.snapshotId, snapshot._id)))
+            throw validationError('Dòng đã được duyệt xử lý chênh lệch');
+        const latest = await m.StocktakeCount.findOne({ stocktakeId: document._id, scopeVersion: header.scopeVersion, snapshotId: snapshot._id }).sort({ attemptNo: -1 }).session(session);
+        if (!latest || !same(latest._id, input.countId))
+            throw validationError('Lần đếm không còn là kết quả mới nhất của dòng');
+        if (exact(String(latest.countedQtyBase)).eq(String(snapshot.bookQtyBase)))
+            throw validationError('Dòng khớp sổ không cần lý do chênh lệch');
+        const row = { snapshotId: snapshot._id, countId: latest._id, reasonCode: input.reasonCode, ...(input.reasonNote && { reasonNote: input.reasonNote }), setBy: actor._id, setAt: new Date() };
+        header.countReasons = [...header.countReasons.filter(item => !same(item.snapshotId, snapshot._id)), row];
+        return { document: await saveVersion(document, input.expectedVersion, session), versionBefore: input.expectedVersion, resultRefs: [{ documentType: 'stocktakes', documentId: document._id, itemId: latest._id }], reason: 'Chọn lý do chênh lệch' };
+    });
+}
+
 function recordCountCommand(user, id, input, operationCode) {
     return command(user, operationCode, 'stocktake:update', id, input, (sid, actor, session) => scoped(actor, sid, session), async (session, actor) => {
         const document = await scoped(actor, id, session);
@@ -449,6 +475,16 @@ export function reconcileStocktake(user, id, input) {
             if (!newest || newest.attemptNo <= row.afterAttemptNo)
                 throw validationError('Còn dòng được yêu cầu đếm lại chưa có kết quả mới');
         }
+        // Every unsettled differing line needs the counter's reason for its newest attempt (user decision 23 Nov 2026).
+        // Settled lines are skipped: they were posted already and setCountReason refuses them.
+        const unexplained = snapshots.filter(snapshot => {
+            const newest = latest.get(String(snapshot._id));
+            return !header.settledLines.some(row => same(row.snapshotId, snapshot._id))
+                && !exact(String(newest.countedQtyBase)).eq(String(snapshot.bookQtyBase))
+                && !header.countReasons.some(row => same(row.snapshotId, snapshot._id) && same(row.countId, newest._id));
+        }).length;
+        if (unexplained)
+            throw validationError(`Còn ${unexplained} dòng chênh lệch chưa chọn lý do`);
         header.recountLines = [];
         const selectedCounts = snapshots.map(snapshot => ({ snapshotId: snapshot._id, countId: latest.get(String(snapshot._id))._id }));
         // Differences are derived by readers from snapshots, selected counts and book quantities.

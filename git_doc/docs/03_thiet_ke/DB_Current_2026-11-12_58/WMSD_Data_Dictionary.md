@@ -4343,6 +4343,13 @@ Model: [stocktake.model.js](../../../../src/models/stocktake.model.js).
 | `header.recountLines[].requestedBy` | ObjectId | true | User |
 | `header.recountLines[].requestedAt` | Date | true |  |
 | `header.recountLines[].note` | String | false |  |
+| `header.countReasons` | Array | false |  |
+| `header.countReasons[].snapshotId` | ObjectId | true | StocktakeSnapshot |
+| `header.countReasons[].countId` | ObjectId | true | StocktakeCount |
+| `header.countReasons[].reasonCode` | String | true |  |
+| `header.countReasons[].reasonNote` | String | false |  |
+| `header.countReasons[].setBy` | ObjectId | true | User |
+| `header.countReasons[].setAt` | Date | true |  |
 | `header.planId` | DocumentIdentity | false | StocktakePlan |
 | `updatedBy` | ObjectId | false | User |
 | `evidenceIds` | Array | false |  |

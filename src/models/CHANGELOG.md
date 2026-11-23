@@ -1,3 +1,7 @@
+## 23 November 2026 — Counter-chosen stocktake discrepancy reasons
+
+User decision (23 Nov 2026): the Warehouse Staff counter chooses why a counted line differs from the book; the Owner only approves or requests a recount. `stocktakes.header` adds `countReasons[]` (new embedded `stocktake-count-reason.schema.js`): `snapshotId` (StocktakeSnapshot), `countId` (StocktakeCount), `reasonCode` (`DISCREPANCY_REASONS`), optional `reasonNote` (≤ 500), `setBy`, `setAt`. Additive, default `[]`; no index, migration or backfill. Contract: [STOCKTAKE_LIFECYCLE](../../git_doc/docs/08_api/STOCKTAKE_LIFECYCLE.md#post-idcount-reason-23-november-2026); dictionary and `schema.json` updated by hand (the ERD was not regenerated, see `git_doc/change_logs.md`).
+
 ## 22 November 2026 — OTHER receipt drops replacement link and approval hash
 
 User decision (22/11/2026): `goods_receipts` `OTHER` header removes `originalReceiptId`; the `OtherGoodsReceipt` discriminator removes `approvedStockHash`. `approvedVersion` and `approvalDecisionId` stay. No index or collection change, no migration or compatibility code; local data with the old fields is reseeded. See [GOODS_RECEIPTS](../../git_doc/docs/08_api/GOODS_RECEIPTS.md) and the [current dictionary](../../git_doc/docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Data_Dictionary.md).

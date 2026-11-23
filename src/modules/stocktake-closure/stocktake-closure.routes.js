@@ -22,12 +22,16 @@ import { DISCREPANCY_REASONS } from '../../models/stocktake-resolution-details.s
 const qty = decimalStringSchema({ positive: true });
 const portion = z.object({ packagingState: z.enum(['SEALED', 'OPEN', 'LOOSE']), sealedPackCount: z.number().int().nonnegative().optional(), quantityBase: qty, measuredVolumeMm3: qty.optional(), extraOccupiedVolumeMm3: decimalStringSchema().optional(), packagingSnapshot: z.object({ packageUnit: z.string().min(1).max(60), baseUnitsPerPackage: qty, outerLengthMm: decimalStringSchema({ positive: true, scale: 3 }), outerWidthMm: decimalStringSchema({ positive: true, scale: 3 }), outerHeightMm: decimalStringSchema({ positive: true, scale: 3 }) }).strict().optional() }).strict();
 const packagingSchema = z.array(z.object({ lineId: objectId, portions: z.array(portion).min(1).max(100) }).strict()).max(200);
-// Approve/Clear Difference (22 Nov 2026). No closing reason: the optional per-line reasonCode/reasonNote only label a discrepancy.
+// Approve/Clear Difference (22 Nov 2026). No closing reason. Since 23 Nov 2026 the counter chooses each line's
+// reason (POST /:id/count-reason) and the Owner only approves, so the lines carry no reason here.
 export const approveBody = operation.extend({
     all: z.boolean().optional(),
-    lines: z.array(z.object({ snapshotId: objectId, reasonCode: z.enum(DISCREPANCY_REASONS).optional(), reasonNote: z.string().trim().min(1).max(500).optional() }).strict()).max(5000).optional(),
+    lines: z.array(z.object({ snapshotId: objectId }).strict()).max(5000).optional(),
     packaging: packagingSchema.optional(),
 }).strict().refine(v => v.all === true || !!v.lines?.length, 'Chọn ít nhất một dòng chênh lệch hoặc chọn tất cả');
+// Counter's reason for a differing line (user decision 23 Nov 2026); "OTHER" needs the typed reason.
+export const countReasonBody = operation.extend({ snapshotId: objectId, countId: objectId, reasonCode: z.enum(DISCREPANCY_REASONS), reasonNote: z.string().trim().min(1).max(500).optional() }).strict()
+    .refine(v => v.reasonCode !== 'OTHER' || !!v.reasonNote, 'Lý do "Khác" cần ghi rõ lý do');
 export const recountBody = operation.extend({ snapshotIds: z.array(objectId).min(1).max(5000), note: z.string().trim().min(1).max(1000).optional() }).strict();
 function parse(schema, value) { const r = schema.safeParse(value); if (!r.success)
     throw validationError('Dữ liệu kiểm kê không hợp lệ'); return r.data; }
@@ -52,6 +56,7 @@ router.post('/:id/activate', catchAsync(async (req, res) => formatApiResponse(re
 router.post('/:id/counts', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.recordCount(req.user, parse(documentIdentifier, req.params.id), parse(countBody, req.body)) })));
 router.post('/:id/correct-empty-location', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.correctEmptyLocation(req.user, parse(documentIdentifier, req.params.id), parse(correctionBody, req.body)) })));
 router.post('/:id/cancel', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.cancelStocktake(req.user, parse(documentIdentifier, req.params.id), parse(operation.extend({ reason: text }).strict(), req.body)) })));
+router.post('/:id/count-reason', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.setCountReason(req.user, parse(documentIdentifier, req.params.id), parse(countReasonBody, req.body)) })));
 router.post('/:id/reconcile', catchAsync(async (req, res) => formatApiResponse(res, { data: await commands.reconcileStocktake(req.user, parse(documentIdentifier, req.params.id), parse(operation.strict(), req.body)) })));
 router.post('/:id/recount', catchAsync(async (req, res) => formatApiResponse(res, { data: await reconciliation.recountStocktake(req.user, parse(documentIdentifier, req.params.id), parse(recountBody, req.body)) })));
 router.post('/:id/approve-differences', catchAsync(async (req, res) => formatApiResponse(res, { data: await reconciliation.approveStocktakeDifferences(req.user, parse(documentIdentifier, req.params.id), parse(approveBody, req.body)) })));

@@ -158,7 +158,8 @@ export function approveStocktakeDifferences(user, id, input) {
         let posting, adjustment;
         for (const snapshot of selected) {
             const count = countOf.get(String(snapshot._id)), delta = diffOf(snapshot), ctx = contexts.get(String(snapshot._id));
-            const note = annotations.get(String(snapshot._id));
+            // The counter's reason for exactly this attempt (23 Nov 2026); older slips may have none.
+            const note = header.countReasons?.find(row => same(row.snapshotId, snapshot._id) && same(row.countId, count._id));
             const row = {
                 snapshotId: snapshot._id, countId: count._id, outcome: delta.isZero() ? 'MATCHED' : 'POSTED', deltaQtyBase: delta.toFixed(),
                 baseUnitSnapshot: snapshot.baseUnitSnapshot, ...(note?.reasonCode && { reasonCode: note.reasonCode }), ...(note?.reasonNote && { reasonNote: note.reasonNote }),
