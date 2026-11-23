@@ -19,6 +19,8 @@ const groups = [
   ['H · Defect & supplier return', '#FDE9D9', ['defect_reports', 'defect_resolution_plans', 'stock_scrap_records', 'stock_quality_changes', 'stock_discrepancies', 'supplier_returns', 'supplier_return_issues', 'supplier_acknowledgements']],
   ['I · Stocktake, opening & reversal', '#E2F0D9', ['stocktakes', 'stocktake_snapshots', 'stocktake_counts', 'stocktake_location_locks', 'stocktake_resolution_plans', 'stocktake_plans', 'stock_adjustments', 'opening_stocks', 'stock_reversals']],
   ['J · Evidence, audit & events', '#E7E6E6', ['approval_history', 'attachments', 'notifications', 'audit_logs', 'system_events', 'operation_records', 'external_references', 'external_reference_lines']],
+  // System administration collections (23/11/2026).
+  ['K · System administration', '#DDEBF7', ['app_settings', 'api_endpoints', 'error_logs']],
 ];
 
 const xml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
