@@ -1,6 +1,6 @@
 # Từ điển dữ liệu hiện hành — 12/11/2026
 
-58 collection. Dòng nhúng có ID ổn định; không phải collection độc lập. Mongoose ref là liên kết ứng dụng, không phải foreign key do MongoDB kiểm. Native return workflow additions and compatibility are documented in [RETURN_WORKFLOWS_NATIVE](../../08_api/RETURN_WORKFLOWS_NATIVE.md). DocumentIdentity = String mã phiếu mới hoặc ObjectId lịch sử; xem [quy tắc ID](../../08_api/DOCUMENT_IDENTITIES.md).
+61 collection. Dòng nhúng có ID ổn định; không phải collection độc lập. Mongoose ref là liên kết ứng dụng, không phải foreign key do MongoDB kiểm. Native return workflow additions and compatibility are documented in [RETURN_WORKFLOWS_NATIVE](../../08_api/RETURN_WORKFLOWS_NATIVE.md). DocumentIdentity = String mã phiếu mới hoặc ObjectId lịch sử; xem [quy tắc ID](../../08_api/DOCUMENT_IDENTITIES.md).
 
 ## uoms
 
@@ -124,6 +124,7 @@ Model: [user.model.js](../../../../src/models/user.model.js).
 | `email` | String | false |  |
 | `isActive` | Boolean | true |  |
 | `lockReason` | String | false |  |
+| `lastLoginAt` | Date | false |  |
 | `version` | Number | true |  |
 | `_id` | ObjectId | false |  |
 | `createdAt` | Date | false |  |
@@ -1106,6 +1107,20 @@ Indexes:
     {
       "subjectId": 1,
       "occurredAt": 1
+    },
+    {}
+  ],
+  [
+    {
+      "occurredAt": -1,
+      "_id": -1
+    },
+    {}
+  ],
+  [
+    {
+      "actorId": 1,
+      "occurredAt": -1
     },
     {}
   ]
@@ -2373,17 +2388,6 @@ Indexes:
 ## warehouse_transfer_requests
 
 Model: [warehouse-transfer-request.model.js](../../../../src/models/warehouse-transfer-request.model.js).
-
-Source allocation is an optional embedded plan on each request item. Each allocation refers to one inventory balance and its storage location. Several request items across different requests may refer to the same bin or balance. The request line preserves the lot label and entered-unit conversion, while each allocation stores a positive base-unit quantity. The service checks scope, eligibility, live availability, and that the allocated total does not exceed the requested quantity. Saving the plan records the request without reserving stock. Historical lines may omit the fields, with no backfill or new index required. See the [BF04 contract](../../08_api/transfers/BF04_API.md#source-locations-on-transfer-requests--22-november-2026).
-
-| Additional field on `items[]` | Type | Required | Reference or meaning |
-|---|---|---|---|
-| `lotLabelSnapshot` | String | No | Verified manufacturer's lot code |
-| `sourceLocations` | Embedded array | No | One entry per selected source bin |
-| `sourceLocations[].sourceBalanceId` | ObjectId | Yes | `inventory_balances` |
-| `sourceLocations[].locationId` | ObjectId | Yes | `warehouse_locations` |
-| `sourceLocations[].locationCode` | String | Yes | Source bin code when the plan was saved |
-| `sourceLocations[].qtyBase` | Decimal128 | Yes | Positive quantity in the product base unit |
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
 |---|---|---|---|
@@ -6605,6 +6609,126 @@ Indexes:
     {
       "header.warehouseId": 1,
       "workflowStatus": 1
+    },
+    {}
+  ]
+]
+```
+
+## app_settings
+
+Model: [app-setting.model.js](../../../../src/models/app-setting.model.js).
+
+| Trường | Kiểu | Bắt buộc | Liên kết |
+|---|---|---|---|
+| `key` | String | true |  |
+| `value` | Mixed | true |  |
+| `version` | Number | true |  |
+| `updatedBy` | ObjectId | false | User |
+| `_id` | ObjectId | false |  |
+| `createdAt` | Date | false |  |
+| `updatedAt` | Date | false |  |
+
+Indexes:
+
+```json
+[
+  [
+    {
+      "key": 1
+    },
+    {
+      "unique": true,
+      "_autoIndex": false
+    }
+  ]
+]
+```
+
+## api_endpoints
+
+Model: [api-endpoint.model.js](../../../../src/models/api-endpoint.model.js).
+
+| Trường | Kiểu | Bắt buộc | Liên kết |
+|---|---|---|---|
+| `method` | String | true |  |
+| `url` | String | true |  |
+| `name` | String | true |  |
+| `description` | String | false |  |
+| `module` | String | false |  |
+| `source` | String | true |  |
+| `isPresent` | Boolean | true |  |
+| `isActive` | Boolean | true |  |
+| `discoveredAt` | Date | false |  |
+| `updatedBy` | ObjectId | false | User |
+| `_id` | ObjectId | false |  |
+| `createdAt` | Date | false |  |
+| `updatedAt` | Date | false |  |
+
+Indexes:
+
+```json
+[
+  [
+    {
+      "method": 1,
+      "url": 1
+    },
+    {
+      "unique": true
+    }
+  ]
+]
+```
+
+## error_logs
+
+Model: [error-log.model.js](../../../../src/models/error-log.model.js).
+
+| Trường | Kiểu | Bắt buộc | Liên kết |
+|---|---|---|---|
+| `fingerprint` | String | true |  |
+| `level` | String | true |  |
+| `source` | String | true |  |
+| `statusCode` | Number | false |  |
+| `method` | String | false |  |
+| `path` | String | false |  |
+| `message` | String | true |  |
+| `errorName` | String | false |  |
+| `stack` | String | false |  |
+| `count` | Number | true |  |
+| `firstSeenAt` | Date | true |  |
+| `lastSeenAt` | Date | true |  |
+| `lastUserId` | ObjectId | false | User |
+| `resolvedAt` | Date | false |  |
+| `resolvedBy` | ObjectId | false | User |
+| `_id` | ObjectId | false |  |
+| `createdAt` | Date | false |  |
+| `updatedAt` | Date | false |  |
+
+Indexes:
+
+```json
+[
+  [
+    {
+      "fingerprint": 1
+    },
+    {
+      "unique": true,
+      "_autoIndex": false
+    }
+  ],
+  [
+    {
+      "lastSeenAt": -1
+    },
+    {}
+  ],
+  [
+    {
+      "resolvedAt": 1,
+      "lastSeenAt": -1
     },
     {}
   ]
