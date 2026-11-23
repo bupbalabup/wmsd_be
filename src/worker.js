@@ -56,15 +56,16 @@ export class Backend extends DurableObject {
     return (await getExpress()).fetch(request, this.env, this.ctx);
   }
 
+  // Cron: business notifications (when NOTIFICATIONS_START_AT is set), low-stock scan and notification emails.
   async processNotifications() {
-    if (!this.env.NOTIFICATIONS_START_AT) return;
-    const cutoff = new Date(this.env.NOTIFICATIONS_START_AT);
-    if (!Number.isFinite(+cutoff)) throw new Error('Invalid NOTIFICATIONS_START_AT');
-    await this.connect();
-    const { processNotificationEvent } = await import('./modules/notifications/worker.js');
-    for (let i = 0; i < 25; i++) {
-      if (!await processNotificationEvent(cutoff)) break;
+    let cutoff = null;
+    if (this.env.NOTIFICATIONS_START_AT) {
+      cutoff = new Date(this.env.NOTIFICATIONS_START_AT);
+      if (!Number.isFinite(+cutoff)) throw new Error('Invalid NOTIFICATIONS_START_AT');
     }
+    await this.connect();
+    const { runBackgroundJobs } = await import('./modules/notifications/background.js');
+    await runBackgroundJobs({ cutoff });
   }
 }
 
@@ -73,8 +74,6 @@ export default {
     return env.BACKEND.getByName('api').fetch(request);
   },
   async scheduled(_event, env) {
-    if (env.NOTIFICATIONS_START_AT) {
-      await env.BACKEND.getByName('api').processNotifications();
-    }
+    await env.BACKEND.getByName('api').processNotifications();
   },
 };
