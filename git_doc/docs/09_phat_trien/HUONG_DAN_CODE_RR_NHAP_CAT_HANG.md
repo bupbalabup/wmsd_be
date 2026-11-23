@@ -1294,7 +1294,7 @@ return await InventoryBalance.findOne(fields).session(session) ??
 
   Không có `warehouseId` ⇒ chỉ trả `warehouses`. Có ⇒ `requireWarehouseAccess`. Các trường được chọn lọc (`optionFields`) khai trong [movement-read-fields.js](../../../src/shared/utils/movement-read-fields.js). Số dư trả về có `version` để client gửi lại làm `sourceBalanceVersion`, kèm `packagingPortions.packagingState/sealedPackCount/quantityBase` để form hiện "Thùng nguyên / Trong thùng mở / Hàng rời" và giới hạn riêng phần thùng nguyên, phần rời.
 
-  `blindCountScope(user)` ([blind-count.js:19](../../../src/shared/utils/blind-count.js)) trả các số dư nằm ở vị trí đang bị khóa bởi phiên kiểm kê `COUNTING`. Người không phải Owner không thấy các số dư này trong form (kiểm kê mù), nên không lập lệnh chuyển từ đó được. Owner thấy đủ.
+  *Lịch sử, đã gỡ ngày 22/11/2026:* `blindCountScope(user)` (tệp `src/shared/utils/blind-count.js`, đã xóa) từng ẩn với người không phải Owner các số dư ở vị trí bị phiên kiểm kê `COUNTING` khóa. Từ 22/11/2026 không còn kiểm kê mù: mọi vai trò thấy số dư ở vị trí đang khóa kiểm kê với số lượng chọn được bằng 0 (`lockedByStocktake`), và lệnh ghi vẫn từ chối vị trí đang khóa; xem [HIEUDT_WAREHOUSE_SCOPE.md](../08_api/HIEUDT_WAREHOUSE_SCOPE.md#option-lists-and-stocktake-locks-22-nov-2026).
 
 ## 2.13. Bước 9 — Lập lệnh chuyển vị trí: `createLocationMovement(user, input)`
 
