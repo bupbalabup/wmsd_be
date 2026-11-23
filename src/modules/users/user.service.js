@@ -58,7 +58,7 @@ export const listUsers = async ({ page = 1, limit = 10, search = '', role = '', 
       ...userRoleDto(u),
       status: u.isActive ? 'active' : 'inactive', lockReason: u.lockReason,
       createdAt: u.createdAt,
-      lastLogin: u.updatedAt,
+      lastLogin: u.lastLoginAt ?? null,
     };
   });
 
@@ -80,7 +80,7 @@ export const getUserById = async (id) => {
     permissions: rolePermissions(user),
     status: user.isActive ? 'active' : 'inactive', lockReason: user.lockReason,
     createdAt: user.createdAt,
-    lastLogin: user.updatedAt,
+    lastLogin: user.lastLoginAt ?? null,
   };
 };
 
