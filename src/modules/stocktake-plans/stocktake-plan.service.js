@@ -22,13 +22,36 @@ async function scopedPlan(user, id, session) {
     return plan;
 }
 
-// Explicit locations plus every active location of the warehouse in the chosen area codes, resolved when used.
-async function resolveLocationIds(session, warehouseId, scope) {
+// Locations among `locationIds` holding a balance row in the scope's product/batch filter: the same rows activation
+// snapshots (quantity zero included), so an area pulls in only bins with something to count.
+async function stockedLocationIds(session, locationIds, scope) {
+    if (!locationIds.length)
+        return [];
+    let batchIds = (scope.batchIds ?? []).map(String);
+    if (scope.productIds?.length) {
+        const productBatches = await m.ProductBatch.find({ productId: { $in: scope.productIds } }).select('_id').session(session).lean();
+        const allowed = new Set(productBatches.map(row => String(row._id)));
+        batchIds = batchIds.length ? batchIds.filter(id => allowed.has(id)) : [...allowed];
+        if (!batchIds.length)
+            return [];
+    }
+    const points = await m.StockHoldingPoint.find({ type: 'LOCATION', locationId: { $in: locationIds } }).select('_id locationId').session(session).lean();
+    const held = new Set((await m.InventoryBalance.distinct('holdingPointId', {
+        holdingPointId: { $in: points.map(point => point._id) }, ...(batchIds.length && { batchId: { $in: batchIds } }),
+    }).session(session)).map(String));
+    return dedupe(points.filter(point => held.has(String(point._id))).map(point => point.locationId));
+}
+
+// Explicit locations plus the active locations of the warehouse in the chosen area codes, resolved when used.
+// With `stockedOnly` (slip generation, user decision 23 Nov 2026) an area contributes only locations that hold stock in
+// the plan's product/batch filter; explicitly named locations are always kept, even when empty.
+async function resolveLocationIds(session, warehouseId, scope, { stockedOnly = false } = {}) {
     const explicit = scope.locationIds ?? [];
     const byArea = scope.areaCodes?.length
         ? await m.WarehouseLocation.find({ warehouseId, isActive: true, areaCode: { $in: scope.areaCodes } }).select('_id').session(session).lean()
         : [];
-    return dedupe([...explicit, ...byArea.map(row => row._id)]);
+    const areaIds = byArea.map(row => row._id);
+    return dedupe([...explicit, ...(stockedOnly ? await stockedLocationIds(session, areaIds, scope) : areaIds)]);
 }
 
 async function checkedScope(session, warehouseId, scope) {
@@ -134,7 +157,9 @@ export function generateStocktakeFromPlan(user, id, input) {
         // A CANCELLED slip frees its period (the unique index ignores it too); any other slip keeps the period taken.
         if (await m.Stocktake.exists({ ...periodFilter, workflowStatus: { $ne: 'CANCELLED' } }).session(session))
             throw new ApiError(409, 'Kỳ kiểm kê này đã có phiếu', { code: ERROR_CODES.STOCKTAKE_PLAN_PERIOD_EXISTS });
-        const locationIds = await resolveLocationIds(session, header.warehouseId, header.scope);
+        const locationIds = await resolveLocationIds(session, header.warehouseId, header.scope, { stockedOnly: true });
+        if (!locationIds.length)
+            throw validationError('Khu vực của kế hoạch không có vị trí nào có tồn của hàng cần kiểm');
         const slip = await createStocktakeSlip(session, actor, {
             warehouseId: header.warehouseId, reason: header.reason ?? `${header.title} - kỳ ${periodNo + 1}`, plannedAt: dueAt.toISOString(),
             assignedCounterIds: header.assignedCounterIds.map(String), note: plan.note,

@@ -1,28 +1,26 @@
-## 23/11/2026 — CORS và chẩn đoán kết nối Worker
+## 23 November 2026 — Counter chooses the stocktake discrepancy reason
 
-Preflight của BE chạy độc lập với MongoDB. Lỗi 503 trả header CORS và log phân biệt thiếu secret với lỗi kết nối bằng tên lỗi. Xem [hướng dẫn Cloudflare](docs/09_phat_trien/CLOUDFLARE_WORKERS.md).
+**Decision.** User decision (23 Nov 2026): the reason for a counted difference is chosen by the Warehouse Staff counter and only approved by the Owner. Reason list unchanged (Vỡ/hỏng, Mất/thất lạc, Để nhầm vị trí/chất lượng, Thừa/tìm thấy, Sai sót ghi sổ, Khác); "Khác" requires a typed reason. The reason is required on every differing line before results are sent; the Owner cannot edit it and requests a recount when they disagree.
 
-## 23/11/2026 — Seed thủ công
+**Behavior.** New `POST /api/stocktakes/:id/count-reason` (`stocktake:update`, assigned counter, `COUNTING`) stores the reason for the newest attempt of a differing line in `header.countReasons[]`; a new count of the line invalidates it. `POST /:id/reconcile` refuses while a differing line lacks a reason (`Còn N dòng chênh lệch chưa chọn lý do`). `POST /:id/approve-differences` no longer accepts `reasonCode/reasonNote` in `lines[]` and posts the counter's reason instead. `GET /:id` `lines[]` adds `countReason`. Frontend (frontend repository, same day): the count screen shows a reason select (and a text box for "Khác") under the difference of each differing line; the reconcile action explains missing reasons; the Owner reconciliation table shows the reason read-only.
 
-API và server thử FE06 chỉ kết nối DB khi khởi động. Bỏ tự tạo dữ liệu mẫu và đồng bộ mật khẩu mẫu ở local. Dùng `npm run seed` khi cần nạp demo.
+**Files.** Backend: `src/models/stocktake-count-reason.schema.js` (new), `src/models/stocktake-header.schema.js`, `src/modules/stocktake-closure/stocktake-closure.routes.js`, `stocktake-commands.service.js`, `stocktake-reconciliation.service.js`, `stocktake-closure.service.js`. Docs: [STOCKTAKE_LIFECYCLE.md](docs/08_api/STOCKTAKE_LIFECYCLE.md), [MODEL_MAP.md](MODEL_MAP.md), [WMSD_Data_Dictionary.md](docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Data_Dictionary.md), `schema.json`, `src/models/CHANGELOG.md`. Frontend: `src/features/stocktakes/{api.ts,model.ts,components/LineReasonField.tsx,components/CountTable.tsx,components/ReconcileAction.tsx,components/ReconciliationTable.tsx,lifecycle-count.test.tsx}`.
 
-## 22/11/2026 — Tinh gọn DB đợt 1
+**Data impact.** Additive embedded field with default `[]`; no migration, index or seed change. Slips already `RECONCILING` without reasons can still be approved (default reason). The ERD (`WMSD_ERD_Current.drawio`) was not regenerated: the generator also picks up unrelated model changes not yet drawn, so it is left for a separate refresh.
 
-Theo yêu cầu triển khai đợt 1, bỏ khóa RR cũ, bộ đếm planning trên đơn bán và executionStatus trên yêu cầu chuyển kho. Đồng bộ registry, seed, script kiểm tra, từ điển và ERD. Quy trình khôi phục nằm trong git_doc/docs/09_phat_trien/DB_PHASE_ONE.md.
+**Checks.** Backend on the isolated local replica set `127.0.0.1:27018` (`hieudt-test`, recreated in Docker): `RUN_STOCKTAKE_LIST_TESTS=1 RUN_STOCKTAKE_RESOLUTION_TESTS=1 RUN_STOCKTAKE_LIFECYCLE_TESTS=1 node --test --test-concurrency=1` over the three stocktake integration suites plus `stocktake-count-sheet`, `stocktake-detail`, `stocktake-list`, `stocktake-resolution-detail`, `stocktake-resolution-list`: 50 pass, 0 fail, after the existing lifecycle and resolution set-ups were updated to choose the counter's reason before reconcile; `consolidation`, `reviewed-model-files`, `db-rebuild`: 27 pass; `npm run docs:check` passes. Frontend: `pnpm typecheck`, eslint on `src/features/stocktakes`, `pnpm ui:check`, vitest `src/features/stocktakes` and `src/features/adjustments` (12 files, 93 tests) pass after updating two existing assertions in `lifecycle-count.test.tsx`. No new test file (project policy). Not done: browser check on the shared database (no slip with a counted difference after the 23 Nov clean-up).
 
-Ngày 23/11/2026 đã áp dụng trên wmsd_database, từ 59 còn 58 collection. Bản sao gồm 6 khóa và index, 45 giá trị planning và 0 executionStatus. Đã so khớp mã băm của tất cả trường còn lại trên 45 đơn bán và 5 phiếu chuyển. Kiểm thử local gồm 57 test model/seed, 21 test tích hợp và hai lần chạy mỗi chiều apply/restore trên DB diễn tập. Phân bổ 40/160 viên đã lưu và đọc lại thành công.
+## 23 November 2026 — Stocktake plan areas resolve only stocked bins
 
-## 22 November 2026 — Passwords are generated and emailed, never set by an admin
+**Decision.** User decision (23 Nov 2026): a slip generated from a plan should show only the bins that hold what needs counting. Before, a plan with `areaCodes` pulled every active location of the area into the slip, and each bin without book stock had to be confirmed empty before results could be sent (for example plan `KHKK-K-GACH-01-261123-000002`, area `CUSTODY` filtered to one product, generated a slip with 9 locations where only one held that product).
 
-**Behavior.** Creating an account requires an email and emails a random password; admins can no longer set or change a password; "Quên mật khẩu?" opens `/forgot`, where the account's email receives a new random password that takes effect immediately.
+**Behavior.** `POST /api/stocktake-plans/:id/generate` keeps from the area only locations that have an `InventoryBalance` row on a LOCATION holding point within the plan's product/batch filter (the same rows activation snapshots, quantity zero included). Limitation: a bin that receives those goods for the first time after generation but before activation is not in the slip (documented in STOCKTAKE_PLANS). Explicit `locationIds` are kept unchanged. If no location remains, generation returns 400 with a Vietnamese message. Plan create/update validation, the plan detail lookups, ad-hoc slips (`POST /api/stocktakes`) and the reconcile rule for scoped empty locations are unchanged. Frontend (same day, frontend repository): the "Chọn nhanh theo khu" quick-pick adds only stocked, unlocked locations. Follow-up decision the same day: new plans no longer offer the "Khu vực kiểm" field (the edit form keeps it only for plans that already store areas); the API still accepts `areaCodes` for those plans.
 
-**Data and contracts.** No schema change. `POST /users` drops `password` and requires `email`; `PUT /users/:id` drops `password`; new public `POST /auth/forgot-password`. New SMTP environment variables and a new dependency, `nodemailer` (run `npm install`). See [User access status](docs/08_api/USER_ACCESS_STATUS.md#mật-khẩu-qua-email--22112026).
+**Files.** `src/modules/stocktake-plans/stocktake-plan.service.js`; [STOCKTAKE_PLANS.md](docs/08_api/STOCKTAKE_PLANS.md).
 
-**Verification.** `node --check` and `tsc --noEmit` pass; mail is now sent through `nodemailer`, which could not be installed or run in the build sandbox, so real sending is untested (an earlier hand-written client had been tried against a fake SMTP server and was replaced). The HTTP endpoints were not run against a database and the `/test` files were not run.
+**Data impact.** None: no schema, index, seed or migration. Existing slips keep their scope; a slip already generated with empty bins must be cancelled and generated again to benefit.
 
-## 23/11/2026 — Backend trên Cloudflare Workers
-
-Thêm cấu hình Wrangler và entry point cho Express. Durable Object quản lý kết nối MongoDB, Cron Trigger gọi trình xử lý thông báo. Xem [hướng dẫn cấu hình](docs/09_phat_trien/CLOUDFLARE_WORKERS.md).
+**Checks.** `node --check` on the service and `npm run docs:check` pass. A read-only replay of the new queries against plan `KHKK-K-GACH-01-261123-000002` (area `CUSTODY`, 9 active locations) kept only `DM01-CUSTODY-05`. Not run: generation against a database (no isolated local database available), integration tests (none cover plan generation). No automated test added (project policy). One independent reviewer: approved with comments; wording and the activation-gap limitation were addressed.
 
 ## 23 November 2026 — Stocktake follow-up to lecturer feedback (frontend only) and lifecycle doc fix
 
@@ -35,6 +33,20 @@ Thêm cấu hình Wrangler và entry point cho Express. Durable Object quản l�
 **Verification.** Frontend `pnpm typecheck` and `pnpm lint` pass; vitest for stocktakes, adjustments, lots, purchase-orders, replenishments, location-moves, return-workflows and `src/app` pass (52 files, 366 tests) after updating existing assertions in `countSheet.test.tsx`, `live.test.tsx` and `adjustments/routes.test.ts`; after the review fixes the focused rerun (stocktakes, adjustments, purchase-orders, return-workflows, location-moves, `src/app`: 42 files, 310 tests) passes. `pnpm ui:check` fails only on the direct `antd` import in `src/features/notifications/NotificationBell.tsx`, unchanged from HEAD. The single independent reviewer requested changes (matching line silently closed by a partial approval, wrong return-workflow unit, and low items); after fixes the recheck found no critical, high or medium issue. Not done: browser/visual check (the user tests the UI).
 
 **Remaining.** Deprecated `stock_adjustment:create/update/approve` are still offered in the role editor and fallback role lists; the unique partial index `stocktake_plan_period_once` still needs an authorised rollout on shared databases.
+
+## 22 November 2026 — Stocktake end-to-end walkthrough and shortage-approval fix
+
+**Source.** User asked for one complete end-to-end stocktake flow checked against the lecturer's feedback, with a screenshot of each step written into one docs file (22 Nov 2026). No new business rule.
+
+**Behavior.** Before: approving a counted **shortage** (`POST /api/stocktakes/:id/approve-differences`) failed with 400 `InventoryBalance validation failed: packagingPortions.0.createdAt: Path 'createdAt' is immutable` whenever the balance already had packaging portions, because the service reassigned plain portion objects to `balance.packagingPortions`. After: it calls `retainPortions(balance, kept)` like the other stock writers, so existing portions are updated in place. Surplus approval (`receiveStock`) is unchanged.
+
+**Files.** `src/modules/stocktake-closure/stocktake-reconciliation.service.js`; new Vietnamese walkthrough [STOCKTAKE_E2E_WALKTHROUGH](docs/09_phat_trien/STOCKTAKE_E2E_WALKTHROUGH.md) with 29 screenshots in `docs/09_phat_trien/images/stocktake-e2e/`; end-user guide [HUONG_DAN_SU_DUNG_KIEM_KHO.docx](docs/02_nghiep_vu/HUONG_DAN_SU_DUNG_KIEM_KHO.docx) (Vietnamese, written for Owner and Warehouse Staff, same 29 screenshots embedded in the single Word file, no developer content); README index; note in STOCKTAKE_LIFECYCLE.
+
+**Data impact.** None in shared databases. The browser run used an isolated local copy `wmsd_e2e_stocktake_20261122` on the local test replica set; no migration or seed.
+
+**Checks.** Two manual browser runs: first plan → slip → count → recount → approve a shortage (balance 62 → 61, adjustment `POSTED`; this run exposed the defect), second after the fix: quarterly plan → slip → count → recount → approve a surplus (balance 61 → 63, adjustment `POSTED`), 29 screenshots. `RUN_STOCKTAKE_RESOLUTION_TESTS=1 RUN_STOCKTAKE_LIFECYCLE_TESTS=1 node --test --test-concurrency=1 test/stocktake-resolution.integration.test.js test/stocktake-lifecycle.integration.test.js`: 11 pass, 0 fail. No automated test was added (project policy); the existing suites did not cover a shortage on a balance with seeded portions, which is why the defect escaped.
+
+**Open.** Monthly/yearly periods, pause/resume/end, found-not-in-book, multi-unit counting, export/print and mobile were not exercised in the walkthrough.
 
 ## 22 November 2026 — Report 3 §4.2 use-case table renumbered from Project Tracking
 

@@ -37,6 +37,11 @@ async function plan(locations, counters = [worker], extra = {}) {
 }
 const activate = async (id, user = worker) => st.activateStocktake(user, id, { idempotencyKey: key(), expectedVersion: await version(id) });
 async function count(id, input, user = worker) { return st.recordCount(user, id, { idempotencyKey: key(), expectedVersion: await version(id), ...input }); }
+// The counter's reason for the newest count of a differing line (required before reconcile since 23 Nov 2026).
+async function reason(id, snapshotId, reasonCode, user = worker) {
+    const line = (await getStocktake(user, id)).lines.find(row => row.snapshotId === String(snapshotId));
+    return st.setCountReason(user, id, { idempotencyKey: key(), expectedVersion: await version(id), snapshotId: String(snapshotId), countId: line.latestCountId, reasonCode });
+}
 const reconcile = async (id, user = worker) => st.reconcileStocktake(user, id, { idempotencyKey: key(), expectedVersion: await version(id) });
 const locked = id => m.StocktakeLocationLock.countDocuments({ stocktakeId: id, status: 'LOCKED' });
 
@@ -124,6 +129,8 @@ run('Owner plans, assigned Staff freezes; counts stay append-only; full flow wit
     assert.equal(counterView.snapshots.length, 2);
     assert.ok(counterView.snapshots.every(row => row.bookQtyBase != null));
     // Reconcile selects the latest counts and reports differences without posting stock.
+    await reason(id, snapshot._id, 'LOST');
+    await reason(id, discovered._id, 'FOUND');
     const reconciled = await reconcile(id);
     assert.equal(reconciled.workflowStatus, 'RECONCILING');
     const reconciledDoc = await m.Stocktake.findById(id);
@@ -146,6 +153,7 @@ run('Owner plans, assigned Staff freezes; counts stay append-only; full flow wit
     assert.equal((await m.Stocktake.findById(id)).workflowStatus, 'COUNTING');
     assert.equal(await locked(id), 2);
     await count(id, { targetType: 'STOCK', snapshotId: String(snapshot._id), countedQtyBase: '8', previousCountId: bookLine.latestCountId, recountReason: 'Owner requested recount' });
+    await reason(id, snapshot._id, 'DAMAGED');
     await reconcile(id);
     // Approve both differences: the staff counter cannot; the Owner posts once and the locks release with the last line.
     const approveBody = async () => ({ idempotencyKey: key(), expectedVersion: await version(id), all: true });

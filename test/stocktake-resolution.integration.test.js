@@ -57,6 +57,11 @@ async function reconciled({ wh, counter, lot, book, counted, whole = true, empty
     const snapshot = await m.StocktakeSnapshot.findOne({ stocktakeId: id });
     await count(id, counter, { targetType: 'STOCK', snapshotId: String(snapshot._id), countedQtyBase: counted });
     if (emptyLoc) await count(id, counter, { targetType: 'EMPTY_LOCATION', locationId: String(emptyLoc.loc._id), countedQtyBase: '0' });
+    // A differing line needs the counter's reason before reconcile (23 Nov 2026).
+    if (String(counted) !== String(book)) {
+        const latest = await m.StocktakeCount.findOne({ stocktakeId: id, snapshotId: snapshot._id }).sort({ attemptNo: -1 });
+        await st.setCountReason(counter, id, { idempotencyKey: key(), expectedVersion: await version(id), snapshotId: String(snapshot._id), countId: String(latest._id), reasonCode: 'RECORD_ERROR' });
+    }
     await reconcile(id, counter);
     const countRow = await m.StocktakeCount.findOne({ stocktakeId: id, snapshotId: snapshot._id });
     return { id, booked, emptyLoc, snapshot, countRow };

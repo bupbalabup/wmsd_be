@@ -17196,6 +17196,48 @@
         "target": ""
       },
       {
+        "path": "header.countReasons",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.countReasons[].snapshotId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "StocktakeSnapshot"
+      },
+      {
+        "path": "header.countReasons[].countId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "StocktakeCount"
+      },
+      {
+        "path": "header.countReasons[].reasonCode",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "header.countReasons[].reasonNote",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.countReasons[].setBy",
+        "type": "ObjectId",
+        "required": true,
+        "target": "User"
+      },
+      {
+        "path": "header.countReasons[].setAt",
+        "type": "Date",
+        "required": true,
+        "target": ""
+      },
+      {
         "path": "header.planId",
         "type": "DocumentIdentity",
         "required": false,

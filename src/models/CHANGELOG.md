@@ -1,8 +1,6 @@
-## 22/11/2026 — Tinh gọn DB đợt 1
+## 23 November 2026 — Counter-chosen stocktake discrepancy reasons
 
-Theo yêu cầu triển khai đợt 1, bỏ khóa RR cũ, bộ đếm planning trên đơn bán và executionStatus trên yêu cầu chuyển kho. Đồng bộ registry, seed, script kiểm tra, từ điển và ERD. Quy trình khôi phục nằm trong git_doc/docs/09_phat_trien/DB_PHASE_ONE.md.
-
-Ngày 23/11/2026 đã áp dụng trên wmsd_database, từ 59 còn 58 collection. Bản sao gồm 6 khóa và index, 45 giá trị planning và 0 executionStatus. Đã so khớp mã băm của tất cả trường còn lại trên 45 đơn bán và 5 phiếu chuyển. Kiểm thử local gồm 57 test model/seed, 21 test tích hợp và hai lần chạy mỗi chiều apply/restore trên DB diễn tập. Phân bổ 40/160 viên đã lưu và đọc lại thành công.
+User decision (23 Nov 2026): the Warehouse Staff counter chooses why a counted line differs from the book; the Owner only approves or requests a recount. `stocktakes.header` adds `countReasons[]` (new embedded `stocktake-count-reason.schema.js`): `snapshotId` (StocktakeSnapshot), `countId` (StocktakeCount), `reasonCode` (`DISCREPANCY_REASONS`), optional `reasonNote` (≤ 500), `setBy`, `setAt`. Additive, default `[]`; no index, migration or backfill. Contract: [STOCKTAKE_LIFECYCLE](../../git_doc/docs/08_api/STOCKTAKE_LIFECYCLE.md#post-idcount-reason-23-november-2026); dictionary and `schema.json` updated by hand (the ERD was not regenerated, see `git_doc/change_logs.md`).
 
 ## 22 November 2026 — OTHER receipt drops replacement link and approval hash
 
