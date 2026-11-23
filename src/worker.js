@@ -1,19 +1,25 @@
 import { httpServerHandler } from 'cloudflare:node';
 import { DurableObject } from 'cloudflare:workers';
-import mongoose from 'mongoose';
-import { createApp } from './app.js';
-import { processNotificationEvent } from './modules/notifications/worker.js';
 
+// Keep module top-level work minimal: Workers reject a deploy when startup exceeds the CPU limit (error 10021).
+// Mongoose, the Express app and every route/model are loaded lazily on the first request instead.
 const port = 3000;
-createApp({ logRequests: false, secureCookies: true }).listen(port);
-const express = httpServerHandler({ port });
+let expressHandler;
+function getExpress() {
+  expressHandler ??= import('./app.js').then(({ createApp }) => {
+    createApp({ logRequests: false, secureCookies: true }).listen(port);
+    return httpServerHandler({ port });
+  });
+  return expressHandler;
+}
 
 // The API and its existing models share a single MongoDB pool in this object.
 export class Backend extends DurableObject {
-  connect() {
+  async connect() {
     if (!this.env.MONGODB_URI || !this.env.JWT_SECRET || !this.env.REFRESH_TOKEN_SECRET) {
       throw new Error('Configure MONGODB_URI, JWT_SECRET and REFRESH_TOKEN_SECRET');
     }
+    const { default: mongoose } = await import('mongoose');
     this.connection ??= mongoose.connect(this.env.MONGODB_URI, {
       maxPoolSize: 5,
       minPoolSize: 0,
@@ -36,7 +42,7 @@ export class Backend extends DurableObject {
         return Response.json({ message: 'Backend unavailable' }, { status: 503 });
       }
     }
-    return express.fetch(request, this.env, this.ctx);
+    return (await getExpress()).fetch(request, this.env, this.ctx);
   }
 
   async processNotifications() {
@@ -44,6 +50,7 @@ export class Backend extends DurableObject {
     const cutoff = new Date(this.env.NOTIFICATIONS_START_AT);
     if (!Number.isFinite(+cutoff)) throw new Error('Invalid NOTIFICATIONS_START_AT');
     await this.connect();
+    const { processNotificationEvent } = await import('./modules/notifications/worker.js');
     for (let i = 0; i < 25; i++) {
       if (!await processNotificationEvent(cutoff)) break;
     }
