@@ -1,3 +1,12 @@
+## 23 November 2026 — Report 3 §4.2: Inspect and Post use cases split
+
+User decision (23/11/2026): "Inspect and Post" must not be one use case in the report; scope limited to §4.2 of Report 3 with the following UCs renumbered. Docs-only: no code, model, API or data change.
+
+- `docs/01_bao_cao/WMSD_Report3_Fix.docx.txt` §4.2: UC-33 "Inspect and Post Goods Receipt" is now UC-33 Inspect Goods Receipt + UC-34 Post Goods Receipt; old UC-114 "Inspect and Post Transfer Receipt" is now UC-115 Inspect Transfer Receipt + UC-116 Post Transfer Receipt. The catalogue is 166 UCs, UC-01–UC-166 (old UC-34–UC-113 shift +1, old UC-115–UC-164 shift +2). UC IDs cited inside §4.2 descriptions follow the new numbers; the old UC-114 citation became UC-115, UC-116. Descriptions of the four new rows only partition the existing UC-33/UC-114 text.
+- Not changed, so still on the old numbering: the heading under II, §4.3 actor associations, §4.4 permission matrix, business-flow/data-rule tables and the use-case specifications (UC-37 and UC-114/UC-120 there are still the combined "Inspect and Post"); the Project Tracking WBS sheet and `WMSD_Report3_Fix_UC_renumbered.docx` (outside the repository), so §4.2 no longer matches the WBS order; `src/seeds/data/permissions.data.js` `uc` traces and `docs/rtm.md`.
+- Transfer receipt is one step in the current API (a destination user receives against the posted TD); the split exists in the report only. Not verified against code.
+- Validation: UC-01–UC-166 sequence checked contiguous in §4.2; spot-checked shifted IDs and in-description citations; `npm run docs:check`.
+
 ## 23 November 2026 — MongoDB design overview layout
 
 The user requested a single canvas for the MongoDB overview used in the graduation report. Removed the group frames, placed related collection cards closer together and routed connections through the gaps. Refreshed the matching PNG export.
