@@ -1,4 +1,4 @@
-import Router from "router";
+import { Router } from "express";
 
 // Express 5 (router v2) keeps no string path for mounted routers, so the API catalogue could not rebuild full
 // URLs. This module, imported before any route file, remembers the mount path of every `use()` layer.
