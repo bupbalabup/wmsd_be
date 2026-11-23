@@ -281,6 +281,12 @@
         "target": ""
       },
       {
+        "path": "lastLoginAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "version",
         "type": "Number",
         "required": true,
@@ -3119,6 +3125,20 @@
         {
           "subjectId": 1,
           "occurredAt": 1
+        },
+        {}
+      ],
+      [
+        {
+          "occurredAt": -1,
+          "_id": -1
+        },
+        {}
+      ],
+      [
+        {
+          "actorId": 1,
+          "occurredAt": -1
         },
         {}
       ]
@@ -27187,6 +27207,301 @@
         {
           "header.warehouseId": 1,
           "workflowStatus": 1
+        },
+        {}
+      ]
+    ]
+  },
+  {
+    "collection": "app_settings",
+    "model": "AppSetting",
+    "sourceFile": "src/models/app-setting.model.js",
+    "fields": [
+      {
+        "path": "key",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "value",
+        "type": "Mixed",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "version",
+        "type": "Number",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "updatedBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "_id",
+        "type": "ObjectId",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "createdAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "updatedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      }
+    ],
+    "indexes": [
+      [
+        {
+          "key": 1
+        },
+        {
+          "unique": true,
+          "_autoIndex": false
+        }
+      ]
+    ]
+  },
+  {
+    "collection": "api_endpoints",
+    "model": "ApiEndpoint",
+    "sourceFile": "src/models/api-endpoint.model.js",
+    "fields": [
+      {
+        "path": "method",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "url",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "name",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "description",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "module",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "source",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "isPresent",
+        "type": "Boolean",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "isActive",
+        "type": "Boolean",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "discoveredAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "updatedBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "_id",
+        "type": "ObjectId",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "createdAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "updatedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      }
+    ],
+    "indexes": [
+      [
+        {
+          "method": 1,
+          "url": 1
+        },
+        {
+          "unique": true
+        }
+      ]
+    ]
+  },
+  {
+    "collection": "error_logs",
+    "model": "ErrorLog",
+    "sourceFile": "src/models/error-log.model.js",
+    "fields": [
+      {
+        "path": "fingerprint",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "level",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "source",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "statusCode",
+        "type": "Number",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "method",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "path",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "message",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "errorName",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "stack",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "count",
+        "type": "Number",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "firstSeenAt",
+        "type": "Date",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "lastSeenAt",
+        "type": "Date",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "lastUserId",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "resolvedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "resolvedBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "_id",
+        "type": "ObjectId",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "createdAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "updatedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      }
+    ],
+    "indexes": [
+      [
+        {
+          "fingerprint": 1
+        },
+        {
+          "unique": true,
+          "_autoIndex": false
+        }
+      ],
+      [
+        {
+          "lastSeenAt": -1
+        },
+        {}
+      ],
+      [
+        {
+          "resolvedAt": 1,
+          "lastSeenAt": -1
         },
         {}
       ]
