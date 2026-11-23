@@ -1,3 +1,7 @@
+## 23/11/2026 — Backend trên Cloudflare Workers
+
+Thêm cấu hình Wrangler và entry point cho Express. Durable Object quản lý kết nối MongoDB, Cron Trigger gọi trình xử lý thông báo. Xem [hướng dẫn cấu hình](docs/09_phat_trien/CLOUDFLARE_WORKERS.md).
+
 ## 22 November 2026 — Transfer review batch 5: assignee, destination requests, stop-forward, cleanup
 
 **Behavior.** The pick task can be assigned from a picker or defaults to the source warehouse keeper; destination staff can raise, edit and cancel requests asking for goods; the shipping warehouse and the owner can stop the remaining quantity; the transfer page shows the next step and who does it, with consistent units. Unused mock transfer screens were deleted.
