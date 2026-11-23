@@ -1,4 +1,7 @@
 import { createUserSchema } from "./user.model.js";
+import { createAppSettingSchema } from "./app-setting.model.js";
+import { createApiEndpointSchema } from "./api-endpoint.model.js";
+import { createErrorLogSchema } from "./error-log.model.js";
 import { createRoleSchema } from "./role.model.js";
 import { createPermissionSchema } from "./permission.model.js";
 import { createWarehouseSchema } from "./warehouse.model.js";
@@ -324,5 +327,9 @@ export function modelSchemaEntries() {
       collection: "stocktake_plans",
       schema: createStocktakePlanSchema(),
     },
+    // System administration collections (user decision 23/11/2026).
+    { name: "AppSetting", collection: "app_settings", schema: createAppSettingSchema() },
+    { name: "ApiEndpoint", collection: "api_endpoints", schema: createApiEndpointSchema() },
+    { name: "ErrorLog", collection: "error_logs", schema: createErrorLogSchema() },
   ];
 }
