@@ -1,6 +1,6 @@
 # Backend trên Cloudflare Workers
 
-Kết nối repo backend trong Workers & Pages. Với repo riêng cho BE, để thư mục gốc là `/` và dùng lệnh deploy `npx wrangler@4.166.0 deploy`. Tên Worker trong `wrangler.json` là `building-material-management`. Nếu dự án trên dashboard dùng tên khác, điền tên đó vào thuộc tính `name` trước khi deploy.
+Kết nối repo backend trong Workers & Pages. Với repo riêng cho BE, để thư mục gốc là `/` và dùng lệnh deploy `npx wrangler@4.166.0 deploy`. Tên Worker trong `wrangler.json` là `wmsd-be`. Nếu dự án trên dashboard dùng tên khác, điền tên đó vào thuộc tính `name` trước khi deploy.
 
 Thêm `MONGODB_URI`, `JWT_SECRET` và `REFRESH_TOKEN_SECRET` dưới dạng Worker secrets. Dùng DB Atlas thử có replica set khi kiểm tra giao dịch tồn kho. Cấu hình `CLOUDINARY_URL` cho tải ảnh và các biến `SMTP_*` / `MAIL_FROM` nếu phiên bản backend triển khai có luồng email. Đặt `NOTIFICATIONS_START_AT` theo ISO UTC để Cron Trigger xử lý tối đa 25 sự kiện mỗi phút.
 

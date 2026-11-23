@@ -1,5 +1,5 @@
 {
-  "name": "building-material-management",
+  "name": "wmsd-be",
   "main": "src/worker.js",
   "compatibility_date": "2026-07-01",
   "compatibility_flags": ["nodejs_compat"],
