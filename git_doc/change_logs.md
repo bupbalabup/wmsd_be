@@ -1,3 +1,7 @@
+## 23/11/2026 — CORS và chẩn đoán kết nối Worker
+
+Preflight của BE chạy độc lập với MongoDB. Lỗi 503 trả header CORS và log phân biệt thiếu secret với lỗi kết nối bằng tên lỗi. Xem [hướng dẫn Cloudflare](docs/09_phat_trien/CLOUDFLARE_WORKERS.md).
+
 ## 23/11/2026 — Seed thủ công
 
 API và server thử FE06 chỉ kết nối DB khi khởi động. Bỏ tự tạo dữ liệu mẫu và đồng bộ mật khẩu mẫu ở local. Dùng `npm run seed` khi cần nạp demo.

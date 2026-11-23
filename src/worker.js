@@ -17,7 +17,9 @@ function getExpress() {
 export class Backend extends DurableObject {
   async connect() {
     if (!this.env.MONGODB_URI || !this.env.JWT_SECRET || !this.env.REFRESH_TOKEN_SECRET) {
-      throw new Error('Configure MONGODB_URI, JWT_SECRET and REFRESH_TOKEN_SECRET');
+      const error = new Error('Configure MONGODB_URI, JWT_SECRET and REFRESH_TOKEN_SECRET');
+      error.name = 'MissingWorkerSecrets';
+      throw error;
     }
     const { default: mongoose } = await import('mongoose');
     this.connection ??= mongoose.connect(this.env.MONGODB_URI, {
@@ -34,12 +36,21 @@ export class Backend extends DurableObject {
 
   async fetch(request) {
     const path = new URL(request.url).pathname;
-    if (path !== '/api/health' && path !== '/api/health/') {
+    // Preflight and health checks never need MongoDB.
+    const needsDb = request.method !== 'OPTIONS' && path !== '/api/health' && path !== '/api/health/';
+    if (needsDb) {
       try {
         await this.connect();
       } catch (error) {
         console.error('Worker database unavailable', error.name);
-        return Response.json({ message: 'Backend unavailable' }, { status: 503 });
+        const headers = new Headers();
+        const origin = request.headers.get('origin');
+        if (origin) {
+          headers.set('Access-Control-Allow-Origin', origin);
+          headers.set('Access-Control-Allow-Credentials', 'true');
+          headers.set('Vary', 'Origin');
+        }
+        return Response.json({ message: 'Backend unavailable' }, { status: 503, headers });
       }
     }
     return (await getExpress()).fetch(request, this.env, this.ctx);

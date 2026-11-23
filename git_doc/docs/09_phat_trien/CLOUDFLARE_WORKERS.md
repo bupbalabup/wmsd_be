@@ -6,6 +6,8 @@ Thêm `MONGODB_URI`, `JWT_SECRET` và `REFRESH_TOKEN_SECRET` dưới dạng Work
 
 Worker chuyển request HTTP vào Express qua một Durable Object, nơi Mongoose có thể dùng lại kết nối. Route `GET /api/health` kiểm tra HTTP. Kiểm tra thêm đăng nhập, refresh cookie và thao tác chuyển kho trên DB thử để xác nhận kết nối thực tế. Nếu FE dùng `VITE_API_URL=/api`, cấu hình proxy production từ FE đến Worker.
 
+Preflight CORS và health check chạy khi MongoDB chưa kết nối. Nếu API trả 503 và log hiển thị `MissingWorkerSecrets`, kiểm tra ba secret runtime của BE. Với `MongooseServerSelectionError`, kiểm tra cấu hình kết nối Atlas và danh sách IP được phép truy cập.
+
 ```powershell
 npx wrangler@4.166.0 deploy --dry-run
 ```
