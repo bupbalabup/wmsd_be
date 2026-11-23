@@ -57,6 +57,10 @@ export const loginUser = async (username, password) => {
   ) {
     throw new ApiError(401, "Tên đăng nhập hoặc mật khẩu không chính xác");
   }
+  // Record the sign-in without touching updatedAt, so profile timestamps stay meaningful.
+  const signedInAt = new Date();
+  await User.updateOne({ _id: user._id }, { $set: { lastLoginAt: signedInAt } }, { timestamps: false });
+  await appendAudit({ actorId: user._id, action: "LOGIN", entityType: "users", entityId: user._id, details: { reason: "Đăng nhập thành công" } }).catch(() => undefined);
   return {
     ...sessionResult(user),
     refreshToken: generateRefreshToken(user._id),
@@ -108,6 +112,7 @@ async function accountDetails(user) {
     roleName: role.name || ROLE_NAMES[role.code] || role.code,
     warehouses: warehouses.map((w) => ({ id: String(w._id), code: w.code, name: w.name, isActive: w.isActive !== false })),
     version: user.version ?? 1,
+    lastLoginAt: user.lastLoginAt ?? null,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
