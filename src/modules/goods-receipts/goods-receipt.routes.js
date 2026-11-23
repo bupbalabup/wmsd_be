@@ -96,9 +96,9 @@ for (const [path, , Model, permission] of definitions) {
       qualityCode: z.enum(['GOOD', 'DAMAGED', 'PENDING', 'BLOCKED']) }).strict();
     const id = z.string().regex(/^[a-f\d]{24}$/i);
     scoped.post('/', validate(schema(z.object({ operationKey: key, warehouseId: id, reason,
-      originalReceiptId: documentIdentifier.optional(), note: z.string().max(2000).optional(), lines: z.array(line).min(1).max(100).optional() }).strict(), empty)), handle((u,v) => other.createOtherReceipt(u,v.body)));
+      note: z.string().max(2000).optional(), lines: z.array(line).min(1).max(100) }).strict(), empty)), handle((u,v) => other.createOtherReceipt(u,v.body)));
     scoped.put('/:id', validate(schema(z.object({ ...command, reason,
-      originalReceiptId: documentIdentifier.nullable().optional(), note: z.string().max(2000).optional(),
+      note: z.string().max(2000).optional(),
       lines: z.array(line).min(1).max(100) }).strict())), handle((u,v) => other.updateOtherReceipt(u,v.params.id,v.body)));
     scoped.post('/:id/submit', validate(schema(z.object(command).strict())), handle((u,v) => other.submitOtherReceipt(u,v.params.id,v.body)));
     scoped.post('/:id/approve', validate(schema(z.object({ ...command, decision: z.enum(['APPROVE','REJECT']), reason }).strict())), handle((u,v) => other.approveOtherReceipt(u,v.params.id,v.body)));

@@ -563,7 +563,8 @@ run('native transfer dispatch, independent receipt and putaway reconcile all mov
  assert.ok(selections.warehouses.some(row=>String(row._id)===String(destination._id)));
  assert.ok(selections.warehouses.some(row=>String(row._id)===String(warehouse._id)));
  assert.deepEqual(selections.sourceWarehouseIds,[String(destination._id)]);
- await assert.rejects(reads.transferOptions(actor,String(warehouse._id)));
+ // Request creators may browse another warehouse's stock to raise a destination request.
+ assert.ok((await reads.transferOptions(actor,String(warehouse._id))).locations.length);
  const request=await transfers.createRequest(worker,{idempotencyKey:key(),sourceWarehouseId:String(warehouse._id),destinationWarehouseId:String(destination._id),reason:'Transfer test',lines:[{productId:String(product._id),enteredUnit:'PIECE',enteredQty:'8'}]});
  await transfers.reviewRequest(owner,request.id,{idempotencyKey:key(),expectedVersion:1,decision:'APPROVE',reason:'Approved test'});
  const req=await m.WarehouseTransferRequest.findById(request.id),point=await m.StockHoldingPoint.findOne({locationId:storageLocation._id}),balance=await m.InventoryBalance.findOne({holdingPointId:point._id,batchId:batch._id});
@@ -600,6 +601,9 @@ run('native transfer dispatch, independent receipt and putaway reconcile all mov
  assert.equal((await m.WarehouseTransferRequest.findById(request.id)).workflowStatus,'COMPLETED');assert.deepEqual((await reconcilePurchasing()).issues,[]);
  const reverseStaging=await m.WarehouseLocation.create({warehouseId:destination._id,code:'BACK-OUT',locationType:'STAGING',usableLengthMm:'5000',usableWidthMm:'5000'});
  const quarantine=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'BF04-Q',locationType:'QUARANTINE',usableLengthMm:'5000',usableWidthMm:'5000'});
+ // Approve before the reverse leg consumes target stock: approval checks free stock but does not reserve it.
+ const partial=await transfers.createRequest(actor,{idempotencyKey:key(),sourceWarehouseId:String(destination._id),destinationWarehouseId:String(warehouse._id),reason:'Partial completion remains explicit',lines:[{productId:String(product._id),enteredUnit:'PIECE',enteredQty:'8'}]});
+ await transfers.reviewRequest(owner,partial.id,{idempotencyKey:key(),expectedVersion:1,decision:'APPROVE',reason:'Approved partial fixture'});
  const reverseRequest=await transfers.createRequest(actor,{idempotencyKey:key(),sourceWarehouseId:String(destination._id),destinationWarehouseId:String(warehouse._id),reason:'Damaged receipt completion',lines:[{productId:String(product._id),enteredUnit:'PIECE',enteredQty:'4'}]});
  await transfers.reviewRequest(owner,reverseRequest.id,{idempotencyKey:key(),expectedVersion:1,decision:'APPROVE',reason:'Approved damaged path'});
  const reverseDoc=await m.WarehouseTransferRequest.findById(reverseRequest.id),targetPoint=await m.StockHoldingPoint.findOne({locationId:target._id}),targetBalance=await m.InventoryBalance.findOne({holdingPointId:targetPoint._id,batchId:batch._id});
@@ -614,8 +618,6 @@ run('native transfer dispatch, independent receipt and putaway reconcile all mov
  assert.equal((await m.WarehouseTransferRequest.findById(reverseRequest.id)).workflowStatus,'APPROVED');
  await differences.reviewDifference(owner,discrepancy.id,{idempotencyKey:key(),expectedVersion:1,decision:'APPROVE',reason:'Receipt resolves the reported difference',receiptId:damagedReceipt.id});
  assert.equal((await m.WarehouseTransferRequest.findById(reverseRequest.id)).workflowStatus,'COMPLETED');
- const partial=await transfers.createRequest(actor,{idempotencyKey:key(),sourceWarehouseId:String(destination._id),destinationWarehouseId:String(warehouse._id),reason:'Partial completion remains explicit',lines:[{productId:String(product._id),enteredUnit:'PIECE',enteredQty:'8'}]});
- await transfers.reviewRequest(owner,partial.id,{idempotencyKey:key(),expectedVersion:1,decision:'APPROVE',reason:'Approved partial fixture'});
  const partialReq=await m.WarehouseTransferRequest.findById(partial.id),remaining=await m.InventoryBalance.findOne({holdingPointId:(await m.StockHoldingPoint.findOne({locationId:target._id}))._id,batchId:batch._id});
  const partDispatch=await transfers.createDispatch(actor,partial.id,{idempotencyKey:key(),expectedVersion:partialReq.version,lines:[{requestLineId:String(partialReq.items[0]._id),sourceBalanceId:String(remaining._id),stagingLocationId:String(reverseStaging._id),qtyBase:'4'}]});
  const partPick=await transfers.createRequirement(actor,partDispatch.id,{idempotencyKey:key(),expectedVersion:1});

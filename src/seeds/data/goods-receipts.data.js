@@ -14,35 +14,12 @@
 
 import mongoose from 'mongoose';
 import { createHash } from 'node:crypto';
-import { serialize } from '../../shared/utils/persistence.js';
 
 const SEED_PREFIX = 'wmsd-goods-receipt-20261109';
 const hashKey = (key) => createHash('sha256').update(`${SEED_PREFIX}:${key}`).digest('hex');
 export const receiptFixtureId = (key) => new mongoose.Types.ObjectId(hashKey(key).slice(0, 24));
 export const decimal = (val) => mongoose.Types.Decimal128.fromString(String(val));
 export const seedDate = (day, hour = 8) => new Date(Date.UTC(2026, 9, day, hour));
-
-/**
- * Tính mã băm nội dung dòng hàng phục vụ kiểm duyệt phiên bản cho OtherGoodsReceipt
- */
-export function computeStockContentHash(doc) {
-  const content = {
-    warehouseId: doc.header?.warehouseId,
-    items: (doc.items || []).map((item) => ({
-      productId: item.productId,
-      lotId: item.lotId,
-      destinationLocationId: item.destinationLocationId,
-      qualityCode: item.qualityCode,
-      enteredUnit: item.enteredUnit,
-      enteredQty: item.enteredQty,
-      baseUnitSnapshot: item.baseUnitSnapshot,
-      baseUnitsPerUnit: item.baseUnitsPerUnit,
-      qtyBase: item.qtyBase,
-      packagingSnapshot: item.packagingSnapshot,
-    })),
-  };
-  return createHash('sha256').update(JSON.stringify(serialize(content))).digest('hex');
-}
 
 /**
  * Xây dựng và bổ sung toàn bộ danh mục phiếu GoodsReceipt cho cả 5 loại chứng từ:
@@ -255,7 +232,6 @@ export function enrichGoodsReceiptsSeedData(data) {
       createdAt: seedDate(20, 8),
       updatedAt: seedDate(20, 10),
     };
-    other1.approvedStockHash = computeStockContentHash(other1);
     data.goods_receipts.push(other1);
 
     // 2. NK-202610-002-OLD: Tình huống 1 - Đã ghi sổ nhưng phát hiện sai sót, Warehouse Staff trực tiếp Bỏ ghi (REVERSED)
@@ -306,10 +282,9 @@ export function enrichGoodsReceiptsSeedData(data) {
       createdAt: seedDate(22, 8),
       updatedAt: seedDate(22, 10),
     };
-    otherReversed.approvedStockHash = computeStockContentHash(otherReversed);
     data.goods_receipts.push(otherReversed);
 
-    // 3. NK-202610-002: Tình huống 4 - Phiếu thay thế liên kết phiếu gốc qua originalReceiptId
+    // 3. NK-202610-002: Tình huống 4 - Phiếu mới lập lại sau khi đảo NK-202610-002-OLD
     const other2 = {
       _id: idOther2,
       documentNo: 'NK-202610-002',
@@ -318,20 +293,11 @@ export function enrichGoodsReceiptsSeedData(data) {
       version: 3,
       createdBy: worker._id,
       occurredAt: seedDate(22, 11),
-      note: 'Phiếu thay thế cho NK-202610-002-OLD sau khi chỉnh đúng số lượng',
+      note: 'Lập lại sau khi đảo NK-202610-002-OLD, đã chỉnh đúng số lượng',
       header: {
         warehouseId: defaultWh._id,
-        reason: 'Thay thế phiếu NK-202610-002-OLD sau khi kiểm đếm lại',
-        originalReceiptId: idOtherReversed,
+        reason: 'Nhập bổ sung sau khi kiểm đếm lại',
       },
-      sources: [
-        {
-          _id: receiptFixtureId('source:replace-reversed'),
-          subjectCollection: 'goods_receipts',
-          documentId: idOtherReversed,
-          relationCode: 'REPLACES',
-        },
-      ],
       evidenceIds: [evidence2],
       approvedVersion: 2,
       approvalDecisionId: approval2,
@@ -366,7 +332,6 @@ export function enrichGoodsReceiptsSeedData(data) {
       createdAt: seedDate(22, 11),
       updatedAt: seedDate(22, 14),
     };
-    other2.approvedStockHash = computeStockContentHash(other2);
     data.goods_receipts.push(other2);
 
     // 4. NK-202610-003: Tình huống phiếu nháp (DRAFT) có đính kèm chứng cứ, chờ gửi duyệt

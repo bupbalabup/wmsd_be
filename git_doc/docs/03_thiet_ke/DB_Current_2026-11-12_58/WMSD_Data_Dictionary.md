@@ -2164,7 +2164,6 @@ Model: [goods-receipt.model.js](../../../../src/models/goods-receipt.model.js).
 | `{FailedDeliveryReceipt}.commitmentTransfers` | Array | false |  |
 | `{TransferReceipt}.header` | Embedded | true |  |
 | `{OtherGoodsReceipt}.header` | Embedded | true |  |
-| `{OtherGoodsReceipt}.approvedStockHash` | String | false |  |
 | `{OtherGoodsReceipt}.approvedVersion` | Number | false |  |
 | `{OtherGoodsReceipt}.approvalDecisionId` | ObjectId | false | ApprovalHistory |
 
