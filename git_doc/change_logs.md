@@ -3,6 +3,107 @@
 The user requested a single canvas for the MongoDB overview used in the graduation report. Removed the group frames, placed related collection cards closer together and routed connections through the gaps. Refreshed the matching PNG export.
 
 Verified that all 59 collection cards and 74 connections retain their original content and endpoints. Checked the rendered diagram for overlapping cards, labels and shared wire segments. The update affects diagram presentation only and requires no migration.
+## 23/11/2026 — Sửa đóng gói API catalogue trên Cloudflare
+
+Dùng Router do Express xuất ra trong routeRegistry.js để Wrangler phân giải được dependency sau khi cài pnpm production. Xem [hướng dẫn Cloudflare Workers](docs/09_phat_trien/CLOUDFLARE_WORKERS.md).
+
+## 23/11/2026 — Quản trị hệ thống, dashboard thật, cảnh báo tồn, email, tìm kiếm, dọn mã
+
+**Quyết định.** Yêu cầu của người dùng ngày 23/11/2026 (11 hạng mục, liệt kê trong [SYSTEM_ADMIN](docs/08_api/SYSTEM_ADMIN.md)).
+
+**Hành vi.** README BE có mục "Tài khoản demo"; trang đăng nhập không còn hiển thị/điền sẵn tài khoản. `/owner` và Chính sách bán hàng & ngưỡng kho đọc/ghi DB. Thêm Nhật ký hệ thống, Danh mục API (lưu DB, đồng bộ từ router, admin thêm/sửa), Giám sát server + nhật ký lỗi, tìm kiếm nhanh (Ctrl+K), cảnh báo tồn dưới ngưỡng (thông báo + email), gửi email cho mọi thông báo. "Lần đăng nhập cuối" lấy từ `users.lastLoginAt`. Bỏ menu "Cài đặt hệ thống".
+
+**Dữ liệu và hợp đồng.** Thêm collection `app_settings`, `api_endpoints`, `error_logs` (58 → 61), trường `users.lastLoginAt`, 2 index `audit_logs`, 7 quyền mới, 17 endpoint mới. Cần `npm run seed:sync-permissions` trên DB đang chạy. Biến môi trường tuỳ chọn `NOTIFICATION_EMAIL`, `LOW_STOCK_SCAN_MINUTES`. Cập nhật MODEL_MAP, từ điển dữ liệu và ERD (sinh lại bằng script), `src/models/CHANGELOG.md`, ba file hướng dẫn agent, `context.md`.
+
+**Dọn mã.** FE xoá 251 file không còn tham chiếu (trang giả lập cũ và test chỉ kiểm tra chúng). BE không có file thừa.
+
+**Kiểm thử.** BE: `test/system-admin.test.js` mới; toàn bộ `node --test test/*.test.js` 297 đạt, 136 bỏ qua (cần DB tích hợp), lỗi duy nhất phát sinh (`public-routing`: router gốc chặn 404 thành 401) đã sửa và chạy lại đạt. FE: `systemAdmin.test.tsx` mới; toàn bộ vitest còn 14 lỗi đều đã có trên bản `main` gốc (xuất kho chuyển kho 5, phiếu nhập 2, kiểm kê 1, chuyển kho 2, tạo tài khoản 4), 2 lỗi do thay đổi (phân nhóm menu, quyền `/owner`) đã sửa.
+
+**Giới hạn.** `/issue-requests` và `/lots/create` vẫn dùng dữ liệu giả; 4/5 trường chính sách chưa áp dụng tự động; số liệu yêu cầu của theo dõi server tính trong bộ nhớ từng tiến trình.
+
+## 23/11/2026 — Quên mật khẩu: chọn nhận OTP hoặc mật khẩu mới
+
+**Quyết định.** Người dùng yêu cầu ngày 23/11/2026: người quên mật khẩu được chọn nhận OTP (rồi tự đặt mật khẩu) hoặc nhận mật khẩu mới ngẫu nhiên như trước.
+
+**Hợp đồng.** Thêm `POST /api/auth/forgot-password/otp` và `POST /api/auth/forgot-password/reset` (công khai). `POST /api/auth/forgot-password` giữ nguyên. Tách lõi OTP thành `src/shared/utils/otpChallenge.js`, `emailChange.js` dùng lại lõi này (hành vi không đổi). Chính sách mật khẩu tự chọn dùng chung một quy tắc trong `auth.validation.js`. Không đổi schema, quyền hay seed. Chi tiết: [USER_ACCESS_STATUS](docs/08_api/USER_ACCESS_STATUS.md#quên-mật-khẩu-bằng-otp--23112026).
+
+**Kiểm thử.** `node --test test/forgot-password-otp.test.js test/email-change-otp.test.js test/auth-account.test.js test/user-account-update.test.js test/user-status-commands.test.js test/user-status-validation.test.js test/auth-logout.test.js`: 49/49 đạt (model được mock). FE: thêm `ForgotPasswordPage.test.tsx`; tsc, eslint và vitest `src/features/auth`, `src/features/profile`, `src/features/accounts/detail` đạt. Chạy thử trên DB nháp local `wmsd_profile_review_20261123`: chọn OTP ở `/forgot` cho `banhang01` → nhận mã, đặt mật khẩu mới qua UI → mật khẩu cũ 401, mới 200, audit `RESET_PASSWORD`, thư báo gửi tới email tài khoản; email không tồn tại nhận cùng thông báo và cùng dạng dữ liệu, không có thư nào được gửi. Đã xem UI ở 1440px và 390px.
+
+**Giới hạn.** Lỗi gửi thư với tài khoản có thật trả 502/503 nên có thể để lộ email tồn tại (giống cách nhận mật khẩu mới). Bộ đếm OTP trong bộ nhớ tiến trình.
+
+## 23/11/2026 — Đổi email bằng OTP (tự đổi và quản trị viên)
+
+**Quyết định.** Người dùng yêu cầu ngày 23/11/2026: người dùng được đổi email nhưng cần OTP; quản trị viên đổi email cho người dùng cũng cần OTP; bỏ hiển thị mã tài khoản ở trang Thông tin tài khoản. Gửi OTP tới email mới là lựa chọn triển khai, ghi trong tài liệu API.
+
+**Hợp đồng.** Thêm `POST /api/auth/me/email/otp`, `POST /api/auth/me/email`, `POST /api/users/:id/email/otp`, `POST /api/users/:id/email`. `PUT /api/users/:id` không còn nhận `email` (400). Audit mới `CHANGE_EMAIL`. Không đổi schema, quyền hay seed. Chi tiết: [USER_ACCESS_STATUS](docs/08_api/USER_ACCESS_STATUS.md#đổi-email-bằng-otp--23112026).
+
+**File.** `src/shared/utils/emailChange.js` (mới), `src/modules/auth/*`, `src/modules/users/user.{routes,controller,service,validation}.js`, `test/email-change-otp.test.js` (mới), `test/user-account-update.test.js` (theo hợp đồng mới; hai ca lỗi sẵn do kiểm tra trùng email chưa được mock nay đạt).
+
+**Kiểm thử.** `node --test test/email-change-otp.test.js test/auth-account.test.js test/user-account-update.test.js test/user-status-commands.test.js test/user-status-validation.test.js test/auth-logout.test.js`: 44/44 đạt (model được mock, thư in qua `MAIL_TRANSPORT=console`). Chạy thử end-to-end trên DB nháp local `wmsd_profile_review_20261123` với `MAIL_TRANSPORT=console`: `banhang01` tự đổi email qua UI (mã sai báo còn 4 lần, mã đúng đổi thành công, thư báo gửi tới email cũ, audit `CHANGE_EMAIL` đúng trước/sau); tài khoản `admin` đổi lại email cho `banhang01` từ trang chi tiết tài khoản bằng mã gửi tới email mới. FE: `tsc --noEmit`, eslint các file đổi, vitest `src/features/profile` (8) và `src/features/accounts` đạt, trừ 5 ca cũ tìm ô "Mật khẩu" trong `CreateAccountPage.test.tsx`/`accounts.test.tsx` — đã chạy lại trên bản `main` gốc và lỗi y hệt (ô mật khẩu bị bỏ từ 22/11), không do thay đổi này.
+
+**Giới hạn.** Bộ đếm OTP nằm trong bộ nhớ tiến trình, không chia sẻ giữa nhiều instance.
+
+## 23/11/2026 — Thông tin tài khoản và tự đổi mật khẩu
+
+**Quyết định.** Người dùng yêu cầu ngày 23/11/2026 dựng chức năng "Thông tin tài khoản" (BE + FE) và cho chủ tài khoản đang đăng nhập tự đặt mật khẩu mới.
+
+**Hành vi và hợp đồng.** `GET /api/auth/me` bổ sung email, tên vai trò, kho phân công, version và thời điểm tạo/cập nhật. Thêm `PATCH /api/auth/me` (họ tên, số điện thoại, khoá theo version) và `POST /api/auth/me/password` (cần mật khẩu hiện tại). Audit mới `UPDATE_PROFILE`, `CHANGE_PASSWORD`. `PUT /api/users/:id` nay tăng `users.version`. Không đổi schema, quyền hay seed. Chi tiết: [USER_ACCESS_STATUS](docs/08_api/USER_ACCESS_STATUS.md#thông-tin-tài-khoản-tự-phục-vụ--23112026). FE thêm trang `/account/profile`.
+
+**File.** `src/modules/auth/auth.{routes,controller,service,validation}.js`, `src/modules/users/user.service.js`, `test/auth-account.test.js`.
+
+**Kiểm thử.** Đã chạy `node --test test/auth-account.test.js test/auth-logout.test.js test/user-status-commands.test.js` (21/21 đạt, model được mock, không chạy DB). `test/user-account-update.test.js` có 2 ca lỗi do `User.exists` (kiểm tra trùng email) chưa được mock — lỗi đã có trước thay đổi này, tái hiện trên bản gốc. Chạy thử end-to-end trên DB nháp local `wmsd_profile_review_20261123` (chỉ sao chép users/roles/permissions/warehouses từ `wmsd_demo_tile_shop_v8`, tài khoản `banhang01`): `GET /me` trả đủ vai trò/3 kho/31 quyền, không có hash; PATCH sai version → 409, gửi email → 400; sửa số điện thoại qua UI lưu được; đổi mật khẩu qua UI xong thì mật khẩu cũ 401, mật khẩu mới 200; audit có `UPDATE_PROFILE` (kèm trước/sau) và `CHANGE_PASSWORD`. Đã xem UI ở 1440px và 390px (không cuộn ngang trang). FE: `tsc --noEmit`, eslint các file đổi, vitest `src/features/profile` (6), `PermissionChecklist`, `warehouseNavigation`, `routeAccess`, `MainLayout.*`, `router.session` đều đạt.
+
+**Giới hạn.** Đổi mật khẩu không thu hồi phiên đã cấp; chưa giới hạn số lần nhập sai mật khẩu hiện tại.
+
+## 23/11/2026 — CORS và chẩn đoán kết nối Worker
+
+**Decision.** User decision (23 Nov 2026): the reason for a counted difference is chosen by the Warehouse Staff counter and only approved by the Owner. Reason list unchanged (Vỡ/hỏng, Mất/thất lạc, Để nhầm vị trí/chất lượng, Thừa/tìm thấy, Sai sót ghi sổ, Khác); "Khác" requires a typed reason. The reason is required on every differing line before results are sent; the Owner cannot edit it and requests a recount when they disagree.
+
+**Behavior.** New `POST /api/stocktakes/:id/count-reason` (`stocktake:update`, assigned counter, `COUNTING`) stores the reason for the newest attempt of a differing line in `header.countReasons[]`; a new count of the line invalidates it. `POST /:id/reconcile` refuses while a differing line lacks a reason (`Còn N dòng chênh lệch chưa chọn lý do`). `POST /:id/approve-differences` no longer accepts `reasonCode/reasonNote` in `lines[]` and posts the counter's reason instead. `GET /:id` `lines[]` adds `countReason`. Frontend (frontend repository, same day): the count screen shows a reason select (and a text box for "Khác") under the difference of each differing line; the reconcile action explains missing reasons; the Owner reconciliation table shows the reason read-only.
+
+**Files.** Backend: `src/models/stocktake-count-reason.schema.js` (new), `src/models/stocktake-header.schema.js`, `src/modules/stocktake-closure/stocktake-closure.routes.js`, `stocktake-commands.service.js`, `stocktake-reconciliation.service.js`, `stocktake-closure.service.js`. Docs: [STOCKTAKE_LIFECYCLE.md](docs/08_api/STOCKTAKE_LIFECYCLE.md), [MODEL_MAP.md](MODEL_MAP.md), [WMSD_Data_Dictionary.md](docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Data_Dictionary.md), `schema.json`, `src/models/CHANGELOG.md`. Frontend: `src/features/stocktakes/{api.ts,model.ts,components/LineReasonField.tsx,components/CountTable.tsx,components/ReconcileAction.tsx,components/ReconciliationTable.tsx,lifecycle-count.test.tsx}`.
+
+**Data impact.** Additive embedded field with default `[]`; no migration, index or seed change. Slips already `RECONCILING` without reasons can still be approved (default reason). The ERD (`WMSD_ERD_Current.drawio`) was not regenerated: the generator also picks up unrelated model changes not yet drawn, so it is left for a separate refresh.
+
+**Checks.** Backend on the isolated local replica set `127.0.0.1:27018` (`hieudt-test`, recreated in Docker): `RUN_STOCKTAKE_LIST_TESTS=1 RUN_STOCKTAKE_RESOLUTION_TESTS=1 RUN_STOCKTAKE_LIFECYCLE_TESTS=1 node --test --test-concurrency=1` over the three stocktake integration suites plus `stocktake-count-sheet`, `stocktake-detail`, `stocktake-list`, `stocktake-resolution-detail`, `stocktake-resolution-list`: 50 pass, 0 fail, after the existing lifecycle and resolution set-ups were updated to choose the counter's reason before reconcile; `consolidation`, `reviewed-model-files`, `db-rebuild`: 27 pass; `npm run docs:check` passes. Frontend: `pnpm typecheck`, eslint on `src/features/stocktakes`, `pnpm ui:check`, vitest `src/features/stocktakes` and `src/features/adjustments` (12 files, 93 tests) pass after updating two existing assertions in `lifecycle-count.test.tsx`. No new test file (project policy). Not done: browser check on the shared database (no slip with a counted difference after the 23 Nov clean-up).
+
+## 23 November 2026 — Stocktake plan areas resolve only stocked bins
+
+**Decision.** User decision (23 Nov 2026): a slip generated from a plan should show only the bins that hold what needs counting. Before, a plan with `areaCodes` pulled every active location of the area into the slip, and each bin without book stock had to be confirmed empty before results could be sent (for example plan `KHKK-K-GACH-01-261123-000002`, area `CUSTODY` filtered to one product, generated a slip with 9 locations where only one held that product).
+
+**Behavior.** `POST /api/stocktake-plans/:id/generate` keeps from the area only locations that have an `InventoryBalance` row on a LOCATION holding point within the plan's product/batch filter (the same rows activation snapshots, quantity zero included). Limitation: a bin that receives those goods for the first time after generation but before activation is not in the slip (documented in STOCKTAKE_PLANS). Explicit `locationIds` are kept unchanged. If no location remains, generation returns 400 with a Vietnamese message. Plan create/update validation, the plan detail lookups, ad-hoc slips (`POST /api/stocktakes`) and the reconcile rule for scoped empty locations are unchanged. Frontend (same day, frontend repository): the "Chọn nhanh theo khu" quick-pick adds only stocked, unlocked locations. Follow-up decision the same day: new plans no longer offer the "Khu vực kiểm" field (the edit form keeps it only for plans that already store areas); the API still accepts `areaCodes` for those plans.
+
+**Files.** `src/modules/stocktake-plans/stocktake-plan.service.js`; [STOCKTAKE_PLANS.md](docs/08_api/STOCKTAKE_PLANS.md).
+
+**Data impact.** None: no schema, index, seed or migration. Existing slips keep their scope; a slip already generated with empty bins must be cancelled and generated again to benefit.
+
+**Checks.** `node --check` on the service and `npm run docs:check` pass. A read-only replay of the new queries against plan `KHKK-K-GACH-01-261123-000002` (area `CUSTODY`, 9 active locations) kept only `DM01-CUSTODY-05`. Not run: generation against a database (no isolated local database available), integration tests (none cover plan generation). No automated test added (project policy). One independent reviewer: approved with comments; wording and the activation-gap limitation were addressed.
+
+## 23 November 2026 — Stocktake follow-up to lecturer feedback (frontend only) and lifecycle doc fix
+
+**Decision.** User-delegated follow-up to the 22 November 2026 stocktake redesign, after a gap audit against the lecturer feedback. No backend code, schema, permission, seed or database change.
+
+**Behavior (frontend).** The "Hàng phát hiện ngoài sổ" form no longer asks quality, owner or owner id: found stock is always sent as `qualityStatus: GOOD`, `ownerType: STORE` (damaged goods go through the defect/quarantine flow), and it stays available while a recount is open, because `POST /stocktakes/:id/counts` accepts new found stock then. The printed count sheet drops the quality/owner columns (a tag appears only for stock that is not good store stock) and prints a found-stock blank table inside each location section instead of one table with a location column. The Owner can tick already-counted matching lines for "Yêu cầu đếm lại" (`POST /:id/recount` accepts any unsettled line); "Duyệt chênh lệch" sends only differing lines and is disabled while a matching line is ticked, because the API closes the remaining matching lines with the last difference; the approval dialog counts those closed matching lines the same way. The empty-location correction ("Sửa bằng hàng phát hiện") also stays available during a recount. "Lịch sử phương án" (`/adjustments`) left the menu and stays reachable by URL; the retired resolution-plan read API moved from the stocktakes feature to the adjustments feature. Units were added to quantities on the slip overview, lot movement history, replenishment assessment, purchase-order documents/list/close-remainder, location-move progress and return-workflow linked documents; the approval dialog shows "Không có chênh lệch" instead of a bare 0.
+
+**Documentation.** [STOCKTAKE_LIFECYCLE.md](docs/08_api/STOCKTAKE_LIFECYCLE.md): title BF-05 → BF-04 (as in DOMAIN.md); the blind-count wording of the 17 November server rule and of the count-sheet read is now dated history, and the count-sheet row list and read contract include `uomCode`, `uomName` and `bookQtyBase` as returned since 22 November 2026. The dead `blind-count.js` link in [HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md](docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md) §2.12 was fixed on main by the same day's receiving guide update; this change keeps that wording.
+
+**Verification.** Frontend `pnpm typecheck` and `pnpm lint` pass; vitest for stocktakes, adjustments, lots, purchase-orders, replenishments, location-moves, return-workflows and `src/app` pass (52 files, 366 tests) after updating existing assertions in `countSheet.test.tsx`, `live.test.tsx` and `adjustments/routes.test.ts`; after the review fixes the focused rerun (stocktakes, adjustments, purchase-orders, return-workflows, location-moves, `src/app`: 42 files, 310 tests) passes. `pnpm ui:check` fails only on the direct `antd` import in `src/features/notifications/NotificationBell.tsx`, unchanged from HEAD. The single independent reviewer requested changes (matching line silently closed by a partial approval, wrong return-workflow unit, and low items); after fixes the recheck found no critical, high or medium issue. Not done: browser/visual check (the user tests the UI).
+
+**Remaining.** Deprecated `stock_adjustment:create/update/approve` are still offered in the role editor and fallback role lists; the unique partial index `stocktake_plan_period_once` still needs an authorised rollout on shared databases.
+
+## 22 November 2026 — Stocktake end-to-end walkthrough and shortage-approval fix
+
+**Source.** User asked for one complete end-to-end stocktake flow checked against the lecturer's feedback, with a screenshot of each step written into one docs file (22 Nov 2026). No new business rule.
+
+**Behavior.** Before: approving a counted **shortage** (`POST /api/stocktakes/:id/approve-differences`) failed with 400 `InventoryBalance validation failed: packagingPortions.0.createdAt: Path 'createdAt' is immutable` whenever the balance already had packaging portions, because the service reassigned plain portion objects to `balance.packagingPortions`. After: it calls `retainPortions(balance, kept)` like the other stock writers, so existing portions are updated in place. Surplus approval (`receiveStock`) is unchanged.
+
+**Files.** `src/modules/stocktake-closure/stocktake-reconciliation.service.js`; new Vietnamese walkthrough [STOCKTAKE_E2E_WALKTHROUGH](docs/09_phat_trien/STOCKTAKE_E2E_WALKTHROUGH.md) with 29 screenshots in `docs/09_phat_trien/images/stocktake-e2e/`; end-user guide [HUONG_DAN_SU_DUNG_KIEM_KHO.docx](docs/02_nghiep_vu/HUONG_DAN_SU_DUNG_KIEM_KHO.docx) (Vietnamese, written for Owner and Warehouse Staff, same 29 screenshots embedded in the single Word file, no developer content); README index; note in STOCKTAKE_LIFECYCLE.
+
+**Data impact.** None in shared databases. The browser run used an isolated local copy `wmsd_e2e_stocktake_20261122` on the local test replica set; no migration or seed.
+
+**Checks.** Two manual browser runs: first plan → slip → count → recount → approve a shortage (balance 62 → 61, adjustment `POSTED`; this run exposed the defect), second after the fix: quarterly plan → slip → count → recount → approve a surplus (balance 61 → 63, adjustment `POSTED`), 29 screenshots. `RUN_STOCKTAKE_RESOLUTION_TESTS=1 RUN_STOCKTAKE_LIFECYCLE_TESTS=1 node --test --test-concurrency=1 test/stocktake-resolution.integration.test.js test/stocktake-lifecycle.integration.test.js`: 11 pass, 0 fail. No automated test was added (project policy); the existing suites did not cover a shortage on a balance with seeded portions, which is why the defect escaped.
+
+**Open.** Monthly/yearly periods, pause/resume/end, found-not-in-book, multi-unit counting, export/print and mobile were not exercised in the walkthrough.
 
 ## 22 November 2026 — Report 3 §4.2 use-case table renumbered from Project Tracking
 
@@ -47,6 +148,7 @@ User request (22/11/2026): check Report 4 II.1 BF-01 against the current code an
 - Corrections found against `replenishments`, `purchase-orders`, `po-receiving` and `goods-receipt.routes.js`: PO has no `requestClose`/`approveClose`/`executeClose` and no Owner step (the Accountant runs `closeRemainder` and `cancelPurchaseOrder`); `PurchasePutawayService` and `/putaway-tasks` no longer exist (removed 17/11/2026), so GR ends at `POSTED` and RECEIVING → STORAGE goes through BF-03 relocation; RR review also covers `REVISE`, required decision reason and reduced-line reasons; inspection adds GOOD-only ACCEPT, non-GOOD → CUSTODY, headroom check at confirm, draft cancel and correction; GR adds destination change, draft cancel, custody posting and reversal guards. IV.6 BF-01 row no longer lists put-away.
 - Review pass (mermaid-diagrams and reviewing-technical-prose): removed the verification date from the report prose; class diagrams use dotted dependencies for calls and solid references with multiplicity (one live PO per RR, one ARR per INS, GR/custody per INS, StockReversal to original StockTransaction); validation steps are self-messages instead of DB calls; permission codes use their real `resource:action` form; PO, inspection and GR sequences show their error path.
 - Validation: all 8 Mermaid blocks rendered with Mermaid 11.4.1 in a local browser page; `npm run docs:check`. No tests run (no code change).
+
 
 ## 22 November 2026 — Transfer review batch 5: assignee, destination requests, stop-forward, cleanup
 
@@ -2056,3 +2158,6 @@ FE tạo TR chỉ chọn kho nguồn/kho đích, sản phẩm, lô và đơn v�
 - **Tài liệu**: phiếu duyệt 13 (mục đặt PO, `note`), NATIVE_MODEL_RUNTIME, CONVERSIONS.
 - **Dữ liệu**: không migration. PO nháp đã tách dòng phải gộp lại trước khi lưu; PO đã phát hành giữ nguyên.
 - **Kiểm thử**: BE `RUN_NATIVE_API_TESTS=1 npm test`; FE test PO. Chưa kiểm trực quan trình duyệt.
+## 23/11/2026 — Gỡ Dockerfile backend
+
+Theo yêu cầu người dùng, gỡ Dockerfile của BE và cập nhật hướng dẫn chạy bằng `npm run dev`.

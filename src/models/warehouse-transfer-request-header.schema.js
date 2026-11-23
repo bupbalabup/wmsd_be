@@ -34,7 +34,6 @@ export function createWarehouseTransferRequestHeaderSchema() {
     requestedAt: date(false),
     reason: opt(2000),
     approvalStatus: opt(40),
-    executionStatus: opt(40),
     reviewedBy: ref("User", false),
     reviewedAt: date(false),
     rejectionReason: opt(2000),

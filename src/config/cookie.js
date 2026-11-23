@@ -8,6 +8,7 @@ const defaults = {
 const setCookie = (res, name, value, options = {}) => {
   res.cookie(name, value, {
     ...defaults,
+    secure: defaults.secure || res.req?.app?.locals.secureCookies === true,
     ...options,
   });
 };
@@ -15,6 +16,7 @@ const setCookie = (res, name, value, options = {}) => {
 const clearCookie = (res, name, options = {}) => {
   res.clearCookie(name, {
     ...defaults,
+    secure: defaults.secure || res.req?.app?.locals.secureCookies === true,
     ...options,
   });
 };

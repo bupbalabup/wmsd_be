@@ -4,6 +4,7 @@ import { canAccessWarehouse, hasPermission } from '../../shared/utils/access.js'
 import { same } from '../../shared/utils/document-command.js';
 import { rules, resolveSource } from './rules.js';
 import { canReadSource } from './sources.js';
+import { initialEmailDelivery } from './email.js';
 
 async function deliver(event) {
   const op = await OperationRecord.findById(event.payload.operationId).lean();
@@ -29,7 +30,7 @@ async function deliver(event) {
         await Notification.updateOne({ dedupKey }, { $setOnInsert: {
           ...item, dedupKey, recipientId: user._id, eventKey: event.eventKey, type: event.eventType,
           title: notice.title, message: source.doc.documentNo || notice.title, occurredAt: event.occurredAt,
-          emailDelivery: { status: 'SKIPPED', attempts: 0 }, createdAt: new Date(), updatedAt: new Date(),
+          emailDelivery: initialEmailDelivery(user), createdAt: new Date(), updatedAt: new Date(),
         } }, { upsert: true, timestamps: false, runValidators: true });
       } catch (error) {
         if (error.code !== 11000) throw error;

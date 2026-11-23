@@ -1,4 +1,7 @@
 import { createUserSchema } from "./user.model.js";
+import { createAppSettingSchema } from "./app-setting.model.js";
+import { createApiEndpointSchema } from "./api-endpoint.model.js";
+import { createErrorLogSchema } from "./error-log.model.js";
 import { createRoleSchema } from "./role.model.js";
 import { createPermissionSchema } from "./permission.model.js";
 import { createWarehouseSchema } from "./warehouse.model.js";
@@ -22,7 +25,6 @@ import { createNotificationSchema } from "./notification.model.js";
 import { createAuditLogSchema } from "./audit-log.model.js";
 import { createSystemEventSchema } from "./system-event.model.js";
 import { createOperationRecordSchema } from "./operation-record.model.js";
-import { createReplenishmentLockSchema } from "./replenishment-lock.model.js";
 import { createReturnSourceLockSchema } from "./return-source-lock.model.js";
 import { createExternalReferenceSchema } from "./external-reference.model.js";
 import { createProductBatchSchema } from "./product-batch.model.js";
@@ -164,11 +166,6 @@ export function modelSchemaEntries() {
       name: "OperationRecord",
       collection: "operation_records",
       schema: createOperationRecordSchema(),
-    },
-    {
-      name: "ReplenishmentLock",
-      collection: "replenishment_locks",
-      schema: createReplenishmentLockSchema(),
     },
     {
       name: "ReturnSourceLock",
@@ -330,5 +327,9 @@ export function modelSchemaEntries() {
       collection: "stocktake_plans",
       schema: createStocktakePlanSchema(),
     },
+    // System administration collections (user decision 23/11/2026).
+    { name: "AppSetting", collection: "app_settings", schema: createAppSettingSchema() },
+    { name: "ApiEndpoint", collection: "api_endpoints", schema: createApiEndpointSchema() },
+    { name: "ErrorLog", collection: "error_logs", schema: createErrorLogSchema() },
   ];
 }

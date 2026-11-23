@@ -19,6 +19,8 @@ router.post('/', checkPermission('user:create'), validate(userValidation.createU
 router.get('/options',checkPermission('user:read'),catchAsync(async(req,res)=>{const [roles,warehouses]=await Promise.all([Role.find({isActive:{$ne:false}}).select('code name').lean(),Warehouse.find({isActive:{$ne:false}}).select('code name').lean()]);formatApiResponse(res,{data:{roles:roles.map(r => ({ ...dto(r), name: r.name || { ADMIN: 'Quản trị viên', OWNER: 'Chủ cửa hàng', SALES: 'Nhân viên Bán hàng', WAREHOUSE: 'Thủ kho & Điều phối', ACCOUNTANT: 'Kế toán công nợ' }[r.code] || r.code })),warehouses:warehouses.map(dto)}});}));
 router.get('/:id', checkPermission('user:read'), userController.getUserById);
 router.put('/:id', checkPermission('user:update'), validate(userValidation.updateUserSchema), userController.updateUser);
+router.post('/:id/email/otp', checkPermission('user:update'), validate(userValidation.requestUserEmailOtpSchema), userController.requestUserEmailOtp);
+router.post('/:id/email', checkPermission('user:update'), validate(userValidation.confirmUserEmailSchema), userController.confirmUserEmail);
 router.patch('/:id/status', checkPermission('user:update'), validate(userValidation.toggleStatusSchema), userController.toggleUserStatus);
 
 export default router;

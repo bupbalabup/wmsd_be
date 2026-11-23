@@ -1,6 +1,6 @@
 # Từ điển dữ liệu hiện hành — 12/11/2026
 
-59 collection. Dòng nhúng có ID ổn định; không phải collection độc lập. Mongoose ref là liên kết ứng dụng, không phải foreign key do MongoDB kiểm. Native return workflow additions and compatibility are documented in [RETURN_WORKFLOWS_NATIVE](../../08_api/RETURN_WORKFLOWS_NATIVE.md). DocumentIdentity = String mã phiếu mới hoặc ObjectId lịch sử; xem [quy tắc ID](../../08_api/DOCUMENT_IDENTITIES.md).
+61 collection. Dòng nhúng có ID ổn định; không phải collection độc lập. Mongoose ref là liên kết ứng dụng, không phải foreign key do MongoDB kiểm. Native return workflow additions and compatibility are documented in [RETURN_WORKFLOWS_NATIVE](../../08_api/RETURN_WORKFLOWS_NATIVE.md). DocumentIdentity = String mã phiếu mới hoặc ObjectId lịch sử; xem [quy tắc ID](../../08_api/DOCUMENT_IDENTITIES.md).
 
 ## uoms
 
@@ -124,6 +124,7 @@ Model: [user.model.js](../../../../src/models/user.model.js).
 | `email` | String | false |  |
 | `isActive` | Boolean | true |  |
 | `lockReason` | String | false |  |
+| `lastLoginAt` | Date | false |  |
 | `version` | Number | true |  |
 | `_id` | ObjectId | false |  |
 | `createdAt` | Date | false |  |
@@ -1042,6 +1043,15 @@ Indexes:
       "createdAt": -1
     },
     {}
+  ],
+  [
+    {
+      "recipientId": 1,
+      "archivedAt": 1,
+      "occurredAt": -1,
+      "_id": -1
+    },
+    {}
   ]
 ]
 ```
@@ -1097,6 +1107,20 @@ Indexes:
     {
       "subjectId": 1,
       "occurredAt": 1
+    },
+    {}
+  ],
+  [
+    {
+      "occurredAt": -1,
+      "_id": -1
+    },
+    {}
+  ],
+  [
+    {
+      "actorId": 1,
+      "occurredAt": -1
     },
     {}
   ]
@@ -1203,36 +1227,6 @@ Indexes:
   [
     {
       "operationKey": 1
-    },
-    {
-      "unique": true
-    }
-  ]
-]
-```
-
-## replenishment_locks
-
-Model: [replenishment-lock.model.js](../../../../src/models/replenishment-lock.model.js).
-
-| Trường | Kiểu | Bắt buộc | Liên kết |
-|---|---|---|---|
-| `warehouseId` | ObjectId | true | Warehouse |
-| `productId` | ObjectId | true | Product |
-| `version` | Number | true |  |
-| `lastOperationId` | ObjectId | false | OperationRecord |
-| `_id` | ObjectId | false |  |
-| `createdAt` | Date | false |  |
-| `updatedAt` | Date | false |  |
-
-Indexes:
-
-```json
-[
-  [
-    {
-      "warehouseId": 1,
-      "productId": 1
     },
     {
       "unique": true
@@ -2395,17 +2389,6 @@ Indexes:
 
 Model: [warehouse-transfer-request.model.js](../../../../src/models/warehouse-transfer-request.model.js).
 
-Source allocation is an optional embedded plan on each request item. Each allocation refers to one inventory balance and its storage location. Several request items across different requests may refer to the same bin or balance. The request line preserves the lot label and entered-unit conversion, while each allocation stores a positive base-unit quantity. The service checks scope, eligibility, live availability, and the exact line total. Saving the plan records the request without reserving stock. Historical lines may omit the fields, with no backfill or new index required. See the [BF04 contract](../../08_api/transfers/BF04_API.md#source-locations-on-transfer-requests--22-november-2026).
-
-| Additional field on `items[]` | Type | Required | Reference or meaning |
-|---|---|---|---|
-| `lotLabelSnapshot` | String | No | Verified manufacturer's lot code |
-| `sourceLocations` | Embedded array | No | One entry per selected source bin |
-| `sourceLocations[].sourceBalanceId` | ObjectId | Yes | `inventory_balances` |
-| `sourceLocations[].locationId` | ObjectId | Yes | `warehouse_locations` |
-| `sourceLocations[].locationCode` | String | Yes | Source bin code when the plan was saved |
-| `sourceLocations[].qtyBase` | Decimal128 | Yes | Positive quantity in the product base unit |
-
 | Trường | Kiểu | Bắt buộc | Liên kết |
 |---|---|---|---|
 | `documentNo` | String | true |  |
@@ -2436,7 +2419,6 @@ Source allocation is an optional embedded plan on each request item. Each alloca
 | `header.requestedAt` | Date | false |  |
 | `header.reason` | String | false |  |
 | `header.approvalStatus` | String | false |  |
-| `header.executionStatus` | String | false |  |
 | `header.reviewedBy` | ObjectId | false | User |
 | `header.reviewedAt` | Date | false |  |
 | `header.rejectionReason` | String | false |  |
@@ -2484,6 +2466,12 @@ Source allocation is an optional embedded plan on each request item. Each alloca
 | `items[].note` | String | false |  |
 | `items[].evidenceIds` | Array | false |  |
 | `items[].approvedQtyBase` | Decimal128 | false |  |
+| `items[].lotLabelSnapshot` | String | false |  |
+| `items[].sourceLocations` | Array | false |  |
+| `items[].sourceLocations[].sourceBalanceId` | ObjectId | true | InventoryBalance |
+| `items[].sourceLocations[].locationId` | ObjectId | true | WarehouseLocation |
+| `items[].sourceLocations[].locationCode` | String | true |  |
+| `items[].sourceLocations[].qtyBase` | Decimal128 | true |  |
 | `items[].{DocumentLine_REPLENISHMENT}.details` | Embedded | true |  |
 | `items[].{DocumentLine_SALES_ORDER}.details` | Embedded | true |  |
 | `items[].{DocumentLine_OUTBOUND_DELIVERY}.details` | Embedded | true |  |
@@ -2732,6 +2720,9 @@ Model: [transfer-dispatch.model.js](../../../../src/models/transfer-dispatch.mod
 | `header.approvedRevision` | Number | false |  |
 | `header.sourceWarehouseId` | ObjectId | false | Warehouse |
 | `header.destinationWarehouseId` | ObjectId | false | Warehouse |
+| `header.mixedLots` | Boolean | false |  |
+| `header.mixedLotAcceptedBy` | ObjectId | false | User |
+| `header.shortPickReason` | String | false |  |
 | `header.requestId` | DocumentIdentity | true |  |
 | `updatedBy` | ObjectId | false | User |
 | `evidenceIds` | Array | false |  |
@@ -2823,6 +2814,9 @@ Model: [transfer-dispatch.model.js](../../../../src/models/transfer-dispatch.mod
 | `handovers[].header.handedOverAt` | Date | true |  |
 | `handovers[].header.confirmedBy` | ObjectId | true | User |
 | `handovers[].header.vehiclePlate` | String | false |  |
+| `handovers[].header.driverName` | String | false |  |
+| `handovers[].header.driverPhone` | String | false |  |
+| `handovers[].header.note` | String | false |  |
 | `handovers[].header.relatedDocumentId` | DocumentIdentity | true |  |
 | `handovers[].createdAt` | Date | false |  |
 | `handovers[].updatedAt` | Date | false |  |
@@ -2934,7 +2928,6 @@ Model: [sales-order.model.js](../../../../src/models/sales-order.model.js).
 | `documentKind` | String | true |  |
 | `workflowStatus` | String | true |  |
 | `version` | Number | true |  |
-| `replenishmentPlanningVersion` | Number | true |  |
 | `createdBy` | ObjectId | true | User |
 | `occurredAt` | Date | false |  |
 | `note` | String | false |  |
@@ -3731,6 +3724,9 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `handovers[].header.handedOverAt` | Date | true |  |
 | `handovers[].header.confirmedBy` | ObjectId | true | User |
 | `handovers[].header.vehiclePlate` | String | false |  |
+| `handovers[].header.driverName` | String | false |  |
+| `handovers[].header.driverPhone` | String | false |  |
+| `handovers[].header.note` | String | false |  |
 | `handovers[].header.relatedDocumentId` | DocumentIdentity | true |  |
 | `handovers[].createdAt` | Date | false |  |
 | `handovers[].updatedAt` | Date | false |  |
@@ -4343,6 +4339,13 @@ Model: [stocktake.model.js](../../../../src/models/stocktake.model.js).
 | `header.recountLines[].requestedBy` | ObjectId | true | User |
 | `header.recountLines[].requestedAt` | Date | true |  |
 | `header.recountLines[].note` | String | false |  |
+| `header.countReasons` | Array | false |  |
+| `header.countReasons[].snapshotId` | ObjectId | true | StocktakeSnapshot |
+| `header.countReasons[].countId` | ObjectId | true | StocktakeCount |
+| `header.countReasons[].reasonCode` | String | true |  |
+| `header.countReasons[].reasonNote` | String | false |  |
+| `header.countReasons[].setBy` | ObjectId | true | User |
+| `header.countReasons[].setAt` | Date | true |  |
 | `header.planId` | DocumentIdentity | false | StocktakePlan |
 | `updatedBy` | ObjectId | false | User |
 | `evidenceIds` | Array | false |  |
@@ -5643,6 +5646,8 @@ Model: [stock-discrepancy.model.js](../../../../src/models/stock-discrepancy.mod
 | `header.warehouseId` | ObjectId | false | Warehouse |
 | `header.reportedBy` | ObjectId | false | User |
 | `header.reportedAt` | Date | false |  |
+| `header.resolutionMode` | String | false |  |
+| `header.liableParty` | String | false |  |
 | `updatedBy` | ObjectId | false | User |
 | `evidenceIds` | Array | false |  |
 | `cancelledBy` | ObjectId | false | User |
@@ -6611,6 +6616,126 @@ Indexes:
     {
       "header.warehouseId": 1,
       "workflowStatus": 1
+    },
+    {}
+  ]
+]
+```
+
+## app_settings
+
+Model: [app-setting.model.js](../../../../src/models/app-setting.model.js).
+
+| Trường | Kiểu | Bắt buộc | Liên kết |
+|---|---|---|---|
+| `key` | String | true |  |
+| `value` | Mixed | true |  |
+| `version` | Number | true |  |
+| `updatedBy` | ObjectId | false | User |
+| `_id` | ObjectId | false |  |
+| `createdAt` | Date | false |  |
+| `updatedAt` | Date | false |  |
+
+Indexes:
+
+```json
+[
+  [
+    {
+      "key": 1
+    },
+    {
+      "unique": true,
+      "_autoIndex": false
+    }
+  ]
+]
+```
+
+## api_endpoints
+
+Model: [api-endpoint.model.js](../../../../src/models/api-endpoint.model.js).
+
+| Trường | Kiểu | Bắt buộc | Liên kết |
+|---|---|---|---|
+| `method` | String | true |  |
+| `url` | String | true |  |
+| `name` | String | true |  |
+| `description` | String | false |  |
+| `module` | String | false |  |
+| `source` | String | true |  |
+| `isPresent` | Boolean | true |  |
+| `isActive` | Boolean | true |  |
+| `discoveredAt` | Date | false |  |
+| `updatedBy` | ObjectId | false | User |
+| `_id` | ObjectId | false |  |
+| `createdAt` | Date | false |  |
+| `updatedAt` | Date | false |  |
+
+Indexes:
+
+```json
+[
+  [
+    {
+      "method": 1,
+      "url": 1
+    },
+    {
+      "unique": true
+    }
+  ]
+]
+```
+
+## error_logs
+
+Model: [error-log.model.js](../../../../src/models/error-log.model.js).
+
+| Trường | Kiểu | Bắt buộc | Liên kết |
+|---|---|---|---|
+| `fingerprint` | String | true |  |
+| `level` | String | true |  |
+| `source` | String | true |  |
+| `statusCode` | Number | false |  |
+| `method` | String | false |  |
+| `path` | String | false |  |
+| `message` | String | true |  |
+| `errorName` | String | false |  |
+| `stack` | String | false |  |
+| `count` | Number | true |  |
+| `firstSeenAt` | Date | true |  |
+| `lastSeenAt` | Date | true |  |
+| `lastUserId` | ObjectId | false | User |
+| `resolvedAt` | Date | false |  |
+| `resolvedBy` | ObjectId | false | User |
+| `_id` | ObjectId | false |  |
+| `createdAt` | Date | false |  |
+| `updatedAt` | Date | false |  |
+
+Indexes:
+
+```json
+[
+  [
+    {
+      "fingerprint": 1
+    },
+    {
+      "unique": true,
+      "_autoIndex": false
+    }
+  ],
+  [
+    {
+      "lastSeenAt": -1
+    },
+    {}
+  ],
+  [
+    {
+      "resolvedAt": 1,
+      "lastSeenAt": -1
     },
     {}
   ]

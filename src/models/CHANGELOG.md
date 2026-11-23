@@ -1,6 +1,22 @@
+## 23/11/2026 — Collection quản trị hệ thống và `users.lastLoginAt`
+
+Theo yêu cầu người dùng ngày 23/11/2026 (dashboard thật, chính sách bán hàng lưu DB, danh mục API trong DB, nhật ký lỗi cho admin, sửa "Lần đăng nhập cuối"):
+
+- Thêm `app_settings` (`key` duy nhất, `value` Mixed, `version`, `updatedBy`), `api_endpoints` (`method`, `url`, `name`, `description`, `module`, `source` SYSTEM/MANUAL, `isPresent`, `isActive`, `discoveredAt`; duy nhất `{method,url}`) và `error_logs` (`fingerprint` duy nhất, `level`, `source`, `statusCode`, `method`, `path`, `message`, `errorName`, `stack`, `count`, `firstSeenAt`, `lastSeenAt`, `lastUserId`, `resolvedAt`, `resolvedBy`). Registry 58 → 61.
+- `users` thêm `lastLoginAt` (tuỳ chọn), ghi khi đăng nhập thành công, không đổi `updatedAt`.
+- `audit_logs` thêm index `{occurredAt:-1,_id:-1}` và `{actorId:1,occurredAt:-1}`.
+- Không cần migration: collection mới bắt đầu rỗng; tài khoản cũ có `lastLoginAt` rỗng (hiển thị "Chưa ghi nhận") tới lần đăng nhập kế tiếp. Index mới được Mongoose tạo khi `autoIndex` bật hoặc qua quy trình triển khai index hiện có.
+- Seed demo: ba collection mới là mảng rỗng; danh mục quyền thêm 7 quyền (xem [SYSTEM_ADMIN](../../git_doc/docs/08_api/SYSTEM_ADMIN.md)).
+- Kiểm thử: `test/consolidation`, `database-seed`, `document-identities`, `reviewed-demo` cập nhật số collection/bản ghi và đạt.
+
+## 22/11/2026 — Tinh gọn DB đợt 1
+
+User decision (23 Nov 2026): the Warehouse Staff counter chooses why a counted line differs from the book; the Owner only approves or requests a recount. `stocktakes.header` adds `countReasons[]` (new embedded `stocktake-count-reason.schema.js`): `snapshotId` (StocktakeSnapshot), `countId` (StocktakeCount), `reasonCode` (`DISCREPANCY_REASONS`), optional `reasonNote` (≤ 500), `setBy`, `setAt`. Additive, default `[]`; no index, migration or backfill. Contract: [STOCKTAKE_LIFECYCLE](../../git_doc/docs/08_api/STOCKTAKE_LIFECYCLE.md#post-idcount-reason-23-november-2026); dictionary and `schema.json` updated by hand (the ERD was not regenerated, see `git_doc/change_logs.md`).
+
 ## 22 November 2026 — OTHER receipt drops replacement link and approval hash
 
 User decision (22/11/2026): `goods_receipts` `OTHER` header removes `originalReceiptId`; the `OtherGoodsReceipt` discriminator removes `approvedStockHash`. `approvedVersion` and `approvalDecisionId` stay. No index or collection change, no migration or compatibility code; local data with the old fields is reseeded. See [GOODS_RECEIPTS](../../git_doc/docs/08_api/GOODS_RECEIPTS.md) and the [current dictionary](../../git_doc/docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Data_Dictionary.md).
+
 
 ## 22 November 2026 — Source locations on transfer request lines
 

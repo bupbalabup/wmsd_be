@@ -1,5 +1,7 @@
 # Docker (backend + frontend)
 
+Từ 23/11/2026, chạy backend bằng `npm run dev` từ thư mục repo BE. Phần dưới ghi lại cấu hình Docker trước khi gỡ Dockerfile của backend.
+
 Updated 17 November 2026. Compose uses image-contained source and dependencies; neither service mounts host source or `node_modules`.
 
 ## Cấu trúc file

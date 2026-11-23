@@ -281,6 +281,12 @@
         "target": ""
       },
       {
+        "path": "lastLoginAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "version",
         "type": "Number",
         "required": true,
@@ -2925,6 +2931,15 @@
           "createdAt": -1
         },
         {}
+      ],
+      [
+        {
+          "recipientId": 1,
+          "archivedAt": 1,
+          "occurredAt": -1,
+          "_id": -1
+        },
+        {}
       ]
     ]
   },
@@ -3110,6 +3125,20 @@
         {
           "subjectId": 1,
           "occurredAt": 1
+        },
+        {}
+      ],
+      [
+        {
+          "occurredAt": -1,
+          "_id": -1
+        },
+        {}
+      ],
+      [
+        {
+          "actorId": 1,
+          "occurredAt": -1
         },
         {}
       ]
@@ -3431,66 +3460,6 @@
       [
         {
           "operationKey": 1
-        },
-        {
-          "unique": true
-        }
-      ]
-    ]
-  },
-  {
-    "collection": "replenishment_locks",
-    "model": "ReplenishmentLock",
-    "sourceFile": "src/models/replenishment-lock.model.js",
-    "fields": [
-      {
-        "path": "warehouseId",
-        "type": "ObjectId",
-        "required": true,
-        "target": "Warehouse"
-      },
-      {
-        "path": "productId",
-        "type": "ObjectId",
-        "required": true,
-        "target": "Product"
-      },
-      {
-        "path": "version",
-        "type": "Number",
-        "required": true,
-        "target": ""
-      },
-      {
-        "path": "lastOperationId",
-        "type": "ObjectId",
-        "required": false,
-        "target": "OperationRecord"
-      },
-      {
-        "path": "_id",
-        "type": "ObjectId",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "createdAt",
-        "type": "Date",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "updatedAt",
-        "type": "Date",
-        "required": false,
-        "target": ""
-      }
-    ],
-    "indexes": [
-      [
-        {
-          "warehouseId": 1,
-          "productId": 1
         },
         {
           "unique": true
@@ -8312,12 +8281,6 @@
         "target": ""
       },
       {
-        "path": "header.executionStatus",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "header.reviewedBy",
         "type": "ObjectId",
         "required": false,
@@ -9554,6 +9517,24 @@
         "target": "Warehouse"
       },
       {
+        "path": "header.mixedLots",
+        "type": "Boolean",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.mixedLotAcceptedBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "header.shortPickReason",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "header.requestId",
         "type": "DocumentIdentity",
         "required": true,
@@ -10100,6 +10081,24 @@
         "target": ""
       },
       {
+        "path": "handovers[].header.driverName",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "handovers[].header.driverPhone",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "handovers[].header.note",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "handovers[].header.relatedDocumentId",
         "type": "DocumentIdentity",
         "required": true,
@@ -10516,12 +10515,6 @@
       },
       {
         "path": "version",
-        "type": "Number",
-        "required": true,
-        "target": ""
-      },
-      {
-        "path": "replenishmentPlanningVersion",
         "type": "Number",
         "required": true,
         "target": ""
@@ -14393,6 +14386,24 @@
         "target": ""
       },
       {
+        "path": "handovers[].header.driverName",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "handovers[].header.driverPhone",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "handovers[].header.note",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "handovers[].header.relatedDocumentId",
         "type": "DocumentIdentity",
         "required": true,
@@ -17202,6 +17213,48 @@
         "path": "header.recountLines[].note",
         "type": "String",
         "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.countReasons",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.countReasons[].snapshotId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "StocktakeSnapshot"
+      },
+      {
+        "path": "header.countReasons[].countId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "StocktakeCount"
+      },
+      {
+        "path": "header.countReasons[].reasonCode",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "header.countReasons[].reasonNote",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.countReasons[].setBy",
+        "type": "ObjectId",
+        "required": true,
+        "target": "User"
+      },
+      {
+        "path": "header.countReasons[].setAt",
+        "type": "Date",
+        "required": true,
         "target": ""
       },
       {
@@ -23015,6 +23068,18 @@
         "target": ""
       },
       {
+        "path": "header.resolutionMode",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.liableParty",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "updatedBy",
         "type": "ObjectId",
         "required": false,
@@ -27184,6 +27249,301 @@
         {
           "header.warehouseId": 1,
           "workflowStatus": 1
+        },
+        {}
+      ]
+    ]
+  },
+  {
+    "collection": "app_settings",
+    "model": "AppSetting",
+    "sourceFile": "src/models/app-setting.model.js",
+    "fields": [
+      {
+        "path": "key",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "value",
+        "type": "Mixed",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "version",
+        "type": "Number",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "updatedBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "_id",
+        "type": "ObjectId",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "createdAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "updatedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      }
+    ],
+    "indexes": [
+      [
+        {
+          "key": 1
+        },
+        {
+          "unique": true,
+          "_autoIndex": false
+        }
+      ]
+    ]
+  },
+  {
+    "collection": "api_endpoints",
+    "model": "ApiEndpoint",
+    "sourceFile": "src/models/api-endpoint.model.js",
+    "fields": [
+      {
+        "path": "method",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "url",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "name",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "description",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "module",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "source",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "isPresent",
+        "type": "Boolean",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "isActive",
+        "type": "Boolean",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "discoveredAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "updatedBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "_id",
+        "type": "ObjectId",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "createdAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "updatedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      }
+    ],
+    "indexes": [
+      [
+        {
+          "method": 1,
+          "url": 1
+        },
+        {
+          "unique": true
+        }
+      ]
+    ]
+  },
+  {
+    "collection": "error_logs",
+    "model": "ErrorLog",
+    "sourceFile": "src/models/error-log.model.js",
+    "fields": [
+      {
+        "path": "fingerprint",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "level",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "source",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "statusCode",
+        "type": "Number",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "method",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "path",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "message",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "errorName",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "stack",
+        "type": "String",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "count",
+        "type": "Number",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "firstSeenAt",
+        "type": "Date",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "lastSeenAt",
+        "type": "Date",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "lastUserId",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "resolvedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "resolvedBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "_id",
+        "type": "ObjectId",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "createdAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "updatedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      }
+    ],
+    "indexes": [
+      [
+        {
+          "fingerprint": 1
+        },
+        {
+          "unique": true,
+          "_autoIndex": false
+        }
+      ],
+      [
+        {
+          "lastSeenAt": -1
+        },
+        {}
+      ],
+      [
+        {
+          "resolvedAt": 1,
+          "lastSeenAt": -1
         },
         {}
       ]

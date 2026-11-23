@@ -332,3 +332,5 @@ See [BF03/BF04 performance contract](../TRANSFER_PERFORMANCE.md) for compact cat
 **UI.** The transfer page shows "Bước tiếp theo" with who performs it (approver, picker at the source, receiver at the destination, owner for discrepancies); every quantity is shown in base units with the pack unit in brackets (for example `120 Viên (10 Thùng)`); the stop button also appears for the shipping warehouse.
 
 **Cleanup.** The unused mock transfer screens (`features/transfers/list`, `features/transfers/detail`) and `transfersStore.ts` were removed; `features/transfers/types.ts` stays because the dashboard and `mockStore` use it.
+
+Yêu cầu chuyển kho dùng `workflowStatus` và tiến độ thực xuất/nhận theo từng dòng. Đợt 1 bỏ `header.executionStatus`. Phân bổ `items[].sourceLocations[]` vẫn cho phép tổng nhỏ hơn lượng yêu cầu.

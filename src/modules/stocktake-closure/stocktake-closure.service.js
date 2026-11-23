@@ -22,6 +22,8 @@ function reconciliationLine(snapshot, attempts, header, context) {
     const latest = attempts.at(-1) ?? null;
     const settled = header.settledLines?.find(row => String(row.snapshotId) === String(snapshot._id)) ?? null;
     const recount = header.recountLines?.find(row => String(row.snapshotId) === String(snapshot._id)) ?? null;
+    // Counter's reason, only while it belongs to the newest attempt (a recount needs a new one).
+    const reason = latest && header.countReasons?.find(row => String(row.snapshotId) === String(snapshot._id) && String(row.countId) === String(latest._id)) || null;
     const difference = latest ? exact(String(latest.countedQtyBase)).minus(String(snapshot.bookQtyBase)) : null;
     const batch = context.batches.get(String(snapshot.batchId)), product = batch && context.products.get(String(batch.productId));
     let status = 'NOT_COUNTED';
@@ -45,6 +47,7 @@ function reconciliationLine(snapshot, attempts, header, context) {
             quantityEntries: serialize(row.quantityEntries), countedBy: String(row.countedBy), countedAt: row.countedAt.toISOString(), recountReason: row.recountReason ?? null,
         })),
         settlement: settled && { outcome: settled.outcome, deltaQtyBase: String(settled.deltaQtyBase), ...unit, reasonCode: settled.reasonCode ?? null, reasonNote: settled.reasonNote ?? null, adjustmentId: settled.adjustmentId ? String(settled.adjustmentId) : null, settledBy: String(settled.settledBy), settledAt: settled.settledAt.toISOString() },
+        countReason: reason && { reasonCode: reason.reasonCode, reasonNote: reason.reasonNote ?? null, setBy: String(reason.setBy), setAt: reason.setAt.toISOString() },
         recount: recount && { afterAttemptNo: recount.afterAttemptNo, requestedBy: String(recount.requestedBy), requestedAt: recount.requestedAt.toISOString(), note: recount.note ?? null },
     };
 }

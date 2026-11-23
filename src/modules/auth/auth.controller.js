@@ -19,9 +19,46 @@ export const login = catchAsync(async (req, res) => {
   });
 });
 
+export const forgotPassword = catchAsync(async (req, res) => {
+  await authService.forgotPassword(req.body.email);
+  // Same answer whether or not the address exists, so the form cannot be used to discover accounts.
+  formatApiResponse(res, { message: "Nếu email thuộc một tài khoản đang hoạt động, mật khẩu mới đã được gửi tới email đó" });
+});
+
+export const forgotPasswordOtp = catchAsync(async (req, res) => {
+  const result = await authService.requestPasswordResetOtp(req.body.email);
+  // Same answer whether or not the address exists.
+  formatApiResponse(res, { message: "Nếu email thuộc một tài khoản đang hoạt động, mã xác thực đã được gửi tới email đó", data: result });
+});
+
+export const resetPasswordWithOtp = catchAsync(async (req, res) => {
+  await authService.resetPasswordWithOtp(req.body);
+  formatApiResponse(res, { message: "Đã đặt lại mật khẩu. Hãy đăng nhập bằng mật khẩu mới." });
+});
+
 export const getMe = catchAsync(async (req, res) => {
   const result = await authService.getCurrentUser(req.user._id);
   formatApiResponse(res, { data: result });
+});
+
+export const updateMe = catchAsync(async (req, res) => {
+  const result = await authService.updateCurrentUser(req.user._id, req.body);
+  formatApiResponse(res, { message: "Đã cập nhật thông tin tài khoản", data: result });
+});
+
+export const changePassword = catchAsync(async (req, res) => {
+  await authService.changeOwnPassword(req.user._id, req.body);
+  formatApiResponse(res, { message: "Đã đổi mật khẩu" });
+});
+
+export const requestEmailOtp = catchAsync(async (req, res) => {
+  const result = await authService.requestOwnEmailOtp(req.user._id, req.body);
+  formatApiResponse(res, { message: `Đã gửi mã xác thực tới ${result.maskedEmail}`, data: result });
+});
+
+export const confirmEmail = catchAsync(async (req, res) => {
+  const result = await authService.confirmOwnEmail(req.user._id, req.body);
+  formatApiResponse(res, { message: "Đã đổi email", data: result });
 });
 
 export const logout = (_req, res) => {

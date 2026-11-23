@@ -116,6 +116,7 @@ Mỗi document còn có mảng `sources[]` (`{ documentId, subjectCollection, it
 | `CustodyReceipt` (`custody_receipts`) | Create | Nhánh hàng `CUSTODY` (giữ hộ NCC), không cộng vào tồn của cửa hàng. |
 | `WarehouseLocation` (`warehouse_locations`) | Find / `findOneAndUpdate($inc operationVersion)` | Kiểm vị trí đúng kho, đúng loại (`RECEIVING`, `STORAGE`…); tăng `operationVersion` để khóa vị trí trong transaction. |
 | `StocktakeLocationLock` (`stocktake_location_locks`) | exists / Find | Vị trí đang kiểm kê thì không được ghi tồn, không tính tồn khả dụng. |
+| `Stocktake` (`stocktakes`) — đọc | Find | `blindCountScope` tìm phiên `COUNTING` để ẩn số dư bị khóa khỏi form BF03 với người không phải Owner. |
 | `StockHoldingPoint` (`stock_holding_points`) | Find / Create | "Điểm giữ hàng" 1-1 với vị trí (`type: 'LOCATION'`). |
 | `InventoryBalance` (`inventory_balances`) | Find / Create / `updateOne` theo `version` | Số dư tồn theo khóa (điểm giữ hàng × lô × chất lượng × chủ hàng) và các kiện. Bước 9 chọn nguồn theo `_id` và `version` của số dư. |
 | `StockReservation` (`stock_reservations`) | Find (Update/Create khi chuyển giữ hàng) | Tính phần tồn đã giữ cho đơn bán. |
@@ -1313,7 +1314,11 @@ return await InventoryBalance.findOne(fields).session(session) ??
 
   Không có `warehouseId` ⇒ chỉ trả `warehouses`. Có ⇒ `requireWarehouseAccess`. Các trường được chọn lọc (`optionFields`) khai trong [movement-read-fields.js](../../../src/shared/utils/movement-read-fields.js). Số dư trả về có `version` để client gửi lại làm `sourceBalanceVersion`, kèm `packagingPortions.packagingState/sealedPackCount/quantityBase` để form hiện "Thùng nguyên / Trong thùng mở / Hàng rời" và giới hạn riêng phần thùng nguyên, phần rời.
 
+
+  Từ 22/11/2026, phiếu kiểm kê hiển thị tồn sổ. Lệnh kho vẫn kiểm tra khóa vị trí khi thao tác. Xem [vòng đời kiểm kê](../08_api/STOCKTAKE_LIFECYCLE.md).
+
   `stocktakeLockedLocations` ([stock.js:30](../../../src/shared/utils/stock.js)) tìm vị trí có khóa kiểm kê `LOCKED`. API loại số dư tại các vị trí đó khỏi nguồn chuyển của mọi vai trò và vẫn trả vị trí kèm `lockedByStocktake` để form vô hiệu hóa lựa chọn.
+
 
 ## 2.13. Bước 9 — Lập lệnh chuyển vị trí: `createLocationMovement(user, input)`
 

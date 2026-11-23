@@ -17,7 +17,7 @@ export const embeddedTables = Object.freeze({
   stocktake_resolution_plans: ['stocktakes', 'resolutionPlans', 'StocktakeResolutionPlan'],
   delivery_confirmations: ['sales_orders', 'deliveryConfirmations', 'DeliveryConfirmation'],
 });
-export const removedCollections = Object.freeze([...Object.keys(embeddedTables), 'storage_stacks', 'storage_stack_items']);
+export const removedCollections = Object.freeze([...Object.keys(embeddedTables), 'storage_stacks', 'storage_stack_items', 'replenishment_locks']);
 
 export function consolidateSchemas(entries) {
   simplifySchemaEntries(entries);
@@ -140,5 +140,10 @@ export function consolidateData(data) {
   for (const location of result.warehouse_locations) delete location.usableHeightMm;
   delete result.storage_stacks;
   delete result.storage_stack_items;
+  delete result.replenishment_locks;
+  for (const order of result.sales_orders || []) delete order.replenishmentPlanningVersion;
+  for (const request of result.warehouse_transfer_requests || []) {
+    if (request.header) delete request.header.executionStatus;
+  }
   return simplifyData(result);
 }

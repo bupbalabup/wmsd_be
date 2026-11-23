@@ -4,6 +4,11 @@ import { ApiError } from '../../shared/utils/ApiError.js';
 import { escapeRegex } from '../../shared/utils/domain.js';
 import { userRoleDto, rolePermissions } from '../../shared/utils/userRole.js';
 import { appendAudit } from '../../shared/utils/audit.js';
+import { generatePassword, sendMail, passwordMail } from '../../shared/utils/mailer.js';
+import { issueEmailChange, confirmEmailChange } from '../../shared/utils/emailChange.js';
+
+const normalizeEmail = (value) => value.trim().toLowerCase();
+const emailTaken = async (email, exceptId) => Boolean(await User.exists({ email: new RegExp(`^${escapeRegex(email)}$`, 'i'), ...(exceptId && { _id: { $ne: exceptId } }) }));
 
 export const listUsers = async ({ page = 1, limit = 10, search = '', role = '', status = 'all' }) => {
   const query = {};
@@ -53,7 +58,7 @@ export const listUsers = async ({ page = 1, limit = 10, search = '', role = '', 
       ...userRoleDto(u),
       status: u.isActive ? 'active' : 'inactive', lockReason: u.lockReason,
       createdAt: u.createdAt,
-      lastLogin: u.updatedAt,
+      lastLogin: u.lastLoginAt ?? null,
     };
   });
 
@@ -75,11 +80,12 @@ export const getUserById = async (id) => {
     permissions: rolePermissions(user),
     status: user.isActive ? 'active' : 'inactive', lockReason: user.lockReason,
     createdAt: user.createdAt,
-    lastLogin: user.updatedAt,
+    lastLogin: user.lastLoginAt ?? null,
   };
 };
 
-export const createUser = async ({ username, fullName, password, roleCode, phone, email, warehouseIds = [], isActive = true }) => {
+export const createUser = async ({ username, fullName, roleCode, phone, email: rawEmail, warehouseIds = [], isActive = true }) => {
+  const email = normalizeEmail(rawEmail);
   const normalizedUsername = username.trim().toLowerCase();
   const existing = await User.findOne({ username: normalizedUsername });
   if (existing) {
@@ -92,6 +98,9 @@ export const createUser = async ({ username, fullName, password, roleCode, phone
   }
 
   if(await Warehouse.countDocuments({_id:{$in:warehouseIds},isActive:true})!==warehouseIds.length)throw new ApiError(400,'Kho phân công không hợp lệ');
+  if (await emailTaken(email)) throw new ApiError(400, 'Email đã được sử dụng cho tài khoản khác');
+  // Nobody (not even an admin) chooses the password: a random one is generated and emailed to the account.
+  const password = generatePassword();
   const passwordHash = await bcrypt.hash(password, 10);
   const created = await User.create({
     username: normalizedUsername,
@@ -102,6 +111,13 @@ export const createUser = async ({ username, fullName, password, roleCode, phone
     isActive,
   });
 
+  try {
+    await sendMail({ to: email, ...passwordMail({ fullName: created.fullName, username: created.username, password, reason: 'created' }) });
+  } catch (error) {
+    // Without the email nobody could ever log in, so do not leave a half-created account behind.
+    await User.deleteOne({ _id: created._id });
+    throw error;
+  }
   return getUserById(created._id);
 };
 
@@ -112,7 +128,6 @@ export const updateUser = async (id, updates) => {
   }
 
   if(updates.warehouseIds){if(await Warehouse.countDocuments({_id:{$in:updates.warehouseIds},isActive:true})!==updates.warehouseIds.length)throw new ApiError(400,'Kho phân công không hợp lệ');user.warehouseIds=updates.warehouseIds;}
-  if(updates.email!==undefined)user.email=updates.email;
   if (updates.fullName) user.fullName = updates.fullName.trim();
   if (updates.phone !== undefined) user.phone = updates.phone;
 
@@ -124,12 +139,18 @@ export const updateUser = async (id, updates) => {
     user.roleId = roleDoc._id;
   }
 
-  if (updates.password) {
-    user.passwordHash = await bcrypt.hash(updates.password, 10);
-  }
-
+  // Admin edits bump the version so a concurrent self-service profile edit (PATCH /auth/me) gets 409 instead of overwriting.
+  user.version = (user.version ?? 1) + 1;
   await user.save();
   return getUserById(user._id);
+};
+
+// Admin email change: the OTP goes to the new address, so the account holder must read it out to the admin.
+export const requestUserEmailOtp = (actorId, id, { newEmail }) => issueEmailChange({ actorId, targetId: id, newEmail });
+
+export const confirmUserEmail = async (actorId, id, { challengeToken, otp }) => {
+  await confirmEmailChange({ actorId, targetId: id, challengeToken, otp });
+  return getUserById(id);
 };
 
 export const toggleUserStatus = async (id, isActive, currentUserId, reason) => {

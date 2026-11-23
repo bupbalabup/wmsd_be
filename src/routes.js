@@ -14,6 +14,8 @@ import {
   pickingRouter,
 } from "./modules/sales-orders/sales-read.routes.js";
 import healthRouter from "./modules/health/health.routes.js";
+import systemRouter from "./modules/system/system.routes.js";
+import overviewRouter from "./modules/dashboard/dashboard.routes.js";
 import authRouter from "./modules/auth/auth.routes.js";
 import usersRouter from "./modules/users/user.routes.js";
 import rolesRouter from "./modules/roles/role.routes.js";
@@ -49,6 +51,9 @@ router.use("/outbound-deliveries", outboundDeliveryRouter);
 router.use('/picking-tasks',pickingRouter);
 
 router.use("/health", healthRouter);
+// Administration and owner overview (23/11/2026): /system/*, /dashboard/owner, /settings/sales-policy, /stock-alerts, /search.
+router.use("/system", systemRouter);
+router.use(overviewRouter);
 router.use("/auth", authRouter);
 router.use("/users", usersRouter);
 router.use("/roles", rolesRouter);

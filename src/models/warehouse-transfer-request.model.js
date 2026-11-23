@@ -57,5 +57,7 @@ export function createWarehouseTransferRequestSchema() {
   attachDocumentItems(schema, item);
   addDocumentIndexesAndRules(schema);
 
+  // Versioned saves serialize hydrated documents, including pre-migration fields.
+  schema.set("toObject", { transform(_doc, row) { if (row.header) delete row.header.executionStatus; } });
   return schema;
 }

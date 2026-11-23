@@ -138,6 +138,11 @@ run('transfer source locations persist and cap both the request and each dispatc
   const saved = await transfers.createDispatch(a, request.id, replacement);
   await transfers.cancelDraftDispatch(a, saved.id, { idempotencyKey: key(), expectedVersion: 1, reason: 'Kết thúc kiểm tra' });
 
+  const forty = await transfers.createRequest(a, body('160', [{ ...allocations[0], qtyBase: '40' }]));
+  const fortyDetail = await getTransfer(a, forty.id);
+  assert.equal(fortyDetail.items[0].qtyBase, '160');
+  assert.equal(fortyDetail.items[0].sourceLocations[0].qtyBase, '40');
+
   const partial = await transfers.createRequest(a, body('12', revised));
   const partialDetail = await getTransfer(a, partial.id);
   assert.equal(partialDetail.items[0].qtyBase, '12');

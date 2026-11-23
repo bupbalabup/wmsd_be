@@ -55,7 +55,9 @@ export const legacyMigrationCollections = [...new Set([...migrationCollections.f
 import { removedCollections } from './consolidation.js';
 // Categories belong to the current design; the historical migration profile
 // deliberately retains its original collection/field contract.
-export const newCollections = [...new Set(migrationCollections.filter(name => !removedCollections.includes(name))), 'categories', 'uoms', 'conversions', 'stocktake_plans'];
+export const newCollections = [...new Set(migrationCollections.filter(name => !removedCollections.includes(name))), 'categories', 'uoms', 'conversions', 'stocktake_plans',
+  // System administration collections (23/11/2026).
+  'app_settings', 'api_endpoints', 'error_logs'];
 
 export const workflowModelNames = Object.freeze({
   REPLENISHMENT: 'ReplenishmentRequest', PO: 'PurchaseOrder', ARRIVAL: 'GoodsArrival',
@@ -81,5 +83,4 @@ export const modelNames = Object.freeze({
   DemandReopening: 'DeliveryDemandReopening', OdCommitmentTransfer: 'DeliveryCommitmentTransfer',
   DefectHold: 'StockHold', CountAttempt: 'StocktakeCount', LocationLock: 'StocktakeLocationLock',
   AuditEvent: 'AuditLog', OutboxEvent: 'SystemEvent', BusinessOperation: 'OperationRecord',
-  ReplenishmentPlanningGuard: 'ReplenishmentLock',
 });
