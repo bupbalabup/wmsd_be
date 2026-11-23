@@ -68,7 +68,6 @@ export async function listReplenishments(user, query) {
     const status = {
       APPROVE: "APPROVED",
       REJECT: "REJECTED",
-      REVISE: "REVISION_REQUIRED",
     }[query.approvalDecision];
     and.push(
       status

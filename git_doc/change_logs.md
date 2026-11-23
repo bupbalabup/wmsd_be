@@ -1,3 +1,15 @@
+## 23 November 2026 — Stocktake follow-up to lecturer feedback (frontend only) and lifecycle doc fix
+
+**Decision.** User-delegated follow-up to the 22 November 2026 stocktake redesign, after a gap audit against the lecturer feedback. No backend code, schema, permission, seed or database change.
+
+**Behavior (frontend).** The "Hàng phát hiện ngoài sổ" form no longer asks quality, owner or owner id: found stock is always sent as `qualityStatus: GOOD`, `ownerType: STORE` (damaged goods go through the defect/quarantine flow), and it stays available while a recount is open, because `POST /stocktakes/:id/counts` accepts new found stock then. The printed count sheet drops the quality/owner columns (a tag appears only for stock that is not good store stock) and prints a found-stock blank table inside each location section instead of one table with a location column. The Owner can tick already-counted matching lines for "Yêu cầu đếm lại" (`POST /:id/recount` accepts any unsettled line); "Duyệt chênh lệch" sends only differing lines and is disabled while a matching line is ticked, because the API closes the remaining matching lines with the last difference; the approval dialog counts those closed matching lines the same way. The empty-location correction ("Sửa bằng hàng phát hiện") also stays available during a recount. "Lịch sử phương án" (`/adjustments`) left the menu and stays reachable by URL; the retired resolution-plan read API moved from the stocktakes feature to the adjustments feature. Units were added to quantities on the slip overview, lot movement history, replenishment assessment, purchase-order documents/list/close-remainder, location-move progress and return-workflow linked documents; the approval dialog shows "Không có chênh lệch" instead of a bare 0.
+
+**Documentation.** [STOCKTAKE_LIFECYCLE.md](docs/08_api/STOCKTAKE_LIFECYCLE.md): title BF-05 → BF-04 (as in DOMAIN.md); the blind-count wording of the 17 November server rule and of the count-sheet read is now dated history, and the count-sheet row list and read contract include `uomCode`, `uomName` and `bookQtyBase` as returned since 22 November 2026. The dead `blind-count.js` link in [HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md](docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md) §2.12 was fixed on main by the same day's receiving guide update; this change keeps that wording.
+
+**Verification.** Frontend `pnpm typecheck` and `pnpm lint` pass; vitest for stocktakes, adjustments, lots, purchase-orders, replenishments, location-moves, return-workflows and `src/app` pass (52 files, 366 tests) after updating existing assertions in `countSheet.test.tsx`, `live.test.tsx` and `adjustments/routes.test.ts`; after the review fixes the focused rerun (stocktakes, adjustments, purchase-orders, return-workflows, location-moves, `src/app`: 42 files, 310 tests) passes. `pnpm ui:check` fails only on the direct `antd` import in `src/features/notifications/NotificationBell.tsx`, unchanged from HEAD. The single independent reviewer requested changes (matching line silently closed by a partial approval, wrong return-workflow unit, and low items); after fixes the recheck found no critical, high or medium issue. Not done: browser/visual check (the user tests the UI).
+
+**Remaining.** Deprecated `stock_adjustment:create/update/approve` are still offered in the role editor and fallback role lists; the unique partial index `stocktake_plan_period_once` still needs an authorised rollout on shared databases.
+
 ## 22 November 2026 — Stocktake end-to-end walkthrough and shortage-approval fix
 
 **Source.** User asked for one complete end-to-end stocktake flow checked against the lecturer's feedback, with a screenshot of each step written into one docs file (22 Nov 2026). No new business rule.
@@ -11,6 +23,50 @@
 **Checks.** Two manual browser runs: first plan → slip → count → recount → approve a shortage (balance 62 → 61, adjustment `POSTED`; this run exposed the defect), second after the fix: quarterly plan → slip → count → recount → approve a surplus (balance 61 → 63, adjustment `POSTED`), 29 screenshots. `RUN_STOCKTAKE_RESOLUTION_TESTS=1 RUN_STOCKTAKE_LIFECYCLE_TESTS=1 node --test --test-concurrency=1 test/stocktake-resolution.integration.test.js test/stocktake-lifecycle.integration.test.js`: 11 pass, 0 fail. No automated test was added (project policy); the existing suites did not cover a shortage on a balance with seeded portions, which is why the defect escaped.
 
 **Open.** Monthly/yearly periods, pause/resume/end, found-not-in-book, multi-unit counting, export/print and mobile were not exercised in the walkthrough.
+
+## 22 November 2026 — Report 3 §4.2 use-case table renumbered from Project Tracking
+
+User request (22/11/2026): renumber only the Report 3 use-case table, following the Project Tracking WBS sheet, in English. Docs-only: no code, model, API or data change.
+
+- `docs/01_bao_cao/WMSD_Report3_Fix.docx.txt` §4.2 now lists the 164 WBS use cases numbered consecutively UC-01–UC-164 in WBS order (old WBS IDs UC-37–UC-171 shift down; UC-01–UC-32 keep their numbers). Names, features and descriptions come from the WBS sheet; the one Vietnamese description (UC-04) keeps the existing English text, and UC IDs cited inside descriptions use the new numbers. The State column and the previous 132-identifier ACTIVE/RETIRED list were removed because the WBS sheet has no retirement state; the table header (ID / Use Case / Feature / Use Case Description) and the §4.2 intro sentence now match the renumbered Report 3 docx (`WMSD_Report3_Fix_UC_renumbered.docx`, kept outside the repository).
+- Not changed, so still on the old numbering: the heading under II, §4.3 actor associations, §4.4 permission matrix, business-flow/data-rule tables and the use-case specifications; the WBS sheet itself; `src/seeds/data/permissions.data.js` `uc` traces.
+- Validation: row count and order checked against the WBS sheet; `npm run docs:check`.
+
+## 22 November 2026 — Other receipt (OTHER): replacement receipts and approval hash removed
+
+User decision (22/11/2026): keep the other-receipt flow but drop the replacement-receipt feature and the approval content hash, and delete the unused model fields without compatibility code.
+
+- **Backend.** `other-receipt.service.js` no longer links a new receipt to a reversed one (`replacementSource`, `REPLACES` source, copying lines) and no longer auto-approves on submit; submit always moves `DRAFT` → `PENDING_APPROVAL`. Approve stops writing `approvedStockHash`; post checks `APPROVED` and `approvedVersion === version` only (an approved receipt cannot be edited anyway). `POST /goods-receipts/other` now requires `lines`; create and update reject `originalReceiptId` (strict schema). A wrong posted receipt is reversed, then a new receipt is drafted and approved again.
+- **Model.** `goods_receipts` `OTHER` header drops `originalReceiptId`; the `OtherGoodsReceipt` discriminator drops `approvedStockHash`. No migration: existing local documents carrying these fields need a reseed.
+- **Frontend.** Removed the "Tham chiếu phiếu gốc" input and the "Phiếu gốc" detail row; API types no longer carry `originalReceiptId`.
+- **Seed.** `NK-202610-002` is a normal posted receipt drafted after reversing `NK-202610-002-OLD` (no `REPLACES` link); seed hashes removed.
+- **Docs.** `docs/08_api/GOODS_RECEIPTS.md` (Lệnh OTHER), `docs/09_phat_trien/SEED_CUA_HANG_GACH.md`, `DB_Current_2026-11-12_58` dictionary and schema snapshot (field row removed by hand; the generator would also rewrite unrelated pending sections), `src/models/CHANGELOG.md`.
+- **Tests.** `test/goods-receipt.integration.test.js` replaces the replacement/auto-approve section with missing-`lines` → 400 and a fresh draft → approve → post; `test/database-seed.test.js` drops replacement and hash asserts; FE `ReceiptCreatePage.test.tsx` asserts the update body has no `originalReceiptId`.
+
+## 22 November 2026 — RR review: approve or reject only (REVISE removed)
+
+User decision (22/11/2026): the Owner reviewing a replenishment request (RR) either approves or rejects it with a reason. The "send back for revision" option is removed for RR only; transfers, adjustments and other documents keep theirs.
+
+- **Backend.** `POST /api/replenishments/:id/review` accepts `decision` `APPROVE` or `REJECT`; `REVISE` fails validation. RR status `REVISION_REQUIRED` is gone: edit, submit and lot options need `DRAFT`, the creator can withdraw `DRAFT`/`SUBMITTED`, and the list filters `status` and `approvalDecision` no longer accept `REVISION_REQUIRED`/`REVISE`. The `approval_history` and `review-decision` model enums keep `REVISE` because transfers use them and old RR decisions stay as recorded.
+- **Data.** New `npm run rr:drop-revision` (preview) / `-- --apply` (`scripts/replenishment-drop-revision.mjs`) moves RR still in `REVISION_REQUIRED` to `REJECTED` and increments `version`. `latestDecisionId` is unchanged, so the rejection banner shows the old reason. Local MongoDB only; a remote run needs an explicit rollout instruction. Not run against any database yet.
+- **Frontend.** The RR detail page already sent only APPROVE/REJECT. Removed the "Yêu cầu sửa" tab, status label, ribbon, warning banner, metric card and the edit path for that status. History still labels old `REVISE` decisions.
+- **Docs.** `docs/08_api/replenishments/README.md`, `docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md`, Report 4 II.1.1 RR class and sequence diagrams.
+- **Tests.** New `test/replenishment-review-decision.test.js`; `test/replenishment-evaluation.integration.test.js` uses `REJECTED` instead of `REVISION_REQUIRED` as the inactive status; FE `ReplenishmentCreatePage.test.tsx` edit case uses `DRAFT`.
+
+## 22 November 2026 | Receiving merge compatibility
+
+Integrated main as requested. Frontend receipt and custody tables preserve product specifications and show quantities with recorded or catalogue units. Custody post and reversal refresh the affected purchase and stock views on success. Purchase receipt and order progress totals use the PO currency, with VND for purchase orders that omit it.
+
+The receiving code guide now covers the BF03 location-lock filter and the notification worker. No database migration. Receipt and custody browser checks used fixture responses.
+
+## 22 November 2026 — Report 4 BF-01 split by document and checked against code
+
+User request (22/11/2026): check Report 4 II.1 BF-01 against the current code and split it so each document has its own class and sequence diagram. Docs-only: no code, model, API or data change.
+
+- `docs/01_bao_cao/WMSD_Report4_Draft.md` II.1 now has 1.1 RR, 1.2 PO, 1.3 Goods Inspection (ARR + INS) and 1.4 purchase GR, each with a class diagram and a sequence; the table of contents lists the four parts. Other BF sections are unchanged.
+- Corrections found against `replenishments`, `purchase-orders`, `po-receiving` and `goods-receipt.routes.js`: PO has no `requestClose`/`approveClose`/`executeClose` and no Owner step (the Accountant runs `closeRemainder` and `cancelPurchaseOrder`); `PurchasePutawayService` and `/putaway-tasks` no longer exist (removed 17/11/2026), so GR ends at `POSTED` and RECEIVING → STORAGE goes through BF-03 relocation; RR review also covers `REVISE`, required decision reason and reduced-line reasons; inspection adds GOOD-only ACCEPT, non-GOOD → CUSTODY, headroom check at confirm, draft cancel and correction; GR adds destination change, draft cancel, custody posting and reversal guards. IV.6 BF-01 row no longer lists put-away.
+- Review pass (mermaid-diagrams and reviewing-technical-prose): removed the verification date from the report prose; class diagrams use dotted dependencies for calls and solid references with multiplicity (one live PO per RR, one ARR per INS, GR/custody per INS, StockReversal to original StockTransaction); validation steps are self-messages instead of DB calls; permission codes use their real `resource:action` form; PO, inspection and GR sequences show their error path.
+- Validation: all 8 Mermaid blocks rendered with Mermaid 11.4.1 in a local browser page; `npm run docs:check`. No tests run (no code change).
 
 ## 22 November 2026 — Transfer review batch 5: assignee, destination requests, stop-forward, cleanup
 
@@ -154,6 +210,66 @@ Independent review follow-up (no new business decision). (1) `approve-difference
 Source: user requested fixes for the confirmed receiving audit findings. Typed FAILED_DELIVERY lists enforce Sales ownership before pagination. Typed and unified TRANSFER receipt reads apply destination warehouse and Sales linked-demand scope, with status-only Sales projection. CR reassessment locks and reacquires released source allowance, retains received charges, and supports historical and split sources. DIRECT inspection and receipt preserve packaging and measured volume; historical sealed returns use a verified lot snapshot and partial measured fragments use a conservative capacity bound. Damaged transfer receipts create ACTIVE defect holds. OTHER evidence is limited to DRAFT or authorized POSTED reversal work, and the UI provides preflight, reason, evidence and exact retry. Purchase inspection creation writes the PO timestamp to serialize with cancellation. Frontend stock mutations invalidate inventory, location and lot caches; custody targets load all server-filtered pages. The lot listing imports the missing `exact` helper. No shared-database write, migration, index change or historical repair is included.
 
 Verification: focused frontend receiving/transfer suites 90/90 across 16 files, typecheck and production build pass; changed-file ESLint passes (the earlier full lint had no errors and one existing Scene warning). Synthetic browser checks at 1440×900 and 390×844 covered OTHER reversal validation and exact retry, custody targets and forbidden-role navigation. Native API integration 28/28 and direct-sales/return integration 21/21 passed; pure backend contracts 35 passed with 7 opt-in integration cases skipped. Disposable Mongo probes covered claim reacquisition, PO inspection/cancellation races, OTHER approval and replay, historical SEALED partial receipt, measured LOOSE receipt without dimensions, TRANSFER Sales visibility, damaged holds and automatic putaway. One existing transfer integration fixture still calls manual ITR creation after automatic putaway; `ui:check` still flags native buttons in two existing test mocks. Test files were not changed. The retained independent reviewer recheck returned **OK with notes** and found no new source issue; it was read-only source review and did not run tests, browser, HTTP or DB operations. Runtime/browser evidence is listed separately above.
+
+## 20 November 2026 — Refresh receiving code guide after commit a2a3ffc
+
+User requested (20/11/2026) that `git_doc/docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md` match current code again. Docs-only: no code, model, API or data change.
+
+- Re-anchored line links shifted by a2a3ffc in `purchase-read.service.js` (`enriched` 61, `listDocuments` 191, `receivingSummary` 229, `receivingQueue` 267, `receivingHistory` 276), `purchase-order.service.js`, `po-receiving.service.js` (`changeDestinations`, `inspectionContext`, `receivingOperation`, `postCustodyReceipt`); added anchors for `correctionBlockers`, `correctionPreflight`, `replaceInspection`, `eligible`, `checkDependentDocuments`, `reversalPreflight`, `reverseReceipt`, `restoredCustodyPortions` and each custody command.
+- Section 2.11 documents `enrichLineItems` (product/lot specification and location code on read DTOs), the purchase receipt PO number, PO line note and owner/accountant price fields, the full `capabilities` table (including `correct`, custody `cancel`/`reversePreflight`) and inspection `replacedBy`.
+- Part 2B: PO reads and `inspectionContext` show the enriched product data; custody detail lists `custodyMetadata`/`returnAvailableQty`; correction blockers list their `action` codes; `eligible` check order, per-portion selection and `restoredCustodyPortions` are explained. State diagram adds GR/custody `REVERSED` and the PO status after reversal.
+
+Validation: `npm run docs:check`; a script resolved every `file.js:N` link in the guide against current source. No tests run (no code change).
+
+## 20 November 2026 | Link a replaced inspection to its replacement
+
+User request (20/11/2026): an inspection that has been corrected must show that it was replaced and link to the replacement.
+
+- `purchase-read.service.js`: inspection detail adds `replacedBy` (`_id`, `documentNo`, `workflowStatus`) for the non-cancelled inspection whose `header.previousInspectionId` points to it. `capabilities.correct` is now `false` when a replacement exists. No model, index, permission or write-path change.
+- Updated [the API contract](docs/08_api/GOODS_RECEIPTS.md). Paired FE: `InspectionFormPage.tsx` shows a warning with a "Xem phiếu thay thế" button; `ReceivingDocument` type adds `replacedBy`.
+- Validation: the focused `inspection correction` case in `test/native-api.integration.test.js` (`RUN_NATIVE_API_TESTS=1`, temporary DB on local `rs0`) passed with new `replacedBy` and `capabilities.correct` assertions. FE `InspectionFormPage.test.tsx` 20/20 and `tsc --noEmit` passed.
+
+## 20 November 2026 | Receipt reversal, supplier custody and inspection correction
+
+Implemented the BE decisions from `PLAN_dao_phieu_nhap_va_giu_ho.md` after reviewing the receipt reversal and draft cancellation cases. Shared balances can support independent reversals when the original portions are intact and the total quantity remains available. Supplier custody supports draft cancellation and posted reversal. Inspection correction preflight and the write command return the full blocker list. The four correction and reversal write paths accept optional evidence.
+
+- Receiving changes span `po-receiving.routes.js`, `po-receiving.service.js`, `purchase-correction.service.js`, `purchase-custody.service.js`, and `purchase-read.service.js`. When purchase intake changes ownership, it selects portions from the originating custody line. If a purchase reversal returns a split portion, its ledger links identify the portion for custody reversal.
+- `goods-receipt.routes.js` and `other-receipt.service.js` apply the shared reversal conditions and optional evidence to OTHER receipts. `permissions.data.js` describes the existing update and reverse grants.
+- Updated [the API contract](docs/08_api/GOODS_RECEIPTS.md), [runtime](docs/08_api/NATIVE_MODEL_RUNTIME.md), [Iteration 1 API](docs/08_api/ITERATION1_NATIVE_2026-11-06.md), [project guide](PROJECT_GUIDE.md), [data dictionary](docs/03_thiet_ke/DB_Current_2026-11-09_57/WMSD_Data_Dictionary.md), [receiving code guide](docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md) and [UC-37 RTM](../docs/rtm.md).
+- Integration checks in `test/native-api.integration.test.js` and `test/goods-receipt.integration.test.js` use temporary databases on local replica set `rs0`. The two-file run reached 27 passes and 6 failures. The existing lot-filter case threw `ReferenceError: exact is not defined` before writing its fixture ledger movement, leaving an unbalanced quantity that affected five later assertions. The final focused run passed 12 receipt, custody and correction cases. Both schema checks, syntax checks on eight BE files, `git diff --check` and `npm run docs:check` passed.
+- Legacy receipt movements without `packagingPortionIds` select from the whole balance. Open transfer tasks, inventory counts and active defect holds can still block reversals on a shared balance or location. Active supplier returns and custody releases still block their source. The changes use the existing collections and permission grants. No data migration or rollout was run.
+
+## 20 November 2026 — Plan for receipt reversal, custody receipt cancel/reverse and inspection correction blockers
+
+User requested (20/11/2026) a review of two comments on receipt reversal and draft receipt cancellation, then a plan for another agent. Docs-only: no code, model, API or data change.
+
+- Plan file `PLAN_dao_phieu_nhap_va_giu_ho.md` in the workspace root, outside the `be/` and `fe/` repositories.
+- Recorded the analysis and the user's decisions in `be/docs/ai-log.md` and `fe/docs/ai-log.md`. Added a dated "plan only" note to UC-37 in `be/docs/rtm.md` and `fe/docs/rtm.md`; implementation and verification statuses are unchanged.
+- Return workflows (supplier returns, custody releases) are out of scope.
+
+Validation: `npm run docs:check`. No tests run (no code change).
+
+## 20 November 2026 — Enrich receiving & purchase order line DTOs with product and lot specifications
+
+Source: lecturer UI review on Goods Receipt layout and product descriptions (comparing WMSD receipts against the supplier invoice sample). No database schema, collection, index, permission or write-path contract changed.
+
+- Added `enrichLineItems(items)` in `src/shared/utils/document-items.js` to attach `productSkuSnapshot`, `productSpec` (`sku`, `name`, `manufacturerCode`, `material`, `surface`, `color`, `lengthMm`, `widthMm`, `heightMm`, `description`, `baseUnit`), `lotLabelSnapshot`, `lotSpec` (`manufacturerLot`, `tone`, `calibre`, `piecesPerCarton`), `destinationLocationCode`, and `destinationLocationName` when shaping read responses.
+- Updated `src/modules/po-receiving/purchase-read.service.js` (`enriched` uses `enrichLineItems`; `getDocument` for `PURCHASE` receipts adds `header.purchaseOrderNo`, `items[].poLineNote`, and — only for `OWNER`/`ACCOUNTANT` via `financial(user)` — `items[].unitPurchasePrice`, `items[].poEnteredUnit`, and `items[].receivedLineAmount` using `ExactDecimal`). Updated `src/modules/goods-receipts/goods-receipt.routes.js` (`scopedDetail`), `src/modules/purchase-orders/purchase-order.service.js` (`getPurchaseOrder`, `listPurchaseOrders`), and `src/modules/po-receiving/po-receiving.service.js` (`inspectionContext`).
+- Docs updated: `git_doc/docs/08_api/GOODS_RECEIPTS.md`.
+- Paired FE updates (`../fe`): shared `ProductSpecificationCell` component, formatting helpers (`formatViNumber`, `sumDecimalValues`, `summarizeQuantitiesByUnit`), and invoice-aligned receipt/PO/inspection/custody/replenishment tables.
+- Validation: BE `npm run docs:check`, `node --check` on the 5 edited BE files, and `node --test test/goods-receipt-schema.test.js test/reviewed-model-files.test.js` (2/2) passed; FE focused ESLint (0 errors, 0 warnings), `tsc --noEmit`, `vite build`, and 6 targeted Vitest suites (`ReceiptDetailPage`, `PurchaseOrderProgressTable`, `PurchaseOrderDetailPage`, `CustodyDetailPage`, `InspectionFormPage`, `ReplenishmentDetailPage` — 68/68) passed. Full DB integration tests requiring local replica set (`RUN_GOODS_RECEIPT_TESTS=1`) were not run.
+
+## 19 November 2026 — Refresh RR → receipt → BF03 code-reading guide
+
+User requested (19/11/2026) that `git_doc/docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md` match current code. Docs-only: no code, model, API or data change.
+
+- BF03 sections now describe optional `packagingState: SEALED|LOOSE` on create/edit lines and `items[].details.packagingState` (18/11/2026 mixed carton + loose decision), the per-category Zod duplicate rule, `relocationItems` category pool and `allowLooseSplit`, `moveStock(..., { packagingState })` on confirmation, and the `splitPortions` LOOSE mode.
+- `locationMovementOptions` section documents the extra `packagingPortions` projection and the `blindCountScope` filter that hides balances of locations locked by a COUNTING stocktake from non-Owners; `Stocktake` added to the model table.
+- Corrected stale line anchors in `replenishment.commands.js`, `purchase-order.commands.js`, `conversions.js`, `location-movement.service.js` and `purchase-core.js`.
+- Second pass, every function from RR creation to receipt posting checked against code: PO factor snippet now shows the unit-change rule (`changedUnit` only; changed unit drops lot/packaging) and the whole-unit check; RR `items()` documents the integer-carton check; submit shows its creator/status guards; `resolveSource` lists `STOCK_THRESHOLD`; `freeQuantity` counts only unreserved pending tasks; inspection confirmation and receipt posting document the per-line `locationAt` RECEIVING checks; `beginStock` snippet matches its hashes; `receiveStock` explains the estimated `measuredVolumeMm3` on LOOSE/OPEN portions; state diagram adds CANCELLED for RR, PO, ARR, INS and GR; LCV uses the compact warehouse code.
+- Third pass (user request: include every dependent/related flow): new Part 2B lists every route of the replenishments, purchase-orders, po-receiving routers and the purchase part of goods-receipts with service function and permission, then documents RR options/sources/evaluate/list/submissions/cancel, PO edit/reschedule/close-remainder/cancel (RR link released)/reads, inspection context, receiving operation lookup, draft cancellation, destination change, receiving reads and queues, inspection correction (`replaceInspection`), receipt reversal (`eligible`, `reverseReceipt`), purchase evidence, the supplier custody branch (post, reinspect, decide, accept-to-receipt, release), `reconcilePurchasing` and `scripts/purchase-maintenance.mjs`, RR source types, and downstream users (BF03, defect reports, supplier returns, operational reports, suppliers, stock history). Part 3 adds six side-flow risks, including that no worker consumes `BUSINESS_NOTIFICATION` system events in `src`.
+
+Validation: `npm run docs:check`. No tests run (no code change).
 
 ## 19 November 2026 — Correct erroneous empty-location confirmation
 
