@@ -22,7 +22,7 @@ Latest explicit user decision supersedes manual-sale and custody requirements fo
 
 # Bản đồ model WMSD
 
-Mốc schema 22/11/2026 (bổ sung `stocktake_plans`; mốc 12/11/2026 gồm 58 collection). Sau đợt 1 còn 58 collection nghiệp vụ, gồm `conversions` theo sản phẩm và lô; không còn collection kỹ thuật bộ đếm. Năm loại phiếu nhập dùng chung `goods_receipts`. Không quản lý danh mục đội xe. Biển số xe được ghi trực tiếp trên lần bàn giao. Không có collection marker kỹ thuật.
+Mốc schema 23/11/2026: 61 collection = 58 collection nghiệp vụ + 3 collection quản trị hệ thống (`app_settings`, `api_endpoints`, `error_logs`) và trường `users.lastLoginAt` ([quản trị hệ thống](docs/08_api/SYSTEM_ADMIN.md)). Mốc 22/11/2026 bổ sung `stocktake_plans`; sau đợt 1 còn 58 collection nghiệp vụ, gồm `conversions` theo sản phẩm và lô; không còn collection kỹ thuật bộ đếm. Năm loại phiếu nhập dùng chung `goods_receipts`. Không quản lý danh mục đội xe. Biển số xe được ghi trực tiếp trên lần bàn giao. Không có collection marker kỹ thuật.
 
 [Từ điển dữ liệu](docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Data_Dictionary.md) · [Rà trường từng bảng](docs/03_thiet_ke/DB_Rebuild_Review/38_Ra_soat_truong_58_bang.md) · [Phiếu duyệt](docs/03_thiet_ke/DB_Rebuild_Review/01_Danh_muc_duyet.md)
 
@@ -32,7 +32,7 @@ Mốc schema 22/11/2026 (bổ sung `stocktake_plans`; mốc 12/11/2026 gồm 58 
 
 ## Registry và các file cùng tác động
 
-The runtime uses one registry: `src/models/index.js` exports `registerModels(connection)`; `runtime.js` supplies API models. There are 58 collection schemas (`*.model.js`); `GoodsReceipt` có năm discriminator cùng collection. Nested schemas do not create collections. `registerReviewedModels` is a compatibility alias. Pure historical transforms and synthetic fixtures under `src/migrations/rebuild` and `src/seeds/rebuild` remain for regression checks.
+The runtime uses one registry: `src/models/index.js` exports `registerModels(connection)`; `runtime.js` supplies API models. There are 61 collection schemas (`*.model.js`; 58 business + 3 system administration since 23/11/2026); `GoodsReceipt` có năm discriminator cùng collection. Nested schemas do not create collections. `registerReviewedModels` is a compatibility alias. Pure historical transforms and synthetic fixtures under `src/migrations/rebuild` and `src/seeds/rebuild` remain for regression checks.
 
 [Hợp đồng API hiện hành](docs/08_api/GOODS_RECEIPTS.md). Các bản v8/Atlas trước đây là bằng chứng triển khai có ngày; lượt đồng bộ này không ghi lên Atlas.
 
@@ -57,7 +57,7 @@ receipts without an ITR use the explicit legacy open-task command. See [BF04 API
 
 | Collection | Một bản ghi dùng để làm gì | Nơi bắt đầu đọc trong src/models |
 |---|---|---|
-| `users` | Tài khoản nhân viên: một vai trò, nhiều kho được phân công; mật khẩu được băm, lý do khoá hiện tại lưu ở `lockReason`. | [user.model.js](../src/models/user.model.js) |
+| `users` | Tài khoản nhân viên: một vai trò, nhiều kho được phân công; mật khẩu được băm, lý do khoá hiện tại lưu ở `lockReason`; `lastLoginAt` ghi lần đăng nhập thành công gần nhất (23/11/2026). | [user.model.js](../src/models/user.model.js) |
 | `roles` | Vai trò có sẵn hoặc do Administrator tạo; giữ danh sách quyền được chọn. | [role.model.js](../src/models/role.model.js) |
 | `permissions` | Danh mục quyền thao tác có sẵn, phân nhóm theo chức năng. | [permission.model.js](../src/models/permission.model.js) |
 | `warehouses` | Kho vật lý, kích thước; `layout3d` nháp gồm mặt bằng/khu vực/ô, `layout3dApplied` snapshot áp dụng và `layout3dAppliedAt`. Ô thiết kế có thể giữ `locationId` của vị trí nghiệp vụ cùng kho; [hợp đồng chặng 2](docs/10_Kho3D/STAGE2_ZONES.md), [lớp hàng pallet](docs/10_Kho3D/STAGE3_PALLET_LAYERS.md) chỉ là phương án, không ghi tồn. | [warehouse.model.js](../src/models/warehouse.model.js) |
@@ -79,8 +79,8 @@ receipts without an ITR use the explicit legacy open-task command. See [BF04 API
 | `stocktake_snapshots` | Số tồn làm mốc theo ô/lô/chủ/chất lượng tại lúc khóa phạm vi. | [stocktake-snapshot.model.js](../src/models/stocktake-snapshot.model.js) |
 | `stocktake_counts` | Các lần đếm/đếm lại, đơn vị/quy đổi và bằng chứng; chưa đếm khác với đã xác nhận 0. Correction hàng phát hiện giữ `correctsEmptyCountId` và `correctionReason` để liên kết append-only với xác nhận trống bị sửa. | [stocktake-count.model.js](../src/models/stocktake-count.model.js) |
 | `stocktake_location_locks` | Lịch sử khóa ô khi kiểm kê; mỗi ô chỉ có một khóa đang hiệu lực. | [stocktake-location-lock.model.js](../src/models/stocktake-location-lock.model.js) |
-| `notifications` | Thông báo theo nhân viên và trạng thái đọc; kèm theo dõi gửi email SMTP. | [notification.model.js](../src/models/notification.model.js) |
-| `audit_logs` | Nhật ký người thao tác, kết quả và thay đổi; tách khỏi lịch sử số lượng tồn. | [audit-log.model.js](../src/models/audit-log.model.js) |
+| `notifications` | Thông báo theo nhân viên và trạng thái đọc; kèm theo dõi gửi email SMTP (`emailDelivery` PENDING/SENT/FAILED/SKIPPED, gửi thật từ 23/11/2026). Cảnh báo tồn dưới ngưỡng dùng `conditionKey`/`conditionState` (BELOW/RESOLVED) với nguồn `products`. | [notification.model.js](../src/models/notification.model.js) |
+| `audit_logs` | Nhật ký người thao tác, kết quả và thay đổi; tách khỏi lịch sử số lượng tồn. Index `{occurredAt:-1,_id:-1}` và `{actorId:1,occurredAt:-1}` phục vụ màn hình Nhật ký hệ thống (23/11/2026). | [audit-log.model.js](../src/models/audit-log.model.js) |
 | `system_events` | Công việc sau khi lưu thành công, như gửi thông báo/email và thử lại độc lập. | [system-event.model.js](../src/models/system-event.model.js) |
 | `operation_records` | Ghi kết quả thao tác theo mã yêu cầu để chống xử lý lặp và liên kết kết quả. | [operation-record.model.js](../src/models/operation-record.model.js) |
 | `return_source_locks` | Phối hợp xử lý đồng thời theo nguồn trả; hạn mức thực tế ở return_quantity_claims. | [return-source-lock.model.js](../src/models/return-source-lock.model.js) |
@@ -103,6 +103,9 @@ receipts without an ITR use the explicit legacy open-task command. See [BF04 API
 | `stock_scrap_records` | Phiếu thực hủy theo phương án duyệt; chỉ trừ đúng lượng thực hủy. | [stock-scrap-record.model.js](../src/models/stock-scrap-record.model.js) |
 | `stocktakes` | Đợt kiểm kê theo kho/phạm vi, lịch, người đếm, mốc kích hoạt và chốt; dòng phương án xử lý chênh lệch mang lý do (`details.reasonCode`, `details.reasonNote`, từ 18/11/2026). Từ 22/11/2026 header thêm `planId`/`planPeriodNo`/`planPeriodDueAt` (phiếu sinh từ kế hoạch), `settledLines[]` (dòng đã duyệt chênh lệch) và `recountLines[]` (dòng Owner yêu cầu đếm lại); `resolutionPlans` chỉ còn là lịch sử. | [stocktake.model.js](../src/models/stocktake.model.js) |
 | `stocktake_plans` | Kế hoạch kiểm kê định kỳ (22/11/2026): kho, phạm vi (vị trí/khu vực/lô/sản phẩm), người đếm, tần suất MONTHLY/QUARTERLY/YEARLY, kỳ kế tiếp và phiếu đã sinh; không ghi tồn, không khóa ô. Mã `KHKK-<kho>-YYMMDD-<số>`. | [stocktake-plan.model.js](../src/models/stocktake-plan.model.js) |
+| `app_settings` | Cài đặt hệ thống theo khoá (23/11/2026): `SALES_POLICY` (chính sách bán hàng & ngưỡng kho, có `version`, audit từng trường) và mốc `LOW_STOCK_LAST_SCAN` của tác vụ quét tồn. `value` do API sở hữu khoá kiểm tra. | [app-setting.model.js](../src/models/app-setting.model.js) |
+| `api_endpoints` | Danh mục API (23/11/2026): dòng `SYSTEM` đồng bộ từ router Express, dòng `MANUAL` do Administrator thêm (URL, tên, mô tả). Duy nhất theo `{method,url}`; `isPresent` = còn trong mã nguồn. | [api-endpoint.model.js](../src/models/api-endpoint.model.js) |
+| `error_logs` | Lỗi máy chủ (5xx), tác vụ nền và tiến trình (23/11/2026), gộp theo `fingerprint` (đếm `count`, `firstSeenAt`/`lastSeenAt`); có trạng thái đã xử lý. Không lưu body, query, cookie hay token. | [error-log.model.js](../src/models/error-log.model.js) |
 | `stock_adjustments` | Phiếu điều chỉnh số lượng theo phần thiếu/thừa được duyệt khi chốt kiểm kê. | [stock-adjustment.model.js](../src/models/stock-adjustment.model.js) |
 | `failed_deliveries` | Phần hàng đã xuất nhưng khách không nhận, gồm lý do, lượng và người đang giữ. | [failed-delivery.model.js](../src/models/failed-delivery.model.js) |
 | `stock_quality_changes` | Phiếu chuyển lượng giữa trạng thái chất lượng; tổng lượng và vị trí không tự thay đổi. | [stock-quality-change.model.js](../src/models/stock-quality-change.model.js) |
