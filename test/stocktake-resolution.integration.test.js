@@ -5,9 +5,12 @@ import jwt from 'jsonwebtoken';
 import * as m from '../src/models/runtime.js';
 import { PERMISSION_CATALOGUE, ROLE_PERMISSIONS } from '../src/seeds/data/permissions.data.js';
 import * as st from '../src/modules/stocktake-closure/stocktake-commands.service.js';
+import { serialize } from '../src/shared/utils/persistence.js';
+// What the retired review command stored as reviewedContent.
+const approvalContent = plan => serialize({ planId: plan._id, planVersion: plan.version, scopeVersion: plan.header.scopeVersion, items: plan.items, selectedCounts: plan.selectedCounts });
 import { newId } from '../src/shared/utils/document-command.js';
 
-// UC-100, UC-101, UC-121: resolution-plan list/detail and blind count sheet against real Mongo
+// UC-100, UC-101, UC-121: read-only history of retired resolution plans (22 Nov 2026) and the count sheet against real Mongo
 // (first live run of the `$unwind` + `$facet` pipeline) on an isolated local replica set
 // (never shared/remote data).
 // Run: RUN_STOCKTAKE_RESOLUTION_TESTS=1 node --test --test-concurrency=1 test/stocktake-resolution.integration.test.js
@@ -54,21 +57,42 @@ async function reconciled({ wh, counter, lot, book, counted, whole = true, empty
     const snapshot = await m.StocktakeSnapshot.findOne({ stocktakeId: id });
     await count(id, counter, { targetType: 'STOCK', snapshotId: String(snapshot._id), countedQtyBase: counted });
     if (emptyLoc) await count(id, counter, { targetType: 'EMPTY_LOCATION', locationId: String(emptyLoc.loc._id), countedQtyBase: '0' });
+    // A differing line needs the counter's reason before reconcile (23 Nov 2026).
+    if (String(counted) !== String(book)) {
+        const latest = await m.StocktakeCount.findOne({ stocktakeId: id, snapshotId: snapshot._id }).sort({ attemptNo: -1 });
+        await st.setCountReason(counter, id, { idempotencyKey: key(), expectedVersion: await version(id), snapshotId: String(snapshot._id), countId: String(latest._id), reasonCode: 'RECORD_ERROR' });
+    }
     await reconcile(id, counter);
     const countRow = await m.StocktakeCount.findOne({ stocktakeId: id, snapshotId: snapshot._id });
     return { id, booked, emptyLoc, snapshot, countRow };
 }
-// DELTA plan that covers the whole difference of the single book snapshot.
+// The submit/review/execute commands were retired on 22 Nov 2026, so historical plans are seeded straight into the
+// document exactly as those commands stored them. Only the read paths are under test.
+const planSeq = {};
 async function submitPlan(session, proposer, difference, reason) {
     const doc = await m.Stocktake.findById(session.id);
-    const selected = { snapshotId: String(session.snapshot._id), countId: String(session.countRow._id) };
-    await st.submitResolutionPlan(proposer, session.id, {
-        idempotencyKey: key(), expectedVersion: doc.version, scopeVersion: doc.header.scopeVersion, selectedCounts: [selected],
-        items: [{ ...selected, actionKind: 'DELTA', qtyBase: difference.replace('-', ''), deltaQty: difference }], reason,
+    const planVersion = doc.resolutionPlans.length + 1;
+    const previousPlanId = doc.resolutionPlans.at(-1)?._id;
+    doc.resolutionPlans.push({
+        _id: newId(), documentNo: ['PAXLKK', doc.documentNo.split('-')[1], doc.documentNo.split('-')[2], String(planSeq[doc.documentNo.split('-')[1]] = (planSeq[doc.documentNo.split('-')[1]] ?? 0) + 1).padStart(6, '0')].join('-'), documentKind: 'ST_RESOLUTION', workflowStatus: 'PENDING_APPROVAL', version: planVersion, createdBy: proposer._id, occurredAt: new Date(), note: reason,
+        header: { stocktakeId: doc._id, planVersion, scopeVersion: doc.header.scopeVersion, ...(previousPlanId && { previousPlanId }), reason, proposedBy: proposer._id, proposedAt: new Date() },
+        items: [{ lineNo: 1, lineKind: 'ST_RESOLUTION', productId: session.booked.balance.batchId && (await m.ProductBatch.findById(session.booked.balance.batchId)).productId, lotId: session.booked.balance.batchId, enteredUnit: session.snapshot.baseUnitSnapshot, baseUnitSnapshot: session.snapshot.baseUnitSnapshot, baseUnitsPerUnit: '1', enteredQty: difference.replace('-', ''), qtyBase: difference.replace('-', ''), productNameSnapshot: 'Seeded',
+            details: { countId: session.countRow._id, actionKind: 'DELTA', deltaQty: difference, fromBalanceId: session.booked.balance._id, reasonCode: 'RECORD_ERROR' } }],
+        selectedCounts: [{ snapshotId: session.snapshot._id, countId: session.countRow._id }],
     });
+    doc.workflowStatus = 'PENDING_APPROVAL';
+    await doc.save();
     return (await m.Stocktake.findById(session.id)).resolutionPlans.at(-1);
 }
-const review = async (id, plan, decision, reviewer = owner) => st.reviewResolutionPlan(reviewer, id, plan._id, { idempotencyKey: key(), expectedVersion: await version(id), expectedPlanVersion: plan.header.planVersion, decision, reason: decision + ' by test' });
+const review = async (id, plan, decision, reviewer = owner) => {
+    const doc = await m.Stocktake.findById(id), row = doc.resolutionPlans.id(plan._id), now = new Date();
+    const approval = await m.ApprovalHistory.create({ decisionKey: key(), subjectType: 'stocktake_resolution_plans', subjectId: row._id, subjectRevision: row.version, decisionScope: 'STOCKTAKE', reviewedContent: approvalContent(row), decision, reason: decision + ' by test', requestedBy: row.createdBy, decidedBy: reviewer._id, decidedAt: now, recordedAt: now });
+    row.workflowStatus = decision === 'APPROVE' ? 'APPROVED' : 'REJECTED';
+    doc.workflowStatus = decision === 'APPROVE' ? 'APPROVED' : 'RECONCILING';
+    row.header.approvalId = approval._id;
+    row.reviewDecisions.push({ decisionId: approval._id, revision: row.version, reviewedBy: reviewer._id, reviewedAt: now, decision, reason: decision + ' by test' });
+    await doc.save();
+};
 
 test.before(async () => {
     if (!enabled)
@@ -113,7 +137,10 @@ test.before(async () => {
     s2.plan = await submitPlan(s2, worker, '-2.25', 'Fractional shortage');
     await review(s2.id, s2.plan, 'APPROVE');
     s2.proof = await evidence(s2.id, worker);
-    await st.recordExecution(worker, s2.id, s2.plan._id, { idempotencyKey: key(), expectedVersion: await version(s2.id), expectedPlanVersion: 1, itemId: String(s2.plan.items[0]._id), quantityBase: '1.5', evidenceIds: [String(s2.proof._id)], note: 'First part' });
+    { const doc = await m.Stocktake.findById(s2.id), row = doc.resolutionPlans.id(s2.plan._id);
+      row.workflowStatus = 'EXECUTED'; doc.workflowStatus = 'IN_PROGRESS';
+      row.executionRecords.push({ itemId: row.items[0]._id, performedBy: worker._id, performedAt: new Date(), quantityBase: '1.5', evidenceIds: [s2.proof._id], note: 'First part' });
+      await doc.save(); }
     // s3 (B): another warehouse, pending plan on the same lot as s1.
     s3 = await reconciled({ wh: whB, counter: outsider, lot: tileLot1, book: '8', counted: '4' });
     s3.plan = await submitPlan(s3, outsider, '-4', 'Four missing in B');
@@ -392,7 +419,7 @@ run('detail: exact decimal before/after, decisions, versions, evidence and scope
     assert.equal(await snapshotOfDatabase(), before);
 });
 
-run('count-sheet: refusals, snapshot rows after live changes, blind body, empty location and no side effects', async () => {
+run('count-sheet: refusals, snapshot rows after live changes, book quantity with unit, empty location and no side effects', async () => {
     const sheet = id => '/stocktakes/' + id + '/count-sheet';
     const book = await bookedLocation(whA, tileLot1, '8', worker);
     await addBalance(book.point, tileLot2, '4', worker);
@@ -437,9 +464,9 @@ run('count-sheet: refusals, snapshot rows after live changes, blind body, empty 
     assert.equal(await m.StocktakeCount.countDocuments({ stocktakeId: id }), 1);
     assert.deepEqual(first.body.data, second.body.data, 'same data for Owner and assigned counter, twice');
 
-    // Blind: the book quantity and any variance never appear anywhere in the body.
+    // Blind count was removed (22 Nov 2026): the sheet carries the frozen book quantity and its unit, never a counted quantity.
     for (const text of [first.text, second.text])
-        assert.ok(!/bookQty|differenceBase|countedQty|variance/i.test(text), 'blind sheet leaked a quantity field');
+        assert.ok(/bookQtyBase/.test(text) && /uomName/.test(text) && !/differenceBase|countedQty|variance/i.test(text), 'sheet must show book quantity + unit and no variance');
     const data = first.body.data;
     assert.equal(data.stocktake.id, id);
     assert.equal(data.stocktake.workflowStatus, 'COUNTING');
@@ -468,7 +495,6 @@ run('count-sheet: refusals, snapshot rows after live changes, blind body, empty 
     assert.equal(later.body.data.stocktake.workflowStatus, 'PENDING_APPROVAL');
     assert.equal(later.body.data.locations.find(row => row.locationId === String(s1.emptyLoc.loc._id)).emptyConfirmation, true);
     assert.equal(later.body.data.locations.find(row => row.locationId === String(s1.booked.loc._id)).rows.length, 1);
-    assert.ok(!/bookQty/i.test(later.text));
 });
 
 // The embedded allocator must scan documentNo as well as ObjectId-backed plan identities.

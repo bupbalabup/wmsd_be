@@ -62,7 +62,15 @@ Thứ tự kiểm tra: quyền, nhóm, kho, rồi mới đọc dữ liệu.
 
 Chỉ đại lượng vận hành, số lượng dạng chuỗi thập phân chính xác kèm đơn vị gốc: tồn vật lý, khả dụng, đã giữ, giữ hộ, đang chuyển (tách riêng khỏi tồn trên kệ), lượng còn chờ nhận/xuất, lượng khách thực nhận, đơn đã giao/hoàn tất/hủy, kết quả hàng lỗi, điều chuyển, trả hàng, kiểm kê. **Không có doanh thu, giá vốn, giá hay lợi nhuận** trong bất kỳ dòng nào; dòng được dựng từ danh sách trường cố định nên trường giá của chứng từ gốc không lọt ra. Test kiểm tra điều này cho cả 11 nhóm.
 
+Nhóm `purchases` (từ 23/11/2026): mỗi dòng PO có `receivedQtyBase` (lượng phiếu nhập `POSTED` còn hiệu lực) và `outstandingQtyBase` = lượng đặt − đã nhận − đã chốt thiếu (`cancelledRemainderQtyBase`), không âm; PO `CANCELLED` luôn 0. PO `CLOSED` có thể có `outstandingQtyBase` dương sau khi đảo phiếu nhập; kho chỉ nhận tiếp được sau khi Kế toán mở lại PO (`POST /api/purchase-orders/:id/reopen`, xem [NATIVE_MODEL_RUNTIME](NATIVE_MODEL_RUNTIME.md)).
+
 Phản hồi: `{ group, capturedAt, rows }` (`inventory` thêm `basis: "CURRENT_TRANSACTION_SNAPSHOT"`). File CSV xuất từ màn hình chỉ chứa đúng các dòng và cột đang hiển thị, tạo ở trình duyệt, không gọi thêm API ghi.
+
+## Inventory snapshot reads — 17 November 2026
+
+The inventory report batches active defect holds, open/draft/partial transfer tasks and their stock transactions within the same transaction snapshot. Reservations are read once for the scoped balances. Task quantities are reduced by posted movements for the same task, source line and source balance; remaining execution reservations cover pending task quantities once. Hold resolution and exact decimal arithmetic reuse the stock helpers. Warehouse authorization, quantity fields and the response contract are unchanged. No indexes or database records are changed by this optimization.
+
+The frontend uses the shared page/card theme. Changing filters shows only data captured for the current query; CSV and Excel export are disabled while loading or after a failed request.
 
 ## Kiểm chứng và giới hạn
 

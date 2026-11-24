@@ -215,14 +215,17 @@ test('status change on an unknown account is 404 and writes no audit event', asy
   assert.equal(events.length, 0);
 });
 
-// Observed: the audit event is only written when isActive changes (user.service.js line 150), so replacing
-// the reason of an already locked account is saved without an audit event. Not a delta scenario; recorded as a finding.
-test('re-locking an already locked account with a new reason is audited', { todo: 'observed: no audit event when isActive does not change' }, async () => {
+test('re-locking an already locked account with a new reason is audited', async () => {
   const doc = target({ isActive: false, lockReason: 'Old reason' });
   stubUsers(actor(), doc);
   const events = captureAudit();
   await toggleUserStatus(targetId, false, actorId, 'New reason');
+  assert.equal(doc.isActive, false);
   assert.equal(doc.lockReason, 'New reason');
+  assert.deepEqual(events, [{
+    action: 'LOCK_USER', actorId, actorType: 'USER', subjectType: 'users', subjectId: targetId, reason: 'New reason', result: 'SUCCESS', invalid: undefined,
+  }]);
+  await toggleUserStatus(targetId, false, actorId, '  New reason  ');
   assert.equal(events.length, 1);
 });
 
@@ -234,10 +237,18 @@ test('sign-in with correct credentials is refused for an inactive account and is
 
 test('the same credentials sign in when the account is active (control for the refusal above)', async () => {
   mock.method(User, 'findOne', () => query(target()));
+  const stamps = [];
+  mock.method(User, 'updateOne', async (filter, update, options) => { stamps.push({ filter, update, options }); return { matchedCount: 1 }; });
+  const events = captureAudit();
   const session = await loginUser('Staff', PASSWORD);
   assert.equal(typeof session.accessToken, 'string');
   assert.equal(typeof session.refreshToken, 'string');
   assert.equal(session.user.username, 'staff');
+  // Real last sign-in time (23/11/2026): set on login without touching updatedAt, and audited as LOGIN.
+  assert.equal(stamps.length, 1);
+  assert.ok(stamps[0].update.$set.lastLoginAt instanceof Date);
+  assert.equal(stamps[0].options.timestamps, false);
+  assert.deepEqual(events.map((e) => e.action), ['LOGIN']);
 });
 
 test('POST /auth/login for an inactive account returns 401 with no token, cookie or user', async (t) => {

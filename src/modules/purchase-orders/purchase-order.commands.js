@@ -8,7 +8,7 @@ import {
   ApprovalHistory,
 } from "../../models/runtime.js";
 import { exact } from "../../models/model-utils.js";
-import { toBaseQuantity } from "../../shared/utils/conversions.js";
+import { isWholeUnit, normalizedEnteredQty, resolveConversion, toBaseQuantity, withinApproved } from "../../shared/utils/conversions.js";
 import { notBeforeSaigonToday, saigonDateOnly } from "../../shared/utils/domain.js";
 import { requireWarehouseAccess } from "../../shared/utils/access.js";
 import { validationError } from "../../shared/utils/ApiError.js";
@@ -26,7 +26,7 @@ import {
   newDocument,
   evidenceFor,
 } from "../po-receiving/purchase-core.js";
-import { purchaseOrderQuantities, cancelBlocker } from "./purchase-order.service.js";
+import { purchaseOrderQuantities, cancelBlocker, receivingStatus, reopenable } from "./purchase-order.service.js";
 
 // A changed or new expected date may not be in the past; an unchanged saved date stays editable.
 function checkExpectedOn(next, saved) {
@@ -86,23 +86,32 @@ async function draftItems(actor, input, session, previous = []) {
     }).session(session);
     if (!product || !decision)
       throw validationError("Sản phẩm hoặc lượng PO vượt nguồn được duyệt");
-    const enteredUom = await Uom.findOne({ code: source.enteredUnit }).session(session);
-    // Area units round up to whole pieces, same rule as makeItem.
-    const factor = String(source.baseUnitsPerUnit);
-    const amount = toBaseQuantity(line.enteredQty, factor, product, enteredUom);
-    const rounded = !amount.eq(exact(line.enteredQty).mul(factor));
-    if (
-      amount.gt(String(decision.approvedQtyBase)) ||
-      amount.lte(0) ||
-      (product.wholeBaseUnits && !amount.isInteger()) ||
-      amount.decimalPlaces() > 6
-    )
-      throw validationError("Sản phẩm hoặc lượng PO vượt nguồn được duyệt");
     const old = line.id ? previous.find((row) => same(row._id, line.id)) : null;
     if (line.id && (!old || !same(old.requestItemId, source._id)))
       throw validationError("Không đổi nguồn của dòng đã lưu");
+    // An edit that omits the unit keeps the saved one; reading it in the RR unit would silently rescale the quantity.
+    const uomCode = line.uomCode ?? old?.enteredUnit ?? source.enteredUnit;
+    const enteredUom = await Uom.findOne({ code: uomCode }).session(session);
+    if (!enteredUom) throw validationError(`Đơn vị ${uomCode} không tồn tại`);
+    if (isWholeUnit(product, enteredUom) && !exact(line.enteredQty).isInteger())
+      throw validationError(enteredUom.isCarton ? "Số thùng phải là số nguyên" : "Số lượng theo đơn vị gốc phải là số nguyên");
+    // Same unit as the RR keeps its snapshot factor (a lot carton may differ from the product default).
+    const changedUnit = uomCode !== source.enteredUnit;
+    const factor = changedUnit
+      ? (await resolveConversion(product, null, uomCode, session)).toFixed()
+      : String(source.baseUnitsPerUnit);
+    const amount = toBaseQuantity(line.enteredQty, factor, product, enteredUom);
+    if (product.wholeBaseUnits && !amount.isInteger())
+      throw validationError("Số lượng sau quy đổi sang đơn vị gốc phải là số nguyên");
+    if (
+      !withinApproved(amount, line.enteredQty, factor, decision.approvedQtyBase, enteredUom.isCarton) ||
+      amount.lte(0) ||
+      amount.decimalPlaces() > 6
+    )
+      throw validationError("Sản phẩm hoặc lượng PO vượt nguồn được duyệt");
+    const enteredQty = normalizedEnteredQty(amount, factor, product, enteredUom, line.enteredQty);
     // Model amounts keep 6 decimals; round half up instead of failing on long products.
-    const value = exact(line.unitPurchasePrice).mul(line.enteredQty).toDecimalPlaces(6);
+    const value = exact(line.unitPurchasePrice).mul(enteredQty).toDecimalPlaces(6);
     items.push(
       copyItem(source, amount.toFixed(), {
         _id: old?._id ?? newId(),
@@ -110,7 +119,10 @@ async function draftItems(actor, input, session, previous = []) {
         requestItemId: source._id,
         unitPurchasePrice: line.unitPurchasePrice,
         lineAmount: value.toFixed(),
-        ...(rounded && { enteredQty: exact(line.enteredQty).toFixed() }),
+        enteredUnit: uomCode,
+        baseUnitsPerUnit: factor,
+        enteredQty,
+        ...(changedUnit && { lotId: undefined, packagingSnapshot: undefined }),
         ...(line.note && { note: line.note }),
         sources: [
           sourceLink(rr, source, amount.toFixed(), "REPLENISHMENT_PURCHASE"),
@@ -243,23 +255,29 @@ export function confirmPurchaseOrder(user, id, input) {
         subjectRevision: rr.header.approvedRevision,
         decision: "APPROVE",
       }).session(session);
-      const totals = new Map();
+      const cartonUnits = new Set(await Uom.distinct("code", {
+        code: { $in: po.items.map((item) => item.enteredUnit) },
+        isCarton: true,
+      }).session(session));
+      const seen = new Set();
       for (const item of po.items) {
+        const sourceId = String(item.requestItemId);
         const source = rr.items.id(item.requestItemId),
           decision = approval?.itemDecisions.find((d) =>
             same(d.itemId, item.requestItemId),
           );
-        const total = (
-          totals.get(String(item.requestItemId)) ?? exact("0")
-        ).plus(String(item.qtyBase));
-        totals.set(String(item.requestItemId), total);
         if (
           !source ||
           !decision ||
+          seen.has(sourceId) ||
           !same(source.productId, item.productId) ||
-          total.gt(String(decision.approvedQtyBase))
+          !withinApproved(
+            item.qtyBase, item.enteredQty, item.baseUnitsPerUnit, decision.approvedQtyBase,
+            cartonUnits.has(item.enteredUnit),
+          )
         )
           throw validationError("Nguồn duyệt PO không còn hợp lệ");
+        seen.add(sourceId);
         if (
           !(await Product.exists({
             _id: item.productId,
@@ -383,6 +401,35 @@ export function closeRemainder(user, id, input) {
             after: { lines: input.lines, evidenceIds: input.evidenceIds ?? [] },
           },
         ],
+      };
+    },
+  );
+}
+// The Accountant reopens a CLOSED PO whose receipt was reversed (user decision 23/11/2026).
+// Only the reversed quantity becomes receivable again; the short-closed quantity stays closed.
+export function reopenPurchaseOrder(user, id, input) {
+  return command(
+    user,
+    "REOPEN_PURCHASE_ORDER",
+    "purchase_order:update",
+    id,
+    input,
+    replayPurchase,
+    async (session, actor) => {
+      const po = await findPurchase(id, actor, session, { kind: "PO" });
+      checkVersion(po, input.expectedVersion);
+      if (po.workflowStatus !== "CLOSED")
+        throw validationError("PO không ở trạng thái đã đóng");
+      const quantities = await purchaseOrderQuantities(po, session);
+      if (!reopenable(po, quantities))
+        throw validationError("PO không có lượng chưa nhận để mở lại");
+      po.workflowStatus = receivingStatus(quantities);
+      po.header.closedAt = undefined;
+      return {
+        document: await saveVersion(po, input.expectedVersion, session),
+        versionBefore: input.expectedVersion,
+        reason: input.reason,
+        auditChanges: [{ field: "workflowStatus", before: "CLOSED", after: po.workflowStatus }],
       };
     },
   );

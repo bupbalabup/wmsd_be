@@ -35,7 +35,7 @@ import {
   receiveStock,
   verifyCapacity,
 } from "../../shared/utils/stock.js";
-import { makeItem } from "../../shared/utils/document-items.js";
+import { enrichLineItems, makeItem } from "../../shared/utils/document-items.js";
 import { redactPrices } from "../sales-orders/sales-read.service.js";
 import { dto, serialize } from "../../shared/utils/persistence.js";
 import { assertBatchPackaging } from "../../models/capacity.js";
@@ -169,6 +169,13 @@ export function createInspection(user, id, input) {
     replayPurchase,
     async (session, actor) => {
       const po = await activePo(actor, id, input.expectedPoVersion, session);
+      // Contend with PO cancellation without changing its public version token.
+      const updatedAt = new Date(Math.max(Date.now(), (po.updatedAt?.getTime() ?? 0) + 1));
+      const locked = await PurchaseOrder.updateOne(
+        { _id: po._id, version: po.version, workflowStatus: { $in: ['OPEN', 'PARTIAL'] } },
+        { $set: { updatedAt } }, { session, timestamps: false },
+      );
+      if (locked.matchedCount !== 1) throw validationError('PO không còn mở để nhận hàng');
       const arrival = await newDocument(GoodsArrival, "ARR", actor, {
         purchaseOrderId: po._id,
         warehouseId: po.header.warehouseId,
@@ -450,11 +457,12 @@ export function postReceipt(user, id, input) {
       receipt.header.receivedAt = new Date();
       const saved = await saveVersion(receipt, input.expectedVersion, session);
       const remaining = await purchaseOrderQuantities(po, session);
-      po.workflowStatus = remaining.every((row) =>
-        exact(row.outstandingQtyBase).isZero(),
-      )
-        ? "COMPLETED"
-        : "PARTIAL";
+      if (remaining.every((row) => exact(row.outstandingQtyBase).isZero())) {
+        // Fully settled with a short-closed line: CLOSED, not COMPLETED (user decision 23/11/2026).
+        const shortClosed = remaining.some((row) => exact(row.cancelledQtyBase).gt(0));
+        po.workflowStatus = shortClosed ? "CLOSED" : "COMPLETED";
+        if (shortClosed) po.header.closedAt = new Date();
+      } else po.workflowStatus = "PARTIAL";
       await saveVersion(po, po.version, session);
       return {
         document: saved,
@@ -477,6 +485,8 @@ export function cancelDraft(user, id, kind, input) {
       checkVersion(document, input.expectedVersion);
       if (document.workflowStatus !== "DRAFT")
         throw validationError("Chỉ hủy phiếu nháp");
+      if (kind === "CUSTODY_RECEIPT" && document.header.ownerType !== "SUPPLIER")
+        throw validationError("Chỉ hủy phiếu giữ hộ nhà cung cấp");
       document.workflowStatus = "CANCELLED";
       document.cancelledBy = actor._id;
       document.cancelledAt = new Date();
@@ -566,20 +576,30 @@ export async function inspectionContext(user, id) {
   }).lean();
   const products = await Product.find(
     { _id: { $in: po.items.map((row) => row.productId) } },
-    "baseUnit lengthMm widthMm",
+    "sku name manufacturerCode material surface color description baseUnit lengthMm widthMm heightMm",
   ).lean();
   const cartonUnits = await Uom.find({ isCarton: true, isActive: true }, "code").lean();
+  const poDto = redactPrices(dto(po));
+  await enrichLineItems(poDto.items);
   return {
-    purchaseOrder: redactPrices(dto(po)),
+    purchaseOrder: poDto,
     quantities: await purchaseOrderQuantities(po),
     locations: locations.map(dto),
     batches: batches.map(dto),
     // Lets the UI convert counted units to base units and m² without hardcoding ratios.
     products: products.map((row) => ({
       id: String(row._id),
+      sku: row.sku ?? null,
+      name: row.name ?? null,
+      manufacturerCode: row.manufacturerCode ?? null,
+      material: row.material ?? null,
+      surface: row.surface ?? null,
+      color: row.color ?? null,
+      description: row.description ?? null,
       baseUnit: row.baseUnit,
       lengthMm: row.lengthMm == null ? null : exact(row.lengthMm).toFixed(),
       widthMm: row.widthMm == null ? null : exact(row.widthMm).toFixed(),
+      heightMm: row.heightMm == null ? null : exact(row.heightMm).toFixed(),
     })),
     cartonUnits: cartonUnits.map((row) => row.code),
   };

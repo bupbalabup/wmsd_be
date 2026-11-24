@@ -5,7 +5,7 @@ import { signed } from "./schema-helpers.js";
 export function createAdjustmentDetailsSchema() {
   const schema = new Schema(
     {
-      countId: ref("CountAttempt"),
+      countId: ref("CountAttempt", false),
       approvalId: ref("Approval", false),
       deltaQty: decimal({ signed: true, nonzero: true }),
     },

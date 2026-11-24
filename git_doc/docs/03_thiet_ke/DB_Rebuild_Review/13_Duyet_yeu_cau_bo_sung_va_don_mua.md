@@ -76,8 +76,8 @@ Một bản ghi là một yêu cầu bổ sung cho **một kho nhận**, có m�
 | `productId` | ObjectId → B04 | Sản phẩm theo hãng và SKU đã duyệt |
 | `productSnapshot` | Mã hãng/SKU, tên và đơn vị gốc tại lúc lập | Đọc phiếu cũ không bị đổi theo tên danh mục mới |
 | `enteredUnit`, `baseUnitSnapshot`, `baseUnitsPerUnit`, `packagingSnapshot` | Dữ liệu nhúng trực tiếp trên dòng | Đơn vị nhập, đơn vị gốc, hệ số thực dùng và quy cách kiện khi có; nhập bằng đơn vị gốc dùng hệ số 1. Không tham chiếu B03/B06 |
-| `requestedQty`, `requestedQtyBase` | Decimal128 > 0 | Lượng đề nghị ở đơn vị nhập và đơn vị gốc; phần mềm kiểm hai giá trị khớp |
-| `approvedQtyBase` | Decimal128 ≥ 0 hoặc null trước quyết định | Lượng Owner chấp thuận, không vượt lượng đề nghị; có thể duyệt ít hơn và ghi lý do |
+| `enteredQty`, `qtyBase` | Decimal128 > 0 | Lượng đề nghị theo đơn vị nhập và đơn vị gốc. Dòng diện tích của sản phẩm nguyên viên lưu lượng diện tích quy ngược từ lượng viên đã làm tròn. Đơn vị thùng và đơn vị gốc có `wholeBaseUnits` phải nhập số nguyên. |
+| `approvedQtyBase` | Decimal128 ≥ 0 hoặc thiếu trước quyết định | Lượng Owner chấp thuận theo đơn vị gốc, tối đa bằng lượng đề nghị. Giảm lượng cần lý do trên dòng. Dòng thùng chỉ duyệt lượng tương ứng với số thùng nguyên theo hệ số của dòng. Lịch sử duyệt lưu cùng lượng gốc. |
 | `sourceType`, `sourceRef` | SALES_DEMAND, STOCK_THRESHOLD, STOCKTAKE, DEFECT hoặc OTHER; tham chiếu nguồn khi có | Truy về dòng SO, thiết lập ngưỡng và phiên bản, kiểm kê/hồ sơ lỗi. Loại nguồn và tham chiếu phải khớp. Theo quyết định 10/11/2026, lý do từng dòng là tùy chọn. Mọi dòng có cảnh báo cần xác nhận và giải trình độc lập. |
 | `requiredBatchId`, `requiredTone`, `requiredCalibre` | Tham chiếu B05 hoặc chuỗi, khi nhu cầu có yêu cầu | Giữ điều kiện tương thích từ nguồn, không tự thay lô/tông/cỡ để coi là đã đáp ứng |
 | `neededBy`, `note` | Ngày giờ/chuỗi, tùy chọn | Hạn riêng của dòng, nếu trống dùng hạn đầu phiếu; ghi chú nhu cầu |
@@ -138,10 +138,10 @@ Một PO được Accountant lập từ **một RR đã duyệt**, cho **một n
 | `_id`, `lineNo` | ObjectId ổn định; số thứ tự | ID để nhập hàng, trả hàng và phân bổ nguồn tham chiếu |
 | `requestItemId` | ID dòng H01, bắt buộc | Dòng được duyệt tương ứng; phải thuộc RR đầu phiếu |
 | `productId`, `productSnapshot` | B04 và bản thông tin lúc đặt | Khớp sản phẩm được duyệt, giữ SKU hãng/tên/đơn vị gốc |
-| `enteredUnit`, `baseUnitSnapshot`, `baseUnitsPerUnit`, `packagingSnapshot` | Dữ liệu nhúng trực tiếp trên dòng | Đơn vị đặt và quy đổi của lần đặt; không lấy hệ số mới để viết lại lượng cũ. Nhập hàng khác quy cách đối chiếu bằng lượng gốc |
-| `orderedQty`, `orderedQtyBase` | Decimal128 > 0 | Lượng đặt ở đơn vị nhập và đơn vị gốc; không vượt trần RR được duyệt |
+| `enteredUnit`, `baseUnitSnapshot`, `baseUnitsPerUnit` | Dữ liệu nhúng trực tiếp trên dòng | Đơn vị đặt và hệ số của lần đặt. Giữ đơn vị RR thì dùng hệ số của dòng RR; đổi sang thùng thì dùng quy đổi cấp sản phẩm. Nhập hàng khác quy cách đối chiếu bằng lượng gốc. |
+| `enteredQty`, `qtyBase` | Decimal128 > 0 | Lượng đặt theo đơn vị được chọn và đơn vị gốc. Dòng diện tích của sản phẩm nguyên viên lưu lượng diện tích quy ngược từ lượng viên đã làm tròn. |
 | `unitPurchasePrice` | Decimal128 ≥ 0 | Giá mua đã chốt cho **một đơn vị đặt** của dòng, chẳng hạn một thùng; không tự hiểu là giá một viên |
-| `lineAmount` | Decimal128 ≥ 0, phần mềm tính | `orderedQty × unitPurchasePrice`. Tính thập phân chính xác, không nhân theo đơn vị gốc nếu giá nhập theo thùng |
+| `lineAmount` | Decimal128 ≥ 0, phần mềm tính | `enteredQty × unitPurchasePrice`, dùng lượng đặt đã lưu và làm tròn đến 6 chữ số thập phân. |
 | `note` | Chuỗi tùy chọn, tối đa 2000 ký tự | Ghi chú dòng, ví dụ lô NCC báo giao. Kho chọn lô thực nhận độc lập với ghi chú. Quyết định của người dùng ngày 13/11/2026, phương án A; từ 14/11/2026 không còn tách dòng PO theo lô. |
 | `requiredBatchId`, `requiredTone`, `requiredCalibre` | Theo yêu cầu được duyệt, khi có | Điều kiện hàng nhà cung cấp cần đáp ứng; lô thực nhập xác định tại kiểm nhận |
 | `cancelledRemainderQtyBase`, `cancellationDecisionRef` | Decimal128 ≥ 0 và quyết định liên quan | Phần chưa nhận được phép ngừng chờ; không nhập số lượng đã hủy thành hàng nhận |
@@ -156,7 +156,7 @@ Bộ lọc quyền áp dụng cả chi tiết, danh sách, xuất file, thông b
 
 ### Đặt, nhận, sửa và đóng PO
 
-1. Accountant tạo DRAFT từ bản RR APPROVED còn hiệu lực, chọn một NCC ACTIVE và kho đúng RR. Mỗi dòng RR có tối đa một dòng PO; lượng gốc của dòng không vượt lượng được duyệt. Đối chiếu lượng khi đặt và khi nhận bằng đơn vị gốc. Theo quyết định của người dùng ngày 14/11/2026, PO không tách dòng theo lô NCC báo giao: việc tách theo lô diễn ra khi kiểm hàng và nhập kho. Quyết định này thay phương án tách dòng PO ngày 13/11/2026.
+1. Accountant tạo DRAFT từ bản RR APPROVED còn hiệu lực, chọn một NCC ACTIVE và kho đúng RR. Mỗi dòng RR có tối đa một dòng PO. Kế toán chọn đơn vị đặt khi tạo hoặc sửa nháp. Từ 19/11/2026, chỉ đơn vị thùng được vượt lượng RR đã duyệt, với số thùng nguyên nhỏ nhất đủ bao phủ lượng duyệt. Đối chiếu lượng khi đặt và khi nhận bằng đơn vị gốc. Việc tách theo lô diễn ra khi kiểm hàng và nhập kho theo quyết định ngày 14/11/2026.
 2. Accountant phát hành nháp sang OPEN và ghi thời điểm phát hành. BE kiểm lại lượng gốc theo từng dòng RR trước khi phát hành. Việc lập hoặc phát hành PO chỉ ghi chứng từ đặt mua.
 3. Mỗi lần hàng đến ghi phiếu nhận theo đúng dòng PO. Tiến độ phải phân biệt lượng mang đến, lượng chấp nhận sở hữu, lượng chờ/giữ hộ và từ chối. Lượng đã nhận lấy từ chứng từ đã ghi hợp lệ, không nhập tay ở PO. Cảnh báo RR hiển thị ngày dự kiến chung và phần PO chưa nhận, kể cả khi ngày dự kiến sau hạn cần của RR. Chi tiết nhận hàng H03–H05 được trình riêng.
 4. `còn phải nhận = lượng đặt − lượng đã chấp nhận theo phiếu nhập hợp lệ − phần chưa nhận được duyệt hủy`. Các lượng quy về đơn vị gốc, không âm. Hàng thừa/sai không tự cộng vào lượng đã hoàn thành PO. Hàng đã nhận rồi trả NCC giữ lịch sử nhập gốc; việc NCC giao bù phải có nguồn liên kết và trần nhận riêng được duyệt ở luồng trả, không tự mở lại trần vô hạn.

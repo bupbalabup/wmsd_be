@@ -18,7 +18,7 @@ import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import { pathToFileURL } from 'node:url';
 import { registerModels } from '../models/registry.js';
-import { PERMISSION_CATALOGUE, ROLE_PERMISSIONS, ROLE } from './data/permissions.data.js';
+import { PERMISSION_CATALOGUE, PERMISSION_CODES, ROLE_PERMISSIONS, ROLE } from './data/permissions.data.js';
 import { SEED_ACCOUNTS, SEED_WAREHOUSES } from './data/accounts.data.js';
 import { buildReviewedDemo, fixtureId, demoDate } from './rebuild/data.js';
 import { enrichGoodsReceiptsSeedData } from './data/goods-receipts.data.js';
@@ -137,7 +137,7 @@ export async function syncExistingRolePermissions() {
 export async function grantPurchaseReadPermissions() {
   const Permission = mongoose.connection.model('Permission');
   const Role = mongoose.connection.model('Role');
-  const codes = ['purchase_order:read', 'goods_receipt_inspection:read', 'putaway_task:read'];
+  const codes = ['purchase_order:read', 'goods_receipt_inspection:read'];
   const permissions = await Permission.find({ code: { $in: codes } }).lean();
 
   for (const code of codes) {

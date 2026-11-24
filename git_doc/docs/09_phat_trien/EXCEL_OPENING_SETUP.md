@@ -30,11 +30,11 @@ The first command previews setup. The second adds only the three opening-stock p
 
 Configure the existing frontend API URL and proxy for the chosen local backend. The normal project port is 3334; backend is normally 3000. The implementation's browser verification uses isolated ports and synthetic users instead of the application's production connection.
 
-Create warehouses and storage locations, and ensure categories and units exist. Only Owner can use opening stock and can review and confirm their own draft. Each warehouse can be initialized once; cancelled drafts or failed previews do not consume that one initialization, while an empty POSTED opening does. The preview and template explain all required fields and the custody/transit boundary.
+Set the warehouse length, width and clear height before importing stock. Keep the required categories and base units active. Draft creation creates the opening-stock receiving location when needed. Configure storage areas for BF03 after posting. Only Owner can use opening stock and confirm their own draft. Each warehouse can be initialized once, including by posting an empty opening. The current frontend template requires the update described in the [API contract](../08_api/EXCEL_AND_OPENING_STOCK.md#file-and-payload).
 
 ## Isolated automated verification
 
-`test/opening-stock.test.js` never uses `MONGODB_URI`. Its integration case uses a newly named `opening_test_<ObjectId>` database on `127.0.0.1:27119`, replica set `opening-test`, asserts that exact database prefix before dropping only that test database, and retains no store data.
+`test/opening-stock.test.js` uses an isolated `opening_test_<ObjectId>` database and checks its name before cleanup. It connects to `127.0.0.1:27119` on replica set `opening-test` by default. Set `MONGODB_TEST_PORT=27017` and `MONGODB_TEST_REPLICA_SET=rs0` to use the local development replica set when available.
 
 ```powershell
 $env:RUN_OPENING_TESTS='1'

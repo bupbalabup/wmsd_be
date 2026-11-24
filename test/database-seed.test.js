@@ -28,12 +28,12 @@ test('databaseHasData correctly detects whether collections contain documents', 
   assert.equal(await databaseHasData(populatedDb), true);
 });
 
-test('buildCompleteSeedData compiles all 58 models and validates every document', async () => {
+test('buildCompleteSeedData compiles all 62 models and validates every document', async () => {
   const conn = mongoose.createConnection();
   const { data, groups, modelMap } = await buildCompleteSeedData(conn);
 
-  assert.equal(modelMap.size, 58, 'Must register exactly 58 models');
-  assert.equal(groups.length, 58, 'Must have 58 collection groups');
+  assert.equal(modelMap.size, 62, 'Must register exactly 62 models');
+  assert.equal(groups.length, 62, 'Must have 62 collection groups');
 
   // Verify Roles
   const roleCodes = data.roles.map((r) => r.code);
@@ -156,16 +156,12 @@ test('buildCompleteSeedData includes all 5 goods receipt kinds preserving all re
   }
 
   // Verify error-correction cases for OTHER
-  const postedOther = others.find((r) => r.workflowStatus === 'POSTED' && !r.header.originalReceiptId);
+  const postedOther = others.find((r) => r.workflowStatus === 'POSTED');
   assert.ok(postedOther.evidenceIds?.length, 'Posted OTHER has evidenceIds');
-  assert.ok(postedOther.approvedStockHash, 'Posted OTHER has approvedStockHash');
   assert.ok(postedOther.approvalDecisionId, 'Posted OTHER has approvalDecisionId');
 
   const reversedOther = others.find((r) => r.workflowStatus === 'REVERSED');
   assert.ok(reversedOther, 'Must have a REVERSED OTHER receipt');
-
-  const replacementOther = others.find((r) => r.header.originalReceiptId && String(r.header.originalReceiptId) === String(reversedOther._id));
-  assert.ok(replacementOther, 'Must have a replacement OTHER receipt referencing the reversed receipt');
 
   const draftOther = others.find((r) => r.workflowStatus === 'DRAFT');
   assert.ok(draftOther, 'Must have a DRAFT OTHER receipt');

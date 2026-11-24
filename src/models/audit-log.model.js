@@ -40,6 +40,9 @@ export function createAuditLogSchema() {
     options("audit_logs"),
   );
   audits.index({ subjectId: 1, occurredAt: 1 });
+  // System audit log screen (23/11/2026): newest first, optionally by actor or action.
+  audits.index({ occurredAt: -1, _id: -1 });
+  audits.index({ actorId: 1, occurredAt: -1 });
   appendOnly(audits);
   return audits;
 }

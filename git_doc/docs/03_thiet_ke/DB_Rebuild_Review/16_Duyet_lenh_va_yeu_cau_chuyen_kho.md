@@ -42,7 +42,7 @@ Một TR ghi nhu cầu chuyển hàng giữa đúng một cặp kho khác nhau. 
 | `requestedBy`, `requestedAt`, `reason`, `neededBy` | Người lập tại kho nguồn, thời điểm, lý do điều chuyển và ngày cần tại kho đích nếu có. |
 | `approvalStatus`, `reviewedBy`, `reviewedAt`, `rejectionReason`, `approvedRevision` | Chờ duyệt, đã duyệt hoặc từ chối. Người xét phải khác người lập. Nếu từ chối thì bắt buộc ghi lý do. Các phiếu xuất phải truy được phiên bản TR đã duyệt. |
 | `items[]` | Mỗi dòng có ID cố định, sản phẩm, yêu cầu lô nếu có, đơn vị nhập và hệ số, lượng đề nghị, lượng được duyệt theo đơn vị gốc, cùng liên kết nhu cầu nếu có. Phiếu xuất tham chiếu đúng ID dòng để kiểm giới hạn. |
-| `executionStatus`, `closedBy`, `closedAt`, `version` | Theo dõi chưa xuất, đang thực hiện hoặc đã đóng. Khi hiển thị tiến độ, lấy lượng thực xuất từ H09, thực nhận từ H10 và đang chuyển từ C01/C02. |
+| `workflowStatus` (cấp phiếu), `closedBy`, `closedAt`, `version` | Theo dõi chưa xuất, đang thực hiện hoặc đã đóng. Khi hiển thị tiến độ, lấy lượng thực xuất từ H09, thực nhận từ H10 và đang chuyển từ C01/C02. |
 
 **Giới hạn theo từng dòng đã duyệt.** Đề xuất tính lượng còn có thể lập phiếu bằng lượng duyệt trừ lượng đã thực xuất và lượng đã dành cho các phiếu xuất còn mở. Khi phiếu mở được xác nhận, chuyển chính phần đó sang đã xuất. Nếu hủy phiếu chưa xuất, trả lại phần được dành. Kiểm cùng phiên bản dòng TR khi hai nhân viên lập phiếu đồng thời. Có thể xuất nhiều dòng hoặc nhiều lô trong một đợt nếu phù hợp phạm vi đã duyệt. Lượng dư của sản phẩm này không bù cho sản phẩm khác.
 

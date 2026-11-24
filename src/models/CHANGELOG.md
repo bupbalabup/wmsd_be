@@ -1,3 +1,74 @@
+## 25/11/2026 — Delivery schedule
+
+Adds one delivery_schedules record per new sales order, with embedded deliveries, lines and allocations. Preserves existing SalesOrder source and evidence fields, and adds schedule references to delivery orders.
+
+## 23/11/2026 — Mở lại PO đã đóng sau khi đảo phiếu nhập
+
+Không đổi model. Lệnh mới `REOPEN_PURCHASE_ORDER` chỉ đổi `workflowStatus` và gỡ `header.closedAt` có sẵn; PO nhận hết phần còn lại khi có dòng chốt thiếu thì về `CLOSED`. Chi tiết ở `git_doc/change_logs.md`.
+
+## 23/11/2026 — Collection quản trị hệ thống và `users.lastLoginAt`
+
+Theo yêu cầu người dùng ngày 23/11/2026 (dashboard thật, chính sách bán hàng lưu DB, danh mục API trong DB, nhật ký lỗi cho admin, sửa "Lần đăng nhập cuối"):
+
+- Thêm `app_settings` (`key` duy nhất, `value` Mixed, `version`, `updatedBy`), `api_endpoints` (`method`, `url`, `name`, `description`, `module`, `source` SYSTEM/MANUAL, `isPresent`, `isActive`, `discoveredAt`; duy nhất `{method,url}`) và `error_logs` (`fingerprint` duy nhất, `level`, `source`, `statusCode`, `method`, `path`, `message`, `errorName`, `stack`, `count`, `firstSeenAt`, `lastSeenAt`, `lastUserId`, `resolvedAt`, `resolvedBy`). Registry 58 → 61.
+- `users` thêm `lastLoginAt` (tuỳ chọn), ghi khi đăng nhập thành công, không đổi `updatedAt`.
+- `audit_logs` thêm index `{occurredAt:-1,_id:-1}` và `{actorId:1,occurredAt:-1}`.
+- Không cần migration: collection mới bắt đầu rỗng; tài khoản cũ có `lastLoginAt` rỗng (hiển thị "Chưa ghi nhận") tới lần đăng nhập kế tiếp. Index mới được Mongoose tạo khi `autoIndex` bật hoặc qua quy trình triển khai index hiện có.
+- Seed demo: ba collection mới là mảng rỗng; danh mục quyền thêm 7 quyền (xem [SYSTEM_ADMIN](../../git_doc/docs/08_api/SYSTEM_ADMIN.md)).
+- Kiểm thử: `test/consolidation`, `database-seed`, `document-identities`, `reviewed-demo` cập nhật số collection/bản ghi và đạt.
+
+## 22/11/2026 — Tinh gọn DB đợt 1
+
+User decision (23 Nov 2026): the Warehouse Staff counter chooses why a counted line differs from the book; the Owner only approves or requests a recount. `stocktakes.header` adds `countReasons[]` (new embedded `stocktake-count-reason.schema.js`): `snapshotId` (StocktakeSnapshot), `countId` (StocktakeCount), `reasonCode` (`DISCREPANCY_REASONS`), optional `reasonNote` (≤ 500), `setBy`, `setAt`. Additive, default `[]`; no index, migration or backfill. Contract: [STOCKTAKE_LIFECYCLE](../../git_doc/docs/08_api/STOCKTAKE_LIFECYCLE.md#post-idcount-reason-23-november-2026); dictionary and `schema.json` updated by hand (the ERD was not regenerated, see `git_doc/change_logs.md`).
+
+## 22 November 2026 — OTHER receipt drops replacement link and approval hash
+
+User decision (22/11/2026): `goods_receipts` `OTHER` header removes `originalReceiptId`; the `OtherGoodsReceipt` discriminator removes `approvedStockHash`. `approvedVersion` and `approvalDecisionId` stay. No index or collection change, no migration or compatibility code; local data with the old fields is reseeded. See [GOODS_RECEIPTS](../../git_doc/docs/08_api/GOODS_RECEIPTS.md) and the [current dictionary](../../git_doc/docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Data_Dictionary.md).
+
+
+## 22 November 2026 — Source locations on transfer request lines
+
+User decision: select multiple bins and validate quantities per selected product and lot. `warehouse_transfer_requests.items[]` adds optional `lotLabelSnapshot` and optional `sourceLocations[]` with `sourceBalanceId`, `locationId`, `locationCode`, and positive Decimal128 `qtyBase`. The transaction checks the balance scope, available stock, and the total. No new collection, index, or backfill is required. See the [BF04 contract](../../git_doc/docs/08_api/transfers/BF04_API.md#source-locations-on-transfer-requests--22-november-2026).
+
+## 22 November 2026 — `stocktake_plan_period_once` frees cancelled slips
+
+Decision source: user "fix all" follow-up, 22 Nov 2026. The unique partial index `stocktake_plan_period_once` on `stocktakes` `{header.planId, header.planPeriodNo}` now has `partialFilterExpression: { "header.planId": { $exists: true }, workflowStatus: { $in: ["PLANNED","COUNTING","RECONCILING","PENDING_APPROVAL","APPROVED","IN_PROGRESS","COMPLETED","CLOSED","POSTED"] } }`, so a `CANCELLED` slip no longer blocks regenerating its plan period (`$ne` is not allowed in partial filters, hence the allow-list). No field was added or removed. Definition in code only; never built on a shared database. Contract: `git_doc/docs/08_api/STOCKTAKE_PLANS.md`.
+
+## 22 November 2026 — Stocktake plan collection and reconciliation fields
+
+Decision source: User decision 22 Nov 2026 following lecturer feedback (separate plan/slip, remove blind count, simplified reconciliation, drop closing reason). Contract: `git_doc/docs/08_api/STOCKTAKE_PLANS.md` and `STOCKTAKE_LIFECYCLE.md#redesign--22-november-2026-current-contract`.
+
+- New collection `stocktake_plans` (`StocktakePlan`, `stocktake-plan.model.js`; embedded `stocktake-plan-header.schema.js` reusing `stocktake-header-scope.schema.js`). Document identity `KHKK-<warehouse>-YYMMDD-<n>` (`ST_SCHEDULE` in `document-number.js`); `workflowStatus` ACTIVE/PAUSED/ENDED; header holds warehouse, title, reason, scope (locationIds/areaCodes/batchIds/productIds), assignedCounterIds, frequency MONTHLY/QUARTERLY/YEARLY, startDate, endDate, nextPeriodNo, nextDueAt, reminderDays, lastGeneratedAt, lastStocktakeId, generatedCount and pause/resume/end metadata. Indexes `{workflowStatus, header.nextDueAt}`, `{header.warehouseId, workflowStatus}`. Registry: 58 → 59 collections; `docType()` accepts `stocktake_plans` for operation/audit subjects.
+- `stocktakes.header` adds optional `planId` (document identity), `planPeriodNo`, `planPeriodDueAt`, `settledLines[]` (`stocktake-settled-line.schema.js`) and `recountLines[]` (`stocktake-recount-line.schema.js`). New unique partial index `stocktake_plan_period_once` on `{header.planId, header.planPeriodNo}`.
+- Unchanged but now history-only: embedded `resolutionPlans` and `stocktake-resolution-plan*.schema.js`, `stocktake-resolution-details.schema.js` (its `DISCREPANCY_REASONS` is reused), `stock_adjustments.header.resolutionPlanId`.
+- Compatibility: additive; no backfill, migration or index build was run on any shared database (definitions in code only). Seed fixture `src/seeds/rebuild/data.js` gets an empty `stocktake_plans` so the seed validator covers 59 models.
+- Verification: `test/reviewed-model-files`, `consolidation`, `database-seed`, `reviewed-demo`, `document-identities` pass with the 59-model count; isolated local replica-set runs listed in `git_doc/change_logs.md` (22 Nov 2026).
+
+## 20 November 2026 — Preserve customer-return claims and inspection packaging
+
+`return_quantity_claims.events` uses the existing kind field for REACQUIRED. Model validation checks event prefixes against the original claim and released allowance; RECEIVED remains charged to the source. Services lock and recheck source allowance before reassessment increases, preserving existing events.
+
+`customer_returns.inspections[].portions` adds optional `packagingState`, `measuredVolumeMm3` and `packagingSnapshot` for new DIRECT inspections. Whole measured portions keep the measurement at receipt; partial fragments can use the existing inventory volume bound. Sealed packaging is checked against the fixed verified lot, not against a client-provided replacement. Existing documents remain readable; no collection, relationship, index, migration or backfill changed.
+
+## 19 November 2026 — Append-only correction of an empty-location count
+
+`stocktake_counts` adds optional `correctsEmptyCountId` (ref to the superseded `StocktakeCount`) and `correctionReason` (String ≤ 2000). A correction records a new discovered `STOCK` count with evidence; the original `EMPTY_LOCATION` attempt remains unchanged. Optional fields are compatible with existing documents; no collection or index change, migration, or backfill.
+
+18/11/2026: thêm `reasonCode` (tùy chọn, `DAMAGED`/`LOST`/`MISPLACED`/`FOUND`/`RECORD_ERROR`/`OTHER`) và `reasonNote` (≤ 500) vào `stocktakes.resolutionPlans[].items[].details`; phương án mới luôn gửi lý do, phương án cũ không cần sửa dữ liệu.
+
+19/11/2026. Gỡ `approvedEnteredQty` khỏi `replenishment_requests.items[]` và `approval_history.itemDecisions[]`. Lượng duyệt được ghi theo đơn vị gốc ở `approvedQtyBase`. Các bản ghi cũ vẫn đọc được qua lượng gốc. Áp dụng quy tắc chuẩn hóa diện tích ở lớp nghiệp vụ.
+
+18/11/2026: `product_batches` thêm lại `tone` và `calibre` (String, tùy chọn, tối đa 20 ký tự, trim). Đảo quyết định 06/11/2026 (v6) theo yêu cầu mới của người dùng; khóa duy nhất vẫn là `productId + manufacturerLot`, không đổi index. `field-cleanup.js` không còn gỡ hai trường này. Lô cũ không có giá trị, không backfill. Thêm `verificationReference`, `notes` (String ≤ 500, tùy chọn), `verifiedAt` (Date), `verifiedBy` (ref User), đặt `verifiedAt/By` khi lô chuyển sang VERIFIED.
+
+## 18 November 2026 — Existing warehouse positions on 3D design slots
+
+`warehouses.layout3d` and `layout3dApplied` accept optional `zones[].slots[].locationId` (ObjectId string). The layout API validates each reference against warehouse_locations from the same warehouse. The existing Mixed fields need no Mongoose schema change, new index, migration or backfill; operational locations and transactions are unaffected. See [Kho 3D stage 2](../git_doc/docs/10_Kho3D/STAGE2_ZONES.md).
+
+## 18 November 2026 — BF03 mixed sealed cartons and loose pieces
+
+User requested optional cartons plus loose entry. WAREHOUSE_TASK embedded details adds optional `packagingState` enum SEALED/LOOSE with no default. BF03 stores separate items for each category, preserves independent partial progress and matches category when editing. Explicit LOOSE may split known-volume stock using existing conservative bounds; SEALED cannot open. Old absent values retain existing behavior. No collection/index/ref/relationship changes, ERD relationship changes, migration or backfill; deploy paired FE/BE. Updated model map, dictionary, API, project guide and contexts. Focused validation and isolated local transaction checks passed, including 10 cartons × 4 + 1 loose, source remainder 21, retry and conservation. No application database write or remote rollout.
+18/11/2026: thêm `approvedEnteredQty` (tùy chọn, Decimal128 ≥ 0) vào dòng `replenishment_requests` và `approval_history.itemDecisions`; `approvedQtyBase` được BE tính từ trường này.
+
 ## Customer details on documents — 17 November 2026
 
 User decision: customers are not managed as catalogue records. New sales orders require `customerName` (1–160 characters) and allow `customerPhone` (up to 30 characters); the delivery address remains on the order. Creating an order does not query or create a Customer. Sales options return an empty compatibility `customers` array.
@@ -11,6 +82,8 @@ Validation: focused sales/return contract tests and the local direct-sales trans
 ## 17 November 2026 — direct sales and no-custody customer returns
 
 User explicitly restored Sales Order and requested removal of picking/delivery/custody complexity. Added direct order-backed issue creation/posting, Sales-only evidenced customer receipt and inline undelivered goods receipt. New CR inspections have no inventory effect; accepted receipt posts STORE stock; rejected handback is an embedded event. Preserved legacy flows and history through optional mode markers. Added embedded customer receipt/handback schemas, issue stock/order/customer references and FAILED_DELIVERY receipt direct issue reference. No collection, backfill, stored identity change, commit/push or remote write. Updated current API, model map, dictionary, relationship view, contexts and local setup. Tests: isolated direct/legacy integration and standard backend suites; focused frontend tests and production build. Broader frontend verification limitations are tracked in setup/hand-off rather than claimed as passing.
+
+17/11/2026: Kho 3D mở rộng hợp đồng Mixed warehouses.layout3d / layout3dApplied bằng pallets[].layers[] (height/items nhãn mã sản phẩm/lô/số thùng) và measuredCargoHeight? (m, không gồm đế). Không thêm schema collection/index/ref hay migration. actualHeight cũ giữ tổng cao; cảnh báo vượt cao không chặn áp dụng. Hợp đồng và sơ đồ trường: git_doc/docs/10_Kho3D/STAGE3_PALLET_LAYERS.md. Kiểm schema 6 test đạt, chưa rollout/transaction DB.
 
 ## 17/11/2026 — Outbound carton opening
 

@@ -7,6 +7,7 @@ export function createStockAdjustmentHeaderSchema() {
     stocktakeId: ref("Stocktake", false),
     resolutionPlanId: ref("StocktakeResolutionPlan", false),
     warehouseId: ref("Warehouse", false),
+    deliveryOrderId: ref("DeliveryOrder", false),
   });
   return schema;
 }

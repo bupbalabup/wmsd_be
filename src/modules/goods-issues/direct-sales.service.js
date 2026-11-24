@@ -3,7 +3,7 @@ import { currentRole } from '../../shared/utils/userRole.js';
 import { nextDocumentFields } from '../../shared/utils/document-number.js';
 import { copyItem, sourceLink } from '../../shared/utils/document-copy.js';
 import { dto } from '../../shared/utils/persistence.js';
-import { freeQuantity } from '../../shared/utils/stock.js';
+import { freeQuantity, stocktakeLockedLocations } from '../../shared/utils/stock.js';
 const { m, exact, same, command, checkVersion, saveVersion, requireWarehouseAccess, requirePermission, validationError, notFoundError, sum } = s;
 const role = user => currentRole(user)?.code;
 const replay = (id, user, session) => access(user, id, session);
@@ -60,6 +60,7 @@ export function create(user, input) {
     const order = await m.SalesOrder.findById(input.salesOrderId).session(session);
     if (!order || !active(order)) throw validationError('Đơn bán đã kết thúc');
     checkVersion(order, input.expectedVersion);
+    if (await m.DeliverySchedule.exists({ salesOrderId: order._id }).session(session)) throw validationError('Đơn có lịch giao; xuất kho qua lệnh giao hàng');
     if (await m.WarehouseIssueRequest.exists({ 'header.salesOrderId': order._id, workflowStatus: { $nin: ['CANCELLED', 'CLOSED'] } }).session(session)) throw validationError('Đơn đang có yêu cầu xuất cũ; hoàn tất hoặc hủy yêu cầu trước');
     const issue = new m.SalesGoodsIssue({ ...await nextDocumentFields(m.SalesGoodsIssue, 'GI', input.warehouseId, session), workflowStatus: 'DRAFT', version: 1, createdBy: actor._id, note: input.note,
       header: { warehouseId: input.warehouseId, fulfillmentMode: 'DIRECT', salesOrderId: order._id, customerId: order.header.customerId }, sources: [sourceLink(order)], items: [] });
@@ -153,7 +154,9 @@ export async function options(user, query) {
     const warehouses = await m.Warehouse.find({ isActive: true, ...(role(user) !== 'OWNER' && { _id: { $in: user.warehouseIds || [] } }) }).select('code name').session(session);
     const orders = await m.SalesOrder.find({ workflowStatus: { $nin: ['CANCELLED', 'CLOSED', 'COMPLETED', 'DELIVERED'] }, ...(role(user) === 'SALES' && { createdBy: user._id }) }).sort({ createdAt: -1 }).limit(100).session(session);
     const choices = [];
+    const scheduled = new Set((await m.DeliverySchedule.distinct('salesOrderId', { salesOrderId: { $in: orders.map(order => order._id) } }).session(session)).map(String));
     for (const order of orders) {
+      if (scheduled.has(String(order._id))) continue;
       if (await m.WarehouseIssueRequest.exists({ 'header.salesOrderId': order._id, workflowStatus: { $nin: ['CANCELLED', 'CLOSED'] } }).session(session)) continue;
       const lines = [];
       for (const item of order.items) {
@@ -166,10 +169,11 @@ export async function options(user, query) {
     const points = await m.StockHoldingPoint.find({ type: 'LOCATION', locationId: { $in: locations.map(l => l._id) } }).session(session);
     const balances = await m.InventoryBalance.find({ holdingPointId: { $in: points.map(p => p._id) }, ownerType: 'STORE', qualityStatus: 'GOOD', quantityBase: { $gt: 0 } }).session(session);
     const batches = await m.ProductBatch.find({ _id: { $in: balances.map(b => b.batchId) }, identificationStatus: 'VERIFIED' }).session(session);
-    const stockSources = [];
+    const stockSources = [], frozen = await stocktakeLockedLocations(locations.map(l => l._id), session);
     for (const balance of balances) {
       const batch = batches.find(b => same(b._id, balance.batchId)); if (!batch) continue;
       const point = points.find(p => same(p._id, balance.holdingPointId)), location = locations.find(l => same(l._id, point.locationId));
+      if (frozen.has(String(location._id))) continue; // locked by a stocktake: nothing selectable
       const available = await freeQuantity(balance, session); if (!available.gt(0)) continue;
       stockSources.push({ id: String(balance._id), productId: String(batch.productId), lotId: String(batch._id), warehouseId: String(location.warehouseId), label: location.code + ' · ' + batch.manufacturerLot + ' · ' + available.toFixed(), availableQtyBase: available.toFixed() });
     }

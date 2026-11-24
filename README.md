@@ -4,6 +4,20 @@
 
 Backend API service for **WMSD (Warehouse Management System Development)** — Ceramic Tile Warehouse Management System (Capstone SEP490_G56).
 
+## Tài khoản demo
+
+Năm tài khoản dưới đây được tạo bởi `npm run seed` (dữ liệu mẫu trong `src/seeds/data/accounts.data.js`). Trang đăng nhập **không còn** hiển thị hay tự điền các tài khoản này (gỡ ngày 23/11/2026); hãy gõ tay khi đăng nhập thử.
+
+| Vai trò | Tên đăng nhập | Mật khẩu | Phạm vi chính |
+| --- | --- | --- | --- |
+| Quản trị viên (`ADMIN`) | `admin@ceratile.vn` | `Admin@123` | Tài khoản, vai trò, phân quyền, nhật ký hệ thống, danh mục API, theo dõi server |
+| Chủ cửa hàng (`OWNER`) | `owner@ceratile.vn` | `Owner@123` | Bảng điều hành, phê duyệt, sản phẩm/lô, chính sách bán hàng & ngưỡng kho, báo cáo |
+| Nhân viên bán hàng (`SALES`) | `sales@ceratile.vn` | `Sales@123` | Đơn bán, yêu cầu xuất kho, hàng khách trả |
+| Thủ kho & điều phối (`WAREHOUSE`) | `warehouse@ceratile.vn` | `Kho@12345678` | Nhập, kiểm, cất hàng, chuyển vị trí/chuyển kho, kiểm kê, soạn và xuất hàng |
+| Kế toán công nợ (`ACCOUNTANT`) | `accountant@ceratile.vn` | `KeToan@123` | Đơn mua hàng, nhà cung cấp, đối chiếu chứng từ ngoài |
+
+Chỉ dùng cho môi trường demo/phát triển. Khi triển khai thật, đổi mật khẩu hoặc khoá các tài khoản này (seed chạy lại không ghi đè mật khẩu đã đổi). Tài khoản `warehouse2@ceratile.vn` dùng để kiểm thử tách nhiệm vụ nhận hàng được mô tả ở mục seed bên dưới.
+
 ## Tech Stack
 - **Runtime:** Node.js (ESM `type: "module"`)
 - **Framework:** Express 5
@@ -87,8 +101,7 @@ npm test         # Runs node --test suite
 
 ## Demo seed data
 
-Run `npm run seed` from `be/`, or start the server with `SEED_ON_STARTUP=true`
-(the default). The seeder inserts data **only when the entire database is empty**.
+Run `npm run seed` from the backend directory to explicitly load demo data. The seeder inserts data **only when the entire database is empty**.
 One existing document in any non-system collection, including a legacy collection,
 skips all seed inserts. Empty collections and indexes alone do not block seeding.
 An existing database with only accounts/roles is also skipped; this is not a migration.

@@ -65,9 +65,10 @@ const parse = (body) => updateUserSchema.safeParse({ params: { id: targetId }, b
 
 afterEach(() => mock.restoreAll());
 
-test('profile schema accepts name, email and phone and rejects invalid values', () => {
-  assert.equal(parse({ fullName: 'Nguyen Van B', email: 'new@example.test', phone: '0900000002' }).success, true);
+test('profile schema accepts name and phone, rejects invalid values and any email (OTP flow only, 23/11/2026)', () => {
+  assert.equal(parse({ fullName: 'Nguyen Van B', phone: '0900000002' }).success, true);
   assert.equal(parse({ fullName: 'B' }).success, false);
+  assert.equal(parse({ email: 'new@example.test' }).success, false);
   assert.equal(parse({ email: 'not-an-email' }).success, false);
   assert.equal(parse({ phone: '9'.repeat(31) }).success, false);
 });
@@ -86,18 +87,18 @@ test('profile schema currently also accepts roleCode and warehouseIds', () => {
   assert.equal(parse({ warehouseIds: [warehouseA, warehouseA] }).success, false);
 });
 
-test('updateUser saves new name, email and phone and leaves status and lock reason unchanged', async () => {
+test('updateUser saves new name and phone, ignores email and leaves status and lock reason unchanged', async () => {
   const lockedDoc = target({ isActive: false, lockReason: 'Nghi viec' });
   stubUsers(actor(['user:update']), lockedDoc);
   const result = await updateUser(targetId, { fullName: '  Nguyen Van B  ', email: 'new@example.test', phone: '0900000002' });
   assert.equal(lockedDoc.save.mock.callCount(), 1);
   assert.equal(lockedDoc.fullName, 'Nguyen Van B');
-  assert.equal(lockedDoc.email, 'new@example.test');
+  assert.equal(lockedDoc.email, 'old@example.test');
   assert.equal(lockedDoc.phone, '0900000002');
   assert.equal(lockedDoc.isActive, false);
   assert.equal(lockedDoc.lockReason, 'Nghi viec');
   assert.equal(result.fullName, 'Nguyen Van B');
-  assert.equal(result.email, 'new@example.test');
+  assert.equal(result.email, 'old@example.test');
   assert.equal(result.phone, '0900000002');
   assert.equal(result.status, 'inactive');
   assert.equal(result.lockReason, 'Nghi viec');
@@ -131,14 +132,25 @@ test('PUT /users/:id with user:update saves the profile and returns the new valu
   const doc = target();
   stubUsers(actor(['user:read', 'user:update']), doc);
   const call = await withServer(t);
-  const response = await call(`/${targetId}`, 'PUT', { fullName: 'Nguyen Van B', email: 'new@example.test', phone: '0900000002' });
+  const response = await call(`/${targetId}`, 'PUT', { fullName: 'Nguyen Van B', phone: '0900000002' });
   assert.equal(response.status, 200);
   const { data } = await response.json();
   assert.equal(data.fullName, 'Nguyen Van B');
-  assert.equal(data.email, 'new@example.test');
+  assert.equal(data.email, 'old@example.test');
   assert.equal(data.phone, '0900000002');
   assert.equal(data.status, 'active');
   assert.equal(doc.save.mock.callCount(), 1);
+});
+
+test('PUT /users/:id with an email is a validation error; email changes only through OTP', async (t) => {
+  const doc = target();
+  stubUsers(actor(['user:read', 'user:update']), doc);
+  const call = await withServer(t);
+  const response = await call(`/${targetId}`, 'PUT', { fullName: 'Nguyen Van B', email: 'new@example.test' });
+  assert.equal(response.status, 400);
+  assert.equal(targetLookups(), 0);
+  assert.equal(doc.save.mock.callCount(), 0);
+  assert.equal(doc.email, 'old@example.test');
 });
 
 test('PUT /users/:id with a status value is a validation error and nothing is saved', async (t) => {

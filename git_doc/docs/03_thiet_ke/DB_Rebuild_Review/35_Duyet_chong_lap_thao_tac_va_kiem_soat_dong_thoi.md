@@ -38,6 +38,8 @@ G04 được lưu cùng phiếu, quyết định, biến động tồn và sự 
 
 ## G05 · replenishment_locks · Kiểm soát lập bổ sung đồng thời
 
+Thiết kế G05 bên dưới là lịch sử. Đợt 1 đã gỡ collection khóa và bộ đếm của SO sau khi dừng cơ chế guard. Xem [bản đồ model hiện hành](../../../MODEL_MAP.md).
+
 Đề xuất **một bản ghi cho một cặp kho/sản phẩm**, tự tạo khi có thao tác cần tính và sử dụng phần thiếu. Đây là điểm phối hợp ngắn trong lúc lưu để hai người không cùng sử dụng một phép tính cũ. Nó không khóa ô, không giữ hàng và không ngăn kho hoạt động trong suốt thời gian một RR chờ duyệt.
 
 | Trường đề xuất | Kiểu và ý nghĩa |

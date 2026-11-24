@@ -9,7 +9,7 @@ import { dto, page, transaction } from '../../shared/utils/persistence.js';
 import { requirePermission, requireWarehouseAccess, hasPermission } from '../../shared/utils/access.js';
 import { currentRole } from '../../shared/utils/userRole.js';
 import { validationError, notFoundError } from '../../shared/utils/ApiError.js';
-import { guardLocations, sourceContext, freeQuantity, locationAt, balanceAt, beginStock, moveStock, remainingReservation, verifyCapacity } from '../../shared/utils/stock.js';
+import { guardLocations, sourceContext, freeQuantity, locationAt, balanceAt, beginStock, moveStock, remainingReservation, verifyCapacity, stocktakeLockedLocations } from '../../shared/utils/stock.js';
 import { orderSource, redactPrices } from './sales-read.service.js';
 import { escapeRegex } from '../../shared/utils/domain.js';
 import { issueSource } from '../goods-issues/goods-issue.service.js';
@@ -60,6 +60,7 @@ async function committed(order, session) {
 export function updateSalesOrder(user, id, input) {
     return command(user, 'UPDATE_SALES_REMAINDER', 'sales_order:update', id, input, (id, a, s) => ownOrder(a, id, s), async (session, actor) => {
         const order = await ownOrder(actor, id, session);
+        if (await m.DeliverySchedule.exists({ salesOrderId: order._id }).session(session)) throw validationError('Đơn có lịch giao; dùng thao tác của lịch giao');
         checkVersion(order, input.expectedVersion);
         open(order);
         unique(input.lines, 'lineId');
@@ -106,6 +107,7 @@ async function reopening(order, receiptLineId, quantity, session) {
 export function cancelSalesRemainder(user, id, input) {
     return command(user, 'CANCEL_SALES_REMAINDER', 'sales_order:update', id, input, (id, a, s) => ownOrder(a, id, s), async (session, actor, operationId) => {
         const order = await ownOrder(actor, id, session);
+        if (await m.DeliverySchedule.exists({ salesOrderId: order._id }).session(session)) throw validationError('Đơn có lịch giao; dùng thao tác của lịch giao');
         checkVersion(order, input.expectedVersion);
         open(order);
         unique(input.lines, 'lineId');
@@ -137,6 +139,7 @@ export function createIssueRequest(user, id, input) {
     return command(user, 'CREATE_ISSUE_REQUEST', 'issue_request:create', id, input, async (id, a, s) => { const r = await m.WarehouseIssueRequest.findById(id).session(s); if (!r)
         throw notFoundError(); await ownOrder(a, r.header.salesOrderId, s); }, async (session, actor) => {
         const order = await ownOrder(actor, id, session);
+        if (await m.DeliverySchedule.exists({ salesOrderId: order._id }).session(session)) throw validationError('Đơn có lịch giao; dùng thao tác của lịch giao');
         if (await m.SalesGoodsIssue.exists({ 'header.salesOrderId': order._id, workflowStatus: { $ne: 'CANCELLED' } }).session(session)) throw validationError('Đơn đang dùng phiếu xuất trực tiếp');
         checkVersion(order, input.expectedVersion);
         open(order);
@@ -325,28 +328,48 @@ export async function listSalesOrders(user, query) {
     if (!named) {
         const ids = await m.WarehouseIssueRequest.find({ 'header.requestedWarehouseId': { $in: user.warehouseIds || [] } }).distinct('header.salesOrderId');
         const directIds = await m.SalesGoodsIssue.find({ 'header.salesOrderId': { $exists: true }, 'header.warehouseId': { $in: user.warehouseIds || [] } }).distinct('header.salesOrderId');
-        filter._id = { $in: [...ids, ...directIds] };
+        const scheduled = await m.DeliverySchedule.find({ 'deliveries.warehouseId': { $in: user.warehouseIds || [] } }).distinct('salesOrderId');
+        filter._id = { $in: [...ids, ...directIds, ...scheduled] };
     }
     if (query.q)
         filter.documentNo = new RegExp(escapeRegex(query.q), 'i');
     if (query.status)
         filter.workflowStatus = query.status;
-    return page(m.SalesOrder, filter, query, 'documentNo documentKind workflowStatus version createdAt header.customerId header.neededOn');
+    const result = await page(m.SalesOrder, filter, query, 'documentNo documentKind workflowStatus version createdAt header.customerName header.customerPhone header.neededOn');
+    const orderIds = result.items.map(row => row._id);
+    if (orderIds.length) {
+        const schedules = await m.DeliverySchedule.find({ salesOrderId: { $in: orderIds } }).select('salesOrderId deliveries.status deliveries.plannedOn deliveries.warehouseId').lean();
+        const byOrder = new Map(schedules.map(s => [String(s.salesOrderId), s.deliveries ?? []]));
+        result.items = result.items.map(item => {
+            const activeDeliveries = (byOrder.get(String(item._id)) ?? []).filter(d => d.status !== 'CANCELLED' && (named || (user.warehouseIds || []).some(id => same(id, d.warehouseId))));
+            const latestMs = activeDeliveries.reduce((max, d) => Math.max(max, +new Date(d.plannedOn)), 0);
+            return {
+                ...item,
+                deliveryCount: activeDeliveries.length,
+                latestPlannedOn: latestMs ? new Date(latestMs).toISOString() : null,
+                hasOnHoldDo: activeDeliveries.some(d => d.status === 'ON_HOLD'),
+            };
+        });
+    }
+    return result;
 }
 export async function salesOptions(user) {
-    if (!hasPermission(user, 'sales_order:create') && !hasPermission(user, 'outbound_delivery:create') && !hasPermission(user, 'picking_task:create'))
+    if (!hasPermission(user, 'sales_order:create') && !hasPermission(user, 'delivery_order:create'))
         requirePermission(user, 'sales_order:create');
-    const warehouseFilter = currentRole(user)?.code === 'OWNER' ? {} : { _id: { $in: user.warehouseIds || [] } };
+    const warehouseFilter = currentRole(user)?.code === 'OWNER' || hasPermission(user, 'sales_order:create') ? {} : { _id: { $in: user.warehouseIds || [] } };
     const warehouses = await m.Warehouse.find({ ...warehouseFilter, isActive: true }).lean();
     const ids = warehouses.map(w => w._id);
     const locations = await m.WarehouseLocation.find({ warehouseId: { $in: ids }, isActive: true }).lean();
     const points = await m.StockHoldingPoint.find({ type: 'LOCATION', locationId: { $in: locations.map(l => l._id) } }).lean();
-    const balances = await m.InventoryBalance.find({ holdingPointId: { $in: points.map(p => p._id) }, ownerType: 'STORE', qualityStatus: 'GOOD', quantityBase: { $gt: 0 } }).lean();
+    const balances = (await m.InventoryBalance.find({ holdingPointId: { $in: points.map(p => p._id) }, ownerType: 'STORE', qualityStatus: 'GOOD', quantityBase: { $gt: 0 } }).lean());
+    // Stocktake-locked locations stay listed but flagged, with nothing selectable (same for every role).
+    const frozen = await stocktakeLockedLocations(locations.map(l => l._id));
+    const frozenPoints = new Set(points.filter(p => frozen.has(String(p.locationId))).map(p => String(p._id)));
     const chronology = await m.StockTransaction.aggregate([{ $unwind: '$movements' }, { $match: { 'movements.toBalanceId': { $in: balances.map(b=>b._id) } } }, { $group: { _id: '$movements.toBalanceId', firstReceivedAt: { $min: '$occurredAt' } } }]);
     balances.sort((a,b)=>(+(chronology.find(r=>same(r._id,a._id))?.firstReceivedAt || 8640000000000000))-(+(chronology.find(r=>same(r._id,b._id))?.firstReceivedAt || 8640000000000000)));
     const uoms=await m.Uom.find({isActive:true}).select('_id code name isCarton').lean();
     const conversions=await m.Conversion.find({uomId:{$in:uoms.map(u=>u._id)},validFrom:{$lte:new Date()}}).sort({validFrom:-1}).lean();
-    return { units:uoms.map(dto), conversions:conversions.filter((c,index,all)=>all.findIndex(x=>same(x.productId,c.productId)&&String(x.productBatchId||'')===String(c.productBatchId||'')&&same(x.uomId,c.uomId))===index).map(dto), customers: [], products: (await m.Product.find({ isActive: true }).select('_id name sku baseUnit').lean()).map(dto), batches: (await m.ProductBatch.find({ identificationStatus: 'VERIFIED' }).lean()).map(dto), warehouses: warehouses.map(dto), locations: locations.map(dto), holdingPoints: points.map(dto), balances: await Promise.all(balances.map(async (b) => ({ ...dto(b), firstReceivedAt: chronology.find(r=>same(r._id,b._id))?.firstReceivedAt?.toISOString() || null, availableQtyBase: (await freeQuantity(b)).toFixed() }))) };
+    return { units:uoms.map(dto), conversions:conversions.filter((c,index,all)=>all.findIndex(x=>same(x.productId,c.productId)&&String(x.productBatchId||'')===String(c.productBatchId||'')&&same(x.uomId,c.uomId))===index).map(dto), customers: [], products: (await m.Product.find({ isActive: true }).select('_id name sku baseUnit').lean()).map(dto), batches: (await m.ProductBatch.find({ identificationStatus: 'VERIFIED' }).lean()).map(dto), warehouses: warehouses.map(dto), locations: locations.map(l => ({ ...dto(l), lockedByStocktake: frozen.has(String(l._id)) })), holdingPoints: points.map(dto), balances: await Promise.all(balances.map(async (b) => { const lockedByStocktake = frozenPoints.has(String(b.holdingPointId)); return { ...dto(b), firstReceivedAt: chronology.find(r=>same(r._id,b._id))?.firstReceivedAt?.toISOString() || null, lockedByStocktake, availableQtyBase: lockedByStocktake ? '0' : (await freeQuantity(b)).toFixed() }; })) };
 }
 export async function listPicking(user, query) { requirePermission(user, 'picking_task:read'); const filter = { 'header.taskKind': 'PICK', 'sources.subjectCollection': 'sales_goods_issues', 'header.warehouseId': { $in: user.warehouseIds || [] } }; if (currentRole(user)?.code === 'OWNER')
     delete filter['header.warehouseId']; if (query.warehouseId) {

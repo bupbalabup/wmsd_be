@@ -5,12 +5,15 @@ import jwt from 'jsonwebtoken';
 import * as m from '../src/models/runtime.js';
 import { PERMISSION_CATALOGUE, ROLE_PERMISSIONS } from '../src/seeds/data/permissions.data.js';
 import { createSalesOrder } from '../src/modules/sales-orders/sales-create.service.js';
+import { createDeliveryOrder } from '../src/modules/delivery-orders/delivery-order.service.js';
+import { updateSalesOrderSchedule } from '../src/modules/sales-orders/sales-schedule.service.js';
 import * as issues from '../src/modules/goods-issues/goods-issue.service.js';
 import { confirmCustomerReceipt, receiveUndelivered } from '../src/modules/goods-issues/direct-sales.service.js';
 import * as sales from '../src/modules/sales-orders/sales-execution.service.js';
 import { lookup } from '../src/modules/return-workflows/native.lookup.js';
 import { getSalesOrder } from '../src/modules/sales-orders/sales-read.service.js';
 import * as returns from '../src/modules/return-workflows/native.service.js';
+import { processNotificationEvent } from '../src/modules/notifications/worker.js';
 const key = () => new mongoose.Types.ObjectId().toString();
 test('direct SO issue, customer receipt, undelivered receipt and return without custody', {skip: process.env.RUN_GOODS_ISSUE_TESTS !== '1'}, async () => {
  await mongoose.connect(`mongodb://127.0.0.1:${process.env.MONGODB_TEST_PORT || 27018}/direct_sales_test_${key()}?replicaSet=${process.env.MONGODB_TEST_REPLICA_SET || 'hieudt-test'}`);
@@ -38,11 +41,53 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
       packagingPortions: [{ packagingState: 'SEALED', sealedPackCount: 4, quantityBase: '16', packagingSnapshot: { packageUnit: 'BOX', baseUnitsPerPackage: '4', outerLengthMm: '620', outerWidthMm: '620', outerHeightMm: '50' }, createdBy: worker._id }] });
     assert.equal(await m.Customer.countDocuments(), 0);
     const evidenceReceipt = jwt.sign({ actorId: String(seller._id), storageKey: 'sep490/sales-source/test', checksum: 'a'.repeat(64), mediaType: 'image/png', sizeBytes: 12, originalName: 'source.png' }, process.env.JWT_SECRET, { audience: 'sales-source-evidence', expiresIn: '1h' });
-    const createdOrder = await createSalesOrder(seller, { idempotencyKey: key(), customerName: 'GI customer', customerPhone: '0900000000', neededOn: '2026-12-01T00:00:00Z', deliveryAddress: 'Test address', currencyCode: 'VND', evidenceReceipt,
-      source: { sourceSystem: 'PAPER', referenceNo: 'GI-TEST-SO' }, lines: [{ sourceLineKey: '1', productId: String(product._id), lotId: String(batch._id), enteredUnit: 'PIECE', quantity: '16', unitSellingPrice: '1000' }] });
-    const so = await m.SalesOrder.findById(createdOrder.id);
+    const plannedOn = new Date(Date.now() + 2 * 86400000).toISOString();
+    const orderInput = { idempotencyKey: key(), customerName: 'GI customer', customerPhone: '0900000000', neededOn: plannedOn, deliveryAddress: 'Test address', currencyCode: 'VND', evidenceReceipt,
+      source: { sourceSystem: 'PAPER', referenceNo: 'GI-TEST-SO' }, lines: [{ sourceLineKey: '1', productId: String(product._id), lotId: String(batch._id), enteredUnit: 'PIECE', quantity: '16', unitSellingPrice: '1000' }],
+      deliveries: [{ plannedOn, warehouseId: String(warehouse._id), lines: [{ lineKey: '1', quantity: '16' }] }] };
+    const invalid = {...orderInput, idempotencyKey: key(), deliveries: [{ ...orderInput.deliveries[0], lines: [{ lineKey: '1', quantity: '15' }] }]};
+    await assert.rejects(createSalesOrder(seller, invalid), /tổng các lần giao/);
+    assert.equal(await m.SalesOrder.countDocuments(), 0);
+    assert.equal(await m.ExternalReference.countDocuments(), 0);
+    assert.equal(await m.StockReservation.countDocuments(), 0);
+    const createdOrder = await createSalesOrder(seller, orderInput);
+    assert.equal((await createSalesOrder(seller, orderInput)).replayed, true);
+    let so = await m.SalesOrder.findById(createdOrder.id);
     assert.equal(so.header.customerName, 'GI customer');
     assert.equal(so.header.customerId, undefined);
+    assert.equal(await m.Customer.countDocuments(), 0);
+    let schedule = await m.DeliverySchedule.findOne({ salesOrderId: so._id });
+    assert.ok(schedule);
+    assert.equal(schedule.documentNo.replace(/^LG-/, ''), so.documentNo.replace(/^ĐBH-/, ''));
+    const reservation = await m.StockReservation.findById(schedule.deliveries[0].lines[0].allocations[0].reservationId);
+    assert.equal(reservation.executionRef.documentId, schedule._id);
+    assert.equal(String(reservation.reservedQty), '16');
+    const detail = await getSalesOrder(seller, so._id);
+    assert.equal(detail.deliverySchedule.documentNo, schedule.documentNo);
+    assert.equal(detail.source.referenceNo, 'GI-TEST-SO');
+    assert.equal(detail.evidence.length, 1);
+    assert.equal((await getSalesOrder(worker, so._id)).deliverySchedule.deliveries.length, 1);
+    await assert.rejects(issues.createIssue(worker, { idempotencyKey: key(), expectedVersion: so.version, salesOrderId: String(so._id),
+      warehouseId: String(warehouse._id), lines: [{ salesOrderLineId: String(so.items[0]._id), sourceBalanceId: String(balance._id), qtyBase: '8' }] }), /Đơn có lịch giao/);
+    const lineId = String(so.items[0]._id);
+    await updateSalesOrderSchedule(seller, so._id, {
+      idempotencyKey: key(), expectedVersion: so.version, reason: 'Sửa đơn giá',
+      lines: [{ lineId, unitSellingPrice: '1200' }],
+      deliveries: [{ id: String(schedule.deliveries[0]._id), plannedOn, warehouseId: String(warehouse._id), lines: [{ lineKey: lineId, quantity: '16' }] }],
+    });
+    so = await m.SalesOrder.findById(so._id);
+    schedule = await m.DeliverySchedule.findById(schedule._id);
+    assert.equal(String(so.orderAmount), '19200');
+    assert.equal(String(schedule.deliveries[0].lines[0].allocations[0].reservationId), String(reservation._id));
+    const delivery = await createDeliveryOrder(worker, { idempotencyKey: key(), scheduleId: schedule._id,
+      deliveryId: String(schedule.deliveries[0]._id), expectedVersion: schedule.version });
+    const deliveryOrder = await m.DeliveryOrder.findById(delivery.id);
+    assert.equal(deliveryOrder.header.scheduleId, schedule._id);
+    assert.equal(deliveryOrder.header.recipientName, 'GI customer');
+    // Turn this isolated test fixture into a historical order for the legacy flow below.
+    await m.DeliveryOrder.deleteOne({ _id: deliveryOrder._id });
+    await m.StockReservation.deleteOne({ _id: reservation._id });
+    await m.DeliverySchedule.deleteOne({ _id: schedule._id });
 
  const input={idempotencyKey:key(),expectedVersion:so.version,salesOrderId:String(so._id),warehouseId:String(warehouse._id),lines:[{salesOrderLineId:String(so.items[0]._id),sourceBalanceId:String(balance._id),qtyBase:'8'}]};
  await assert.rejects(issues.createIssue(seller,input));
@@ -137,5 +182,28 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
  assert.equal((await http(seller,'/goods-issues/'+encodeURIComponent(issue._id))).status,200);
  const lookupEvidence=await http(seller,'/return-workflows/lookup?kind=evidence&documentId='+encodeURIComponent(issue._id)+'&page=1&limit=10');assert.equal(lookupEvidence.status,200);
  assert.equal((await http(worker,'/goods-issues?salesOrderId='+encodeURIComponent(so._id))).status,200);
+ const cutoff = new Date(0);
+ assert.equal(await processNotificationEvent(new Date(Date.now() + 60_000)), false);
+ while (await processNotificationEvent(cutoff)) {}
+ const inbox = await http(seller, '/notifications');
+ assert.equal(inbox.status, 200);
+ const notices = inbox.body.data.items.filter(item => item.href === '/goods-issues/' + issue._id);
+ assert.equal(notices.length, 2);
+ const notice = notices[0];
+ const countBefore = (await http(seller, '/notifications/unread-count')).body.data.count;
+ const markRead = actor => fetch('http://127.0.0.1:' + server.address().port + '/api/notifications/' + notice.id + '/read', {
+   method: 'POST', headers: { authorization: 'Bearer ' + jwt.sign({userId:String(actor._id)},process.env.JWT_SECRET) },
+ });
+ assert.equal((await markRead(worker)).status, 404);
+ assert.equal((await markRead(seller)).status, 200);
+ assert.equal((await http(seller, '/notifications/unread-count')).body.data.count, countBefore - 1);
+ const persisted = await m.Notification.findById(notice.id);
+ await m.SystemEvent.updateOne({ eventKey: persisted.eventKey }, { $set: { status: 'PENDING' } });
+ assert.equal(await processNotificationEvent(cutoff), true);
+ assert.equal(await m.Notification.countDocuments({ dedupKey: persisted.dedupKey }), 1);
+ assert.equal(+(await m.Notification.findById(notice.id)).readAt, +persisted.readAt);
+ await m.User.updateOne({ _id: seller._id }, { $set: { warehouseIds: [] } });
+ assert.equal((await http(seller, '/notifications/unread-count')).body.data.count, 0);
+ assert.equal((await markRead(seller)).status, 404);
  } finally { if(server) await new Promise(resolve=>server.close(resolve)); await mongoose.connection.dropDatabase(); await mongoose.disconnect(); }
 });

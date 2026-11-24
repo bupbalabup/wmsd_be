@@ -1,6 +1,6 @@
 # Từ điển dữ liệu hiện hành — 12/11/2026
 
-58 collection. Dòng nhúng có ID ổn định; không phải collection độc lập. Mongoose ref là liên kết ứng dụng, không phải foreign key do MongoDB kiểm. Native return workflow additions and compatibility are documented in [RETURN_WORKFLOWS_NATIVE](../../08_api/RETURN_WORKFLOWS_NATIVE.md). `DocumentIdentity` nhận mã liền dạng String, mã String đã lưu có dấu cách quanh dấu nối và ObjectId lịch sử. [Quy tắc định danh](../../08_api/DOCUMENT_IDENTITIES.md).
+62 collection. Dòng nhúng có ID ổn định; không phải collection độc lập. Mongoose ref là liên kết ứng dụng, không phải foreign key do MongoDB kiểm. Native return workflow additions and compatibility are documented in [RETURN_WORKFLOWS_NATIVE](../../08_api/RETURN_WORKFLOWS_NATIVE.md). DocumentIdentity = String mã phiếu mới hoặc ObjectId lịch sử; xem [quy tắc ID](../../08_api/DOCUMENT_IDENTITIES.md).
 
 ## uoms
 
@@ -123,7 +123,8 @@ Model: [user.model.js](../../../../src/models/user.model.js).
 | `phone` | String | false |  |
 | `email` | String | false |  |
 | `isActive` | Boolean | true |  |
-| `lockReason` | String (tối đa 2000 ký tự) | false | Lý do khoá hiện tại; xoá khi mở khoá. Dữ liệu cũ có thể để trống. |
+| `lockReason` | String | false |  |
+| `lastLoginAt` | Date | false |  |
 | `version` | Number | true |  |
 | `_id` | ObjectId | false |  |
 | `createdAt` | Date | false |  |
@@ -222,11 +223,11 @@ Model: [warehouse.model.js](../../../../src/models/warehouse.model.js).
 | `lengthMm` | Number | false |  |
 | `widthMm` | Number | false |  |
 | `clearHeightMm` | Number | false |  |
-| `layout3d` | Mixed/Object | false | Bản nháp: points, height, doors, maxStackHeight?, functions[] và zones[] (slots[] local); m/độ. Cấu trúc và kiểm tra tại [chặng 2](../../10_Kho3D/STAGE2_ZONES.md). |
-| `layout3dApplied` | Mixed/Object | false | Snapshot áp dụng gần nhất cùng cấu trúc layout3d; lưu nháp không thay snapshot. |
-| `layout3dAppliedAt` | Date | false | Thời điểm áp dụng snapshot; chưa có ở dữ liệu cũ. |
 | `isActive` | Boolean | true |  |
-| `stockOperationVersion` | Number | true (default 0) | Technical warehouse stock-command guard; does not change catalogue updatedAt. |
+| `stockOperationVersion` | Number | true |  |
+| `layout3d` | Mixed | false |  |
+| `layout3dApplied` | Mixed | false |  |
+| `layout3dAppliedAt` | Date | false |  |
 | `_id` | ObjectId | false |  |
 | `createdAt` | Date | false |  |
 | `updatedAt` | Date | false |  |
@@ -498,8 +499,8 @@ Model: [inventory-balance.model.js](../../../../src/models/inventory-balance.mod
 | `packagingPortions[]._id` | ObjectId | false |  |
 | `packagingPortions[].createdAt` | Date | false |  |
 | `packagingPortions[].updatedAt` | Date | false |  |
-| `packagingPortions[].measuredVolumeMm3` | Decimal128 | false | Thể tích chiếm chỗ thực đo hoặc BE ước tính (mm³). |
-| `packagingPortions[].volumeUpperBoundMm3` | Decimal128 | false | mm³; conservative known-volume bound on outbound OPEN/LOOSE fragments, not a measurement; absent on historical rows; capacity fallback after measuredVolumeMm3 |
+| `packagingPortions[].measuredVolumeMm3` | Decimal128 | false |  |
+| `packagingPortions[].volumeUpperBoundMm3` | Decimal128 | false |  |
 | `packagingPortions[].extraOccupiedVolumeMm3` | Decimal128 | false |  |
 
 Indexes:
@@ -741,7 +742,7 @@ Model: [approval-history.model.js](../../../../src/models/approval-history.model
 | `itemDecisions[].itemId` | ObjectId | true |  |
 | `itemDecisions[].approvedQtyBase` | Decimal128 | true |  |
 | `itemDecisions[].outcome` | String | true |  |
-| `itemDecisions[].reason` | String | false | Tối đa 2.000 ký tự (16/11/2026, khớp lý do API). |
+| `itemDecisions[].reason` | String | false |  |
 | `requestedBy` | ObjectId | true | User |
 | `decidedBy` | ObjectId | true | User |
 | `decidedAt` | Date | true |  |
@@ -925,6 +926,8 @@ Model: [stocktake-count.model.js](../../../../src/models/stocktake-count.model.j
 | `baseUnitSnapshot` | String | false |  |
 | `conditionNote` | String | false |  |
 | `evidenceIds` | Array | false |  |
+| `correctsEmptyCountId` | ObjectId | false | StocktakeCount |
+| `correctionReason` | String | false |  |
 | `countedBy` | ObjectId | true | User |
 | `countedAt` | Date | true |  |
 | `recordedAt` | Date | true |  |
@@ -1040,6 +1043,15 @@ Indexes:
       "createdAt": -1
     },
     {}
+  ],
+  [
+    {
+      "recipientId": 1,
+      "archivedAt": 1,
+      "occurredAt": -1,
+      "_id": -1
+    },
+    {}
   ]
 ]
 ```
@@ -1095,6 +1107,20 @@ Indexes:
     {
       "subjectId": 1,
       "occurredAt": 1
+    },
+    {}
+  ],
+  [
+    {
+      "occurredAt": -1,
+      "_id": -1
+    },
+    {}
+  ],
+  [
+    {
+      "actorId": 1,
+      "occurredAt": -1
     },
     {}
   ]
@@ -1209,36 +1235,6 @@ Indexes:
 ]
 ```
 
-## replenishment_locks
-
-Model: [replenishment-lock.model.js](../../../../src/models/replenishment-lock.model.js).
-
-| Trường | Kiểu | Bắt buộc | Liên kết |
-|---|---|---|---|
-| `warehouseId` | ObjectId | true | Warehouse |
-| `productId` | ObjectId | true | Product |
-| `version` | Number | true |  |
-| `lastOperationId` | ObjectId | false | OperationRecord |
-| `_id` | ObjectId | false |  |
-| `createdAt` | Date | false |  |
-| `updatedAt` | Date | false |  |
-
-Indexes:
-
-```json
-[
-  [
-    {
-      "warehouseId": 1,
-      "productId": 1
-    },
-    {
-      "unique": true
-    }
-  ]
-]
-```
-
 ## return_source_locks
 
 Model: [return-source-lock.model.js](../../../../src/models/return-source-lock.model.js).
@@ -1273,8 +1269,6 @@ Indexes:
 
 ## external_references
 
-17/11/2026: new documents use customerName (text, max 160) and customerPhone (optional text, max 30), nested under header for orders/returns and top-level for historical external references. customerId is optional for legacy records. New return snapshots are resolved server-side from a single source document. Customer catalogue lookup is not required.
-
 Model: [external-reference.model.js](../../../../src/models/external-reference.model.js).
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
@@ -1288,6 +1282,8 @@ Model: [external-reference.model.js](../../../../src/models/external-reference.m
 | `verifiedBy` | ObjectId | false | User |
 | `verifiedAt` | Date | false |  |
 | `customerId` | ObjectId | false | Customer |
+| `customerName` | String | false |  |
+| `customerPhone` | String | false |  |
 | `warehouseId` | ObjectId | false | Warehouse |
 | `evidenceIds` | Array | false |  |
 | `status` | String | true |  |
@@ -1352,6 +1348,12 @@ Model: [product-batch.model.js](../../../../src/models/product-batch.model.js).
 | `productId` | ObjectId | true | Product |
 | `manufacturerLot` | String | true |  |
 | `identificationStatus` | String | true |  |
+| `tone` | String | false |  |
+| `calibre` | String | false |  |
+| `verificationReference` | String | false |  |
+| `notes` | String | false |  |
+| `verifiedAt` | Date | false |  |
+| `verifiedBy` | ObjectId | false | User |
 | `manufacturedOn` | Date | false |  |
 | `piecesPerCarton` | Number | true |  |
 | `cartonLengthMm` | Decimal128 | true |  |
@@ -1622,7 +1624,6 @@ Model: [purchase-order.model.js](../../../../src/models/purchase-order.model.js)
 | `header.warehouseId` | ObjectId | true | Warehouse |
 | `header.supplierId` | ObjectId | true | Supplier |
 | `header.expectedOn` | Date | false |  |
-| `header.supplierConfirmation` | String | false |  |
 | `header.approvedRequestRevision` | Number | false |  |
 | `header.orderDate` | Date | false |  |
 | `header.issuedAt` | Date | false |  |
@@ -1675,15 +1676,8 @@ Model: [purchase-order.model.js](../../../../src/models/purchase-order.model.js)
 | `items[].note` | String | false |  |
 | `items[].evidenceIds` | Array | false |  |
 | `items[].requestItemId` | ObjectId | false |  |
-| `items[].supplierConfirmedQtyBase` | Decimal128 | false |  |
-| `items[].supplierConfirmedBy` | ObjectId | false | User |
-| `items[].supplierConfirmedAt` | Date | false |  |
 | `items[].cancelledRemainderQtyBase` | Decimal128 | false |  |
 | `items[].cancellationDecisionId` | ObjectId | false | ApprovalHistory |
-| `items[].deliverySchedule` | Array | false |  |
-| `items[].deliverySchedule[].quantityBase` | Decimal128 | true |  |
-| `items[].deliverySchedule[].expectedAt` | Date | true |  |
-| `items[].deliverySchedule[].supplierReference` | String | false |  |
 | `items[].{DocumentLine_REPLENISHMENT}.details` | Embedded | true |  |
 | `items[].{DocumentLine_SALES_ORDER}.details` | Embedded | true |  |
 | `items[].{DocumentLine_OUTBOUND_DELIVERY}.details` | Embedded | true |  |
@@ -1711,7 +1705,7 @@ Model: [purchase-order.model.js](../../../../src/models/purchase-order.model.js)
 | `totalAmount` | Decimal128 | true |  |
 | `currency` | String | true |  |
 | `_id` | DocumentIdentity | false |  |
-| `replenishmentRequestId` | DocumentIdentity | false | ReplenishmentRequest. Gỡ khi PO bị hủy để RR lập được PO mới; unique index một phần giữ một RR một PO còn hiệu lực. |
+| `replenishmentRequestId` | DocumentIdentity | false |  |
 
 Indexes:
 
@@ -1759,7 +1753,10 @@ Indexes:
       "unique": true,
       "partialFilterExpression": {
         "replenishmentRequestId": {
-          "$type": "objectId"
+          "$type": [
+            "objectId",
+            "string"
+          ]
         }
       }
     }
@@ -1843,7 +1840,7 @@ Model: [goods-arrival.model.js](../../../../src/models/goods-arrival.model.js).
 | `items[].expectedProductId` | ObjectId | false | Product |
 | `items[].observedLabel` | String | false |  |
 | `items[].lotLabelSnapshot` | String | false |  |
-| `items[].packagingCondition` | String | false | Tình trạng ghi trên dòng hàng đến. API kiểm nhận dùng SEALED, OPENED, TORN, UNKNOWN hoặc LOOSE (hàng lẻ). |
+| `items[].packagingCondition` | String | false |  |
 | `items[].{DocumentLine_REPLENISHMENT}.details` | Embedded | true |  |
 | `items[].{DocumentLine_SALES_ORDER}.details` | Embedded | true |  |
 | `items[].{DocumentLine_OUTBOUND_DELIVERY}.details` | Embedded | true |  |
@@ -1914,8 +1911,6 @@ Indexes:
 ## goods_inspections
 
 Model: [goods-inspection.model.js](../../../../src/models/goods-inspection.model.js).
-
-`items[].details.receivingLocationId` là ObjectId tùy chọn tham chiếu `WarehouseLocation`, khai báo trong [inspection-details.schema.js](../../../../src/models/inspection-details.schema.js). Lệnh kiểm nhận mua xác thực vị trí đang hoạt động, thuộc kho nhận và có loại `RECEIVING`. Bản ghi cũ có thể thiếu trường này.
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
 |---|---|---|---|
@@ -2053,8 +2048,6 @@ Indexes:
 
 ## goods_receipts
 
-17 November 2026: FAILED_DELIVERY variant adds optional header.goodsIssueId (DocumentIdentity → SalesGoodsIssue) for direct undelivered receipts. Its item details require salesIssueLineId; failedDeliveryLineId and inspectionLineId are optional only for direct mode at command boundaries. Existing legacy header references remain valid. See [current contract](../../08_api/GOODS_ISSUES.md). No collection/backfill.
-
 Model: [goods-receipt.model.js](../../../../src/models/goods-receipt.model.js).
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
@@ -2165,7 +2158,6 @@ Model: [goods-receipt.model.js](../../../../src/models/goods-receipt.model.js).
 | `{FailedDeliveryReceipt}.commitmentTransfers` | Array | false |  |
 | `{TransferReceipt}.header` | Embedded | true |  |
 | `{OtherGoodsReceipt}.header` | Embedded | true |  |
-| `{OtherGoodsReceipt}.approvedStockHash` | String | false |  |
 | `{OtherGoodsReceipt}.approvedVersion` | Number | false |  |
 | `{OtherGoodsReceipt}.approvalDecisionId` | ObjectId | false | ApprovalHistory |
 
@@ -2427,12 +2419,13 @@ Model: [warehouse-transfer-request.model.js](../../../../src/models/warehouse-tr
 | `header.requestedAt` | Date | false |  |
 | `header.reason` | String | false |  |
 | `header.approvalStatus` | String | false |  |
-| `header.executionStatus` | String | false |  |
 | `header.reviewedBy` | ObjectId | false | User |
 | `header.reviewedAt` | Date | false |  |
 | `header.rejectionReason` | String | false |  |
 | `header.closedBy` | ObjectId | false | User |
 | `header.closedAt` | Date | false |  |
+| `header.closureMode` | String | false |  |
+| `header.closureReason` | String | false |  |
 | `updatedBy` | ObjectId | false | User |
 | `evidenceIds` | Array | false |  |
 | `cancelledBy` | ObjectId | false | User |
@@ -2473,6 +2466,12 @@ Model: [warehouse-transfer-request.model.js](../../../../src/models/warehouse-tr
 | `items[].note` | String | false |  |
 | `items[].evidenceIds` | Array | false |  |
 | `items[].approvedQtyBase` | Decimal128 | false |  |
+| `items[].lotLabelSnapshot` | String | false |  |
+| `items[].sourceLocations` | Array | false |  |
+| `items[].sourceLocations[].sourceBalanceId` | ObjectId | true | InventoryBalance |
+| `items[].sourceLocations[].locationId` | ObjectId | true | WarehouseLocation |
+| `items[].sourceLocations[].locationCode` | String | true |  |
+| `items[].sourceLocations[].qtyBase` | Decimal128 | true |  |
 | `items[].{DocumentLine_REPLENISHMENT}.details` | Embedded | true |  |
 | `items[].{DocumentLine_SALES_ORDER}.details` | Embedded | true |  |
 | `items[].{DocumentLine_OUTBOUND_DELIVERY}.details` | Embedded | true |  |
@@ -2721,6 +2720,9 @@ Model: [transfer-dispatch.model.js](../../../../src/models/transfer-dispatch.mod
 | `header.approvedRevision` | Number | false |  |
 | `header.sourceWarehouseId` | ObjectId | false | Warehouse |
 | `header.destinationWarehouseId` | ObjectId | false | Warehouse |
+| `header.mixedLots` | Boolean | false |  |
+| `header.mixedLotAcceptedBy` | ObjectId | false | User |
+| `header.shortPickReason` | String | false |  |
 | `header.requestId` | DocumentIdentity | true |  |
 | `updatedBy` | ObjectId | false | User |
 | `evidenceIds` | Array | false |  |
@@ -2812,6 +2814,9 @@ Model: [transfer-dispatch.model.js](../../../../src/models/transfer-dispatch.mod
 | `handovers[].header.handedOverAt` | Date | true |  |
 | `handovers[].header.confirmedBy` | ObjectId | true | User |
 | `handovers[].header.vehiclePlate` | String | false |  |
+| `handovers[].header.driverName` | String | false |  |
+| `handovers[].header.driverPhone` | String | false |  |
+| `handovers[].header.note` | String | false |  |
 | `handovers[].header.relatedDocumentId` | DocumentIdentity | true |  |
 | `handovers[].createdAt` | Date | false |  |
 | `handovers[].updatedAt` | Date | false |  |
@@ -2915,8 +2920,6 @@ Indexes:
 
 ## sales_orders
 
-17/11/2026: new documents use customerName (text, max 160) and customerPhone (optional text, max 30), nested under header for orders/returns and top-level for historical external references. customerId is optional for legacy records. New return snapshots are resolved server-side from a single source document. Customer catalogue lookup is not required.
-
 Model: [sales-order.model.js](../../../../src/models/sales-order.model.js).
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
@@ -2925,7 +2928,6 @@ Model: [sales-order.model.js](../../../../src/models/sales-order.model.js).
 | `documentKind` | String | true |  |
 | `workflowStatus` | String | true |  |
 | `version` | Number | true |  |
-| `replenishmentPlanningVersion` | Number | true |  |
 | `createdBy` | ObjectId | true | User |
 | `occurredAt` | Date | false |  |
 | `note` | String | false |  |
@@ -2942,7 +2944,9 @@ Model: [sales-order.model.js](../../../../src/models/sales-order.model.js).
 | `sources[].documentId` | DocumentIdentity | true |  |
 | `header` | Embedded | true |  |
 | `header.externalReferenceId` | ObjectId | true | ExternalReference |
-| `header.customerId` | ObjectId | true | Customer |
+| `header.customerId` | ObjectId | false | Customer |
+| `header.customerName` | String | false |  |
+| `header.customerPhone` | String | false |  |
 | `header.neededOn` | Date | true |  |
 | `header.deliveryAddressSnapshot` | String | true |  |
 | `header.recipientName` | String | false |  |
@@ -3461,6 +3465,7 @@ Model: [delivery-order.model.js](../../../../src/models/delivery-order.model.js)
 | `sources[].documentId` | DocumentIdentity | true |  |
 | `header` | Embedded | true |  |
 | `header.warehouseId` | ObjectId | true | Warehouse |
+| `header.deliveryId` | ObjectId | false |  |
 | `header.plannedOn` | Date | true |  |
 | `header.recipientName` | String | false |  |
 | `header.recipientPhone` | String | false |  |
@@ -3468,9 +3473,40 @@ Model: [delivery-order.model.js](../../../../src/models/delivery-order.model.js)
 | `header.deliveryInstructions` | String | false |  |
 | `header.releasedBy` | ObjectId | false | User |
 | `header.releasedAt` | Date | false |  |
-| `header.issueRequestId` | DocumentIdentity | true |  |
+| `header.issuedBy` | ObjectId | false | User |
+| `header.issuedAt` | Date | false |  |
+| `header.handedOverBy` | ObjectId | false | User |
+| `header.handedOverAt` | Date | false |  |
+| `header.issueRequestId` | DocumentIdentity | false |  |
+| `header.salesOrderId` | DocumentIdentity | false | SalesOrder |
+| `header.scheduleId` | DocumentIdentity | false | DeliverySchedule |
 | `header.replacesDeliveryOrderId` | DocumentIdentity | false | DeliveryOrder |
+| `issueReports` | Array | false |  |
+| `issueReports[].lineId` | ObjectId | true |  |
+| `issueReports[].soLineId` | ObjectId | false |  |
+| `issueReports[].lotId` | ObjectId | false | ProductBatch |
+| `issueReports[].locationId` | ObjectId | false | WarehouseLocation |
+| `issueReports[].balanceId` | ObjectId | false | InventoryBalance |
+| `issueReports[].kind` | String | true |  |
+| `issueReports[].shortQtyBase` | Decimal128 | true |  |
+| `issueReports[].reason` | String | true |  |
+| `issueReports[].picks` | Array | false |  |
+| `issueReports[].picks[].balanceId` | ObjectId | true | InventoryBalance |
+| `issueReports[].picks[].locationId` | ObjectId | true | WarehouseLocation |
+| `issueReports[].picks[].qtyBase` | Decimal128 | true |  |
+| `issueReports[].picks[].reservationId` | ObjectId | false | StockReservation |
+| `issueReports[].picks[]._id` | ObjectId | false |  |
+| `issueReports[].shortfallQtyBase` | Decimal128 | true |  |
+| `issueReports[].status` | String | true |  |
+| `issueReports[].reportedBy` | ObjectId | true | User |
+| `issueReports[].reportedAt` | Date | true |  |
+| `issueReports[].closedBy` | ObjectId | false | User |
+| `issueReports[].closedAt` | Date | false |  |
+| `issueReports[].stockTransactionId` | ObjectId | false | StockTransaction |
+| `issueReports[]._id` | ObjectId | false |  |
+| `issueReports[].adjustmentId` | DocumentIdentity | false | StockAdjustment |
 | `updatedBy` | ObjectId | false | User |
+| `stockTransactionId` | ObjectId | false | StockTransaction |
 | `evidenceIds` | Array | false |  |
 | `cancelledBy` | ObjectId | false | User |
 | `cancelledAt` | Date | false |  |
@@ -3576,9 +3612,73 @@ Indexes:
 ]
 ```
 
-## sales_goods_issues
+## delivery_schedules
 
-17 November 2026: New DIRECT mode links SalesOrder and Customer, actual InventoryBalance per item and embedded customerReceipts; no picking. Legacy manual/OD-backed modes retain their old rules. See [current contract](../../08_api/GOODS_ISSUES.md). No collection/backfill.
+Model: [delivery-schedule.model.js](../../../../src/models/delivery-schedule.model.js).
+
+| Trường | Kiểu | Bắt buộc | Liên kết |
+|---|---|---|---|
+| `documentNo` | String | true |  |
+| `documentKind` | String | true |  |
+| `version` | Number | true |  |
+| `createdBy` | ObjectId | true | User |
+| `updatedBy` | ObjectId | false | User |
+| `deliveries` | Array | false |  |
+| `deliveries[].seq` | Number | true |  |
+| `deliveries[].plannedOn` | Date | true |  |
+| `deliveries[].warehouseId` | ObjectId | true | Warehouse |
+| `deliveries[].status` | String | true |  |
+| `deliveries[].lines` | Array | false |  |
+| `deliveries[].lines[].soLineId` | ObjectId | true |  |
+| `deliveries[].lines[].lotId` | ObjectId | true | ProductBatch |
+| `deliveries[].lines[].qtyBase` | Decimal128 | true |  |
+| `deliveries[].lines[].allocations` | Array | false |  |
+| `deliveries[].lines[].allocations[].balanceId` | ObjectId | true | InventoryBalance |
+| `deliveries[].lines[].allocations[].locationId` | ObjectId | true | WarehouseLocation |
+| `deliveries[].lines[].allocations[].qtyBase` | Decimal128 | true |  |
+| `deliveries[].lines[].allocations[].reservationId` | ObjectId | false | StockReservation |
+| `deliveries[].lines[].allocations[]._id` | ObjectId | false |  |
+| `deliveries[].lines[]._id` | ObjectId | false |  |
+| `deliveries[]._id` | ObjectId | false |  |
+| `deliveries[].doId` | DocumentIdentity | false | DeliveryOrder |
+| `createdAt` | Date | false |  |
+| `updatedAt` | Date | false |  |
+| `_id` | DocumentIdentity | false |  |
+| `salesOrderId` | DocumentIdentity | true | SalesOrder |
+
+Indexes:
+
+```json
+[
+  [
+    {
+      "documentNo": 1
+    },
+    {
+      "unique": true,
+      "_autoIndex": false
+    }
+  ],
+  [
+    {
+      "salesOrderId": 1
+    },
+    {
+      "unique": true
+    }
+  ],
+  [
+    {
+      "deliveries.warehouseId": 1,
+      "deliveries.plannedOn": 1,
+      "deliveries.status": 1
+    },
+    {}
+  ]
+]
+```
+
+## sales_goods_issues
 
 Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.model.js).
 
@@ -3625,7 +3725,6 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `postedBy` | ObjectId | false | User |
 | `postedAt` | Date | false |  |
 | `customerReceipts` | Array | false |  |
-| `customerReceipts[]._id` | ObjectId | false | Stable embedded event ID |
 | `customerReceipts[].issueLineId` | ObjectId | true |  |
 | `customerReceipts[].quantityBase` | Decimal128 | true |  |
 | `customerReceipts[].recipientName` | String | true |  |
@@ -3633,6 +3732,7 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `customerReceipts[].recordedBy` | ObjectId | true | User |
 | `customerReceipts[].recordedAt` | Date | true |  |
 | `customerReceipts[].evidenceIds` | Array | false |  |
+| `customerReceipts[]._id` | ObjectId | false |  |
 | `createdAt` | Date | false |  |
 | `updatedAt` | Date | false |  |
 | `items` | Array | false |  |
@@ -3722,6 +3822,9 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `handovers[].header.handedOverAt` | Date | true |  |
 | `handovers[].header.confirmedBy` | ObjectId | true | User |
 | `handovers[].header.vehiclePlate` | String | false |  |
+| `handovers[].header.driverName` | String | false |  |
+| `handovers[].header.driverPhone` | String | false |  |
+| `handovers[].header.note` | String | false |  |
 | `handovers[].header.relatedDocumentId` | DocumentIdentity | true |  |
 | `handovers[].createdAt` | Date | false |  |
 | `handovers[].updatedAt` | Date | false |  |
@@ -4306,15 +4409,42 @@ Model: [stocktake.model.js](../../../../src/models/stocktake.model.js).
 | `header.scope.productIds` | Array | false |  |
 | `header.scope.areaCodes` | Array | false |  |
 | `header.assignedCounterIds` | Array | false |  |
-| `header.selectedCounts` | Array | false | Cặp snapshot/lần đếm được chọn khi đối chiếu (13/11/2026) |
+| `header.selectedCounts` | Array | false |  |
 | `header.selectedCounts[].snapshotId` | ObjectId | true | StocktakeSnapshot |
 | `header.selectedCounts[].countId` | ObjectId | true | StocktakeCount |
 | `header.lastReconciledBy` | ObjectId | false | User |
-| `header.lastReconciledAt` | Date | false | Xóa khi có lần đếm mới; chốt yêu cầu đã đối chiếu |
+| `header.lastReconciledAt` | Date | false |  |
 | `header.activatedBy` | ObjectId | false | User |
 | `header.activatedAt` | Date | false |  |
 | `header.closedBy` | ObjectId | false | User |
 | `header.closureReferenceId` | ObjectId | false |  |
+| `header.planPeriodNo` | Number | false |  |
+| `header.planPeriodDueAt` | Date | false |  |
+| `header.settledLines` | Array | false |  |
+| `header.settledLines[].snapshotId` | ObjectId | true | StocktakeSnapshot |
+| `header.settledLines[].countId` | ObjectId | true | StocktakeCount |
+| `header.settledLines[].outcome` | String | true |  |
+| `header.settledLines[].deltaQtyBase` | Decimal128 | true |  |
+| `header.settledLines[].baseUnitSnapshot` | String | false |  |
+| `header.settledLines[].reasonCode` | String | false |  |
+| `header.settledLines[].reasonNote` | String | false |  |
+| `header.settledLines[].adjustmentId` | DocumentIdentity | false |  |
+| `header.settledLines[].settledBy` | ObjectId | true | User |
+| `header.settledLines[].settledAt` | Date | true |  |
+| `header.recountLines` | Array | false |  |
+| `header.recountLines[].snapshotId` | ObjectId | true | StocktakeSnapshot |
+| `header.recountLines[].afterAttemptNo` | Number | true |  |
+| `header.recountLines[].requestedBy` | ObjectId | true | User |
+| `header.recountLines[].requestedAt` | Date | true |  |
+| `header.recountLines[].note` | String | false |  |
+| `header.countReasons` | Array | false |  |
+| `header.countReasons[].snapshotId` | ObjectId | true | StocktakeSnapshot |
+| `header.countReasons[].countId` | ObjectId | true | StocktakeCount |
+| `header.countReasons[].reasonCode` | String | true |  |
+| `header.countReasons[].reasonNote` | String | false |  |
+| `header.countReasons[].setBy` | ObjectId | true | User |
+| `header.countReasons[].setAt` | Date | true |  |
+| `header.planId` | DocumentIdentity | false | StocktakePlan |
 | `updatedBy` | ObjectId | false | User |
 | `evidenceIds` | Array | false |  |
 | `cancelledBy` | ObjectId | false | User |
@@ -4533,6 +4663,34 @@ Indexes:
   ],
   [
     {
+      "header.planId": 1,
+      "header.planPeriodNo": 1
+    },
+    {
+      "unique": true,
+      "name": "stocktake_plan_period_once",
+      "partialFilterExpression": {
+        "header.planId": {
+          "$exists": true
+        },
+        "workflowStatus": {
+          "$in": [
+            "PLANNED",
+            "COUNTING",
+            "RECONCILING",
+            "PENDING_APPROVAL",
+            "APPROVED",
+            "IN_PROGRESS",
+            "COMPLETED",
+            "CLOSED",
+            "POSTED"
+          ]
+        }
+      }
+    }
+  ],
+  [
+    {
       "resolutionPlans._id": 1
     },
     {
@@ -4571,6 +4729,7 @@ Model: [stock-adjustment.model.js](../../../../src/models/stock-adjustment.model
 | `header.warehouseId` | ObjectId | false | Warehouse |
 | `header.stocktakeId` | DocumentIdentity | false | Stocktake |
 | `header.resolutionPlanId` | DocumentIdentity | false |  |
+| `header.deliveryOrderId` | DocumentIdentity | false | DeliveryOrder |
 | `updatedBy` | ObjectId | false | User |
 | `evidenceIds` | Array | false |  |
 | `cancelledBy` | ObjectId | false | User |
@@ -4969,10 +5128,6 @@ Indexes:
 
 ## customer_returns
 
-17/11/2026: new documents use customerName (text, max 160) and customerPhone (optional text, max 30), nested under header for orders/returns and top-level for historical external references. customerId is optional for legacy records. New return snapshots are resolved server-side from a single source document. Customer catalogue lookup is not required.
-
-17 November 2026: New intakeMode DIRECT and embedded handbacks record physical facts/handback without custody stock; only accepted receipts post STORE stock. Older requests preserve custody semantics. See [current contract](../../08_api/GOODS_ISSUES.md). No collection/backfill.
-
 Model: [customer-return.model.js](../../../../src/models/customer-return.model.js).
 
 | Trường | Kiểu | Bắt buộc | Liên kết |
@@ -4997,7 +5152,9 @@ Model: [customer-return.model.js](../../../../src/models/customer-return.model.j
 | `sources[].documentId` | DocumentIdentity | true |  |
 | `header` | Embedded | true |  |
 | `header.warehouseId` | ObjectId | true | Warehouse |
-| `header.customerId` | ObjectId | true | Customer |
+| `header.customerId` | ObjectId | false | Customer |
+| `header.customerName` | String | false |  |
+| `header.customerPhone` | String | false |  |
 | `header.intakeMode` | String | false |  |
 | `header.financialFollowupStatus` | String | true |  |
 | `header.openedBy` | ObjectId | false | User |
@@ -5073,13 +5230,13 @@ Model: [customer-return.model.js](../../../../src/models/customer-return.model.j
 | `decisions[].decision` | String | true |  |
 | `decisions[].reason` | String | true |  |
 | `handbacks` | Array | false |  |
-| `handbacks[]._id` | ObjectId | false | Stable embedded event ID |
 | `handbacks[].returnLineId` | ObjectId | true |  |
 | `handbacks[].quantityBase` | Decimal128 | true |  |
 | `handbacks[].recipientName` | String | true |  |
 | `handbacks[].recordedBy` | ObjectId | true | User |
 | `handbacks[].recordedAt` | Date | true |  |
 | `handbacks[].evidenceIds` | Array | false |  |
+| `handbacks[]._id` | ObjectId | false |  |
 | `inspections` | Array | false |  |
 | `inspections[].returnLineId` | ObjectId | true |  |
 | `inspections[].inspectionNo` | Number | true |  |
@@ -5090,6 +5247,7 @@ Model: [customer-return.model.js](../../../../src/models/customer-return.model.j
 | `inspections[].portions` | Array | false |  |
 | `inspections[].portions[].quantityBase` | Decimal128 | true |  |
 | `inspections[].portions[].packagingCondition` | String | true |  |
+| `inspections[].portions[].packagingState` | String | false |  |
 | `inspections[].portions[].installationStatus` | String | true |  |
 | `inspections[].portions[].damageCause` | String | true |  |
 | `inspections[].portions[].deadlineStatus` | String | true |  |
@@ -5097,6 +5255,13 @@ Model: [customer-return.model.js](../../../../src/models/customer-return.model.j
 | `inspections[].portions[].eligibilityStatus` | String | true |  |
 | `inspections[].portions[].reason` | String | true |  |
 | `inspections[].portions[].evidenceIds` | Array | false |  |
+| `inspections[].portions[].measuredVolumeMm3` | Decimal128 | false |  |
+| `inspections[].portions[].packagingSnapshot` | Embedded | false |  |
+| `inspections[].portions[].packagingSnapshot.packageUnit` | String | true |  |
+| `inspections[].portions[].packagingSnapshot.baseUnitsPerPackage` | Decimal128 | true |  |
+| `inspections[].portions[].packagingSnapshot.outerLengthMm` | Decimal128 | false |  |
+| `inspections[].portions[].packagingSnapshot.outerWidthMm` | Decimal128 | false |  |
+| `inspections[].portions[].packagingSnapshot.outerHeightMm` | Decimal128 | false |  |
 | `inspections[]._id` | ObjectId | false |  |
 | `inspections[].createdAt` | Date | false |  |
 | `inspections[].updatedAt` | Date | false |  |
@@ -5580,6 +5745,8 @@ Model: [stock-discrepancy.model.js](../../../../src/models/stock-discrepancy.mod
 | `header.warehouseId` | ObjectId | false | Warehouse |
 | `header.reportedBy` | ObjectId | false | User |
 | `header.reportedAt` | Date | false |  |
+| `header.resolutionMode` | String | false |  |
+| `header.liableParty` | String | false |  |
 | `updatedBy` | ObjectId | false | User |
 | `evidenceIds` | Array | false |  |
 | `cancelledBy` | ObjectId | false | User |
@@ -6273,7 +6440,7 @@ Model: [opening-stock.model.js](../../../../src/models/opening-stock.model.js).
 | `sources[].documentId` | DocumentIdentity | true |  |
 | `header` | Embedded | true |  |
 | `header.warehouseId` | ObjectId | false | Warehouse |
-| `header.openingImportSource` | String | false | `FILE` marks file-imported opening stock for once-per-warehouse uniqueness. |
+| `header.openingImportSource` | String | false |  |
 | `header.cutoverKey` | String | false |  |
 | `header.openingAt` | Date | false |  |
 | `header.coveredLocationIds` | Array | false |  |
@@ -6330,8 +6497,8 @@ Model: [opening-stock.model.js](../../../../src/models/opening-stock.model.js).
 | `items[].ownerType` | String | false |  |
 | `items[].ownerId` | ObjectId | false |  |
 | `items[].qualityStatus` | String | false |  |
-| `items[].packagingState` | String | false | SEALED / OPEN / LOOSE; required by new opening import service. |
-| `items[].measuredVolumeMm3` | Decimal128 | false | Positive measured total volume for an OPEN/LOOSE portion. |
+| `items[].packagingState` | String | false |  |
+| `items[].measuredVolumeMm3` | Decimal128 | false |  |
 | `items[].{DocumentLine_REPLENISHMENT}.details` | Embedded | true |  |
 | `items[].{DocumentLine_SALES_ORDER}.details` | Embedded | true |  |
 | `items[].{DocumentLine_OUTBOUND_DELIVERY}.details` | Embedded | true |  |
@@ -6357,8 +6524,6 @@ Model: [opening-stock.model.js](../../../../src/models/opening-stock.model.js).
 | `soThuTu` | Number | false |  |
 | `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
-
-One-time file import: unique partial index on `header.warehouseId` where `workflowStatus=POSTED` and `header.openingImportSource=FILE`. Install or replace the prior broad index using [opening setup](../../09_phat_trien/EXCEL_OPENING_SETUP.md); never silently rebuild indexes on existing data.
 
 Indexes:
 
@@ -6474,6 +6639,204 @@ Indexes:
         "status": "ISSUED"
       }
     }
+  ]
+]
+```
+
+## stocktake_plans
+
+Model: [stocktake-plan.model.js](../../../../src/models/stocktake-plan.model.js).
+
+| Trường | Kiểu | Bắt buộc | Liên kết |
+|---|---|---|---|
+| `documentNo` | String | true |  |
+| `documentKind` | String | true |  |
+| `workflowStatus` | String | true |  |
+| `version` | Number | true |  |
+| `createdBy` | ObjectId | true | User |
+| `occurredAt` | Date | false |  |
+| `note` | String | false |  |
+| `header` | Embedded | true |  |
+| `header.warehouseId` | ObjectId | true | Warehouse |
+| `header.title` | String | true |  |
+| `header.reason` | String | false |  |
+| `header.scope` | Embedded | false |  |
+| `header.scope.locationIds` | Array | false |  |
+| `header.scope.batchIds` | Array | false |  |
+| `header.scope.productIds` | Array | false |  |
+| `header.scope.areaCodes` | Array | false |  |
+| `header.assignedCounterIds` | Array | false |  |
+| `header.frequency` | String | true |  |
+| `header.startDate` | Date | true |  |
+| `header.endDate` | Date | false |  |
+| `header.nextPeriodNo` | Number | true |  |
+| `header.nextDueAt` | Date | false |  |
+| `header.reminderDays` | Number | true |  |
+| `header.lastGeneratedAt` | Date | false |  |
+| `header.generatedCount` | Number | true |  |
+| `header.pausedAt` | Date | false |  |
+| `header.pausedBy` | ObjectId | false | User |
+| `header.resumedAt` | Date | false |  |
+| `header.endedAt` | Date | false |  |
+| `header.endedBy` | ObjectId | false | User |
+| `header.endReason` | String | false |  |
+| `header.lastStocktakeId` | DocumentIdentity | false | Stocktake |
+| `updatedBy` | ObjectId | false | User |
+| `tenLoaiPhieu` | String | false |  |
+| `maDonVi` | String | false |  |
+| `kyDanhSo` | String | false |  |
+| `soThuTu` | Number | false |  |
+| `trangThaiTiengViet` | String | false |  |
+| `createdAt` | Date | false |  |
+| `updatedAt` | Date | false |  |
+| `_id` | DocumentIdentity | false |  |
+
+Indexes:
+
+```json
+[
+  [
+    {
+      "documentNo": 1
+    },
+    {
+      "unique": true,
+      "_autoIndex": false
+    }
+  ],
+  [
+    {
+      "workflowStatus": 1,
+      "header.nextDueAt": 1
+    },
+    {}
+  ],
+  [
+    {
+      "header.warehouseId": 1,
+      "workflowStatus": 1
+    },
+    {}
+  ]
+]
+```
+
+## app_settings
+
+Model: [app-setting.model.js](../../../../src/models/app-setting.model.js).
+
+| Trường | Kiểu | Bắt buộc | Liên kết |
+|---|---|---|---|
+| `key` | String | true |  |
+| `value` | Mixed | true |  |
+| `version` | Number | true |  |
+| `updatedBy` | ObjectId | false | User |
+| `_id` | ObjectId | false |  |
+| `createdAt` | Date | false |  |
+| `updatedAt` | Date | false |  |
+
+Indexes:
+
+```json
+[
+  [
+    {
+      "key": 1
+    },
+    {
+      "unique": true,
+      "_autoIndex": false
+    }
+  ]
+]
+```
+
+## api_endpoints
+
+Model: [api-endpoint.model.js](../../../../src/models/api-endpoint.model.js).
+
+| Trường | Kiểu | Bắt buộc | Liên kết |
+|---|---|---|---|
+| `method` | String | true |  |
+| `url` | String | true |  |
+| `name` | String | true |  |
+| `description` | String | false |  |
+| `module` | String | false |  |
+| `source` | String | true |  |
+| `isPresent` | Boolean | true |  |
+| `isActive` | Boolean | true |  |
+| `discoveredAt` | Date | false |  |
+| `updatedBy` | ObjectId | false | User |
+| `_id` | ObjectId | false |  |
+| `createdAt` | Date | false |  |
+| `updatedAt` | Date | false |  |
+
+Indexes:
+
+```json
+[
+  [
+    {
+      "method": 1,
+      "url": 1
+    },
+    {
+      "unique": true
+    }
+  ]
+]
+```
+
+## error_logs
+
+Model: [error-log.model.js](../../../../src/models/error-log.model.js).
+
+| Trường | Kiểu | Bắt buộc | Liên kết |
+|---|---|---|---|
+| `fingerprint` | String | true |  |
+| `level` | String | true |  |
+| `source` | String | true |  |
+| `statusCode` | Number | false |  |
+| `method` | String | false |  |
+| `path` | String | false |  |
+| `message` | String | true |  |
+| `errorName` | String | false |  |
+| `stack` | String | false |  |
+| `count` | Number | true |  |
+| `firstSeenAt` | Date | true |  |
+| `lastSeenAt` | Date | true |  |
+| `lastUserId` | ObjectId | false | User |
+| `resolvedAt` | Date | false |  |
+| `resolvedBy` | ObjectId | false | User |
+| `_id` | ObjectId | false |  |
+| `createdAt` | Date | false |  |
+| `updatedAt` | Date | false |  |
+
+Indexes:
+
+```json
+[
+  [
+    {
+      "fingerprint": 1
+    },
+    {
+      "unique": true,
+      "_autoIndex": false
+    }
+  ],
+  [
+    {
+      "lastSeenAt": -1
+    },
+    {}
+  ],
+  [
+    {
+      "resolvedAt": 1,
+      "lastSeenAt": -1
+    },
+    {}
   ]
 ]
 ```

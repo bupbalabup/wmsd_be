@@ -6,7 +6,7 @@ import { transformSnapshot } from '../../migrations/rebuild/transform.js';
 import { exact } from '../../models/model-utils.js';
 import { documentCollections } from '../../models/collections.js';
 import { upgradeSupportingData } from './support-data.js';
-import { addTransferExamples, addInvoiceExample, addStorageExamples } from './workflow-data.js';
+import { addTransferExamples, addInvoiceExample, addStorageExamples, convertPurchasePutawayExamples } from './workflow-data.js';
 import { splitCompletedSale, addOperationalExamples, addHandoverExamples } from './scenarios.js';
 import { buildTileShopScenario } from './tile-shop.js';
 import { consolidateData } from '../../models/consolidation.js';
@@ -14,7 +14,7 @@ import { addTileCategories } from './categories.js';
 import { planConversionBackfill } from '../../migrations/conversions.js';
 
 const FIXTURE_ID_NAMESPACE = 'wmsd-tile-shop-20261109-v10';
-export const SEED_VERSION = 'wmsd-tile-shop-20261114-v11';
+export const SEED_VERSION = 'wmsd-tile-shop-20261119-v12';
 export const hash = value => createHash('sha256').update(value).digest('hex');
 export const fixtureId = key => new mongoose.Types.ObjectId(hash(FIXTURE_ID_NAMESPACE + ':' + key).slice(0,24));
 export const demoDate = (day, hour = 8) => new Date(Date.UTC(2026,9,day,hour));
@@ -169,9 +169,14 @@ export async function buildReviewedDemo({ consolidate = true } = {}) {
     isActive:true,isCarton:code==='Thùng',areaMm2:code===areaCode?decimalValue('1000000'):null,createdAt:demoDate(1),updatedAt:demoDate(1),
   }));
   for(const supplier of categorized.suppliers){if(supplier.status!=='ACTIVE')supplier.status='SUSPENDED';}
+  convertPurchasePutawayExamples(categorized);
+  const retiredIds = new Set(categorized.permissions.filter(p => p.code.startsWith('putaway_task:')).map(p => String(p._id)));
+  categorized.permissions = categorized.permissions.filter(p => !retiredIds.has(String(p._id)));
+  for (const role of categorized.roles) role.permissionIds = role.permissionIds.filter(id => !retiredIds.has(String(id)));
 
   if (!consolidate) return categorized;
   const result = consolidateData(categorized);
+  result.delivery_schedules = [];
   const kinds = { purchase_receipts: 'PURCHASE', customer_return_receipts: 'CUSTOMER_RETURN',
     failed_delivery_receipts: 'FAILED_DELIVERY', transfer_receipts: 'TRANSFER' };
   result.goods_receipts = [];
@@ -226,5 +231,11 @@ export async function buildReviewedDemo({ consolidate = true } = {}) {
     basePerUnit: mongoose.Types.Decimal128.fromString(row.basePerUnit),
     createdAt: demoDate(1), updatedAt: demoDate(1),
   }));
+  // Recurring stocktake plans have no historical source; the collection starts empty (22 Nov 2026).
+  result.stocktake_plans = [];
+  // System administration collections start empty; the API catalogue is filled by its sync action (23 Nov 2026).
+  result.app_settings = [];
+  result.api_endpoints = [];
+  result.error_logs = [];
   return result;
 }

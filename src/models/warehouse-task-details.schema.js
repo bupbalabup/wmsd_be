@@ -3,6 +3,7 @@ import {
   embeddedOptions,
   ref,
   integer,
+  code,
   rules,
   sameId,
 } from "./model-utils.js";
@@ -18,6 +19,7 @@ export function createWarehouseTaskDetailsSchema() {
       // Optional for historical tasks; UC-36 always records the source identity.
       sourceBalanceId: ref("StockBalance", false),
       sourceBalanceVersion: integer(0, { required: false }),
+      packagingState: code(['SEALED', 'LOOSE'], { required: false }),
       ownerPartyId: ref("Party", false),
     },
     embeddedOptions,

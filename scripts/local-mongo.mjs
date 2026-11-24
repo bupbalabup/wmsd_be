@@ -21,7 +21,7 @@ async function start() {
     const envPath=resolve(backendRoot,'.env.local');
     try {await readFile(envPath);} catch(error) {
       if(error.code!=='ENOENT') throw error;
-      await writeFile(envPath,`# Local WMSD database.\nMONGODB_URI=${LOCAL_DEMO_URI}\nSEED_ON_STARTUP=false\n`,{flag:'wx'});
+      await writeFile(envPath,`# Local WMSD database.\nMONGODB_URI=${LOCAL_DEMO_URI}\n`,{flag:'wx'});
     }
     console.log(JSON.stringify({ready:true,uri:LOCAL_DEMO_URI,replicaSet:hello.setName??null},null,2));
   } finally {await client.close();}

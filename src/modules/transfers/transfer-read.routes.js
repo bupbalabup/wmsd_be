@@ -17,7 +17,12 @@ router.get('/', catchAsync(async (req, res) => {
 router.get('/options', catchAsync(async (req,res) => {
   const parsed=optionsQuery.safeParse(req.query);
   if(!parsed.success)throw new ApiError(400,'Bộ lọc lựa chọn điều chuyển không hợp lệ');
-  formatApiResponse(res,{data:await service.transferOptions(req.user,parsed.data.warehouseId)});
+  formatApiResponse(res,{data:await service.transferOptions(req.user,parsed.data.warehouseId,parsed.data.mode)});
+}));
+router.get('/pick-assignees', catchAsync(async (req,res) => {
+  const parsed=optionsQuery.pick({warehouseId:true}).required().safeParse(req.query);
+  if(!parsed.success)throw new ApiError(400,'Chọn kho để lấy danh sách người thực hiện');
+  formatApiResponse(res,{data:await service.pickAssignees(req.user,parsed.data.warehouseId)});
 }));
 router.get('/dispatches', catchAsync(async (req, res) => {
   const parsed = dispatchListQuery.safeParse(req.query);
@@ -28,6 +33,11 @@ router.get('/dispatches/:id', catchAsync(async (req, res) => {
   const parsed = detailParams.safeParse(req.params);
   if (!parsed.success) throw new ApiError(400, 'Mã phiếu xuất điều chuyển không hợp lệ');
   formatApiResponse(res, { data: await service.getDispatch(req.user, parsed.data.id) });
+}));
+router.get('/tasks/:id', catchAsync(async(req,res)=>{
+  const parsed=detailParams.safeParse(req.params);
+  if(!parsed.success)throw new ApiError(400,'Mã nhiệm vụ điều chuyển không hợp lệ');
+  formatApiResponse(res,{data:await service.getPutawayTask(req.user,parsed.data.id)});
 }));
 router.get('/:id', catchAsync(async (req, res) => {
   const parsed = detailParams.safeParse(req.params);

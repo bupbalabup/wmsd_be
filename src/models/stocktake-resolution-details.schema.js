@@ -9,7 +9,10 @@ import {
   exact,
   sameId,
 } from "./model-utils.js";
-import { quantity, signed } from "./schema-helpers.js";
+import { quantity, signed, str } from "./schema-helpers.js";
+
+// Why the counted quantity differs from the book (decision 18/11/2026); DAMAGED moves stock to damaged quality.
+export const DISCREPANCY_REASONS = ["DAMAGED", "LOST", "MISPLACED", "FOUND", "RECORD_ERROR", "OTHER"];
 
 // Embedded schema; no standalone collection.
 export function createStocktakeResolutionDetailsSchema() {
@@ -21,6 +24,9 @@ export function createStocktakeResolutionDetailsSchema() {
       fromBalanceId: ref("StockBalance", false),
       toBalanceId: ref("StockBalance", false),
       deltaQty: decimal({ signed: true, nonzero: true, required: false }),
+      // Optional so plans submitted before reasons existed stay valid; new plans always carry one.
+      reasonCode: code(DISCREPANCY_REASONS, { required: false }),
+      reasonNote: str(500),
       executedBy: ref("User", false),
       executedAt: date(false),
       executionEvidenceId: ref("Evidence", false),
@@ -43,10 +49,15 @@ export function createStocktakeResolutionDetailsSchema() {
         );
       }
     } else if (["RECLASS", "RELOCATE"].includes(this.actionKind)) {
+      // Broken tiles may go to a damaged group that only exists once the plan is closed.
+      const newDamaged =
+        this.actionKind === "RECLASS" &&
+        this.reasonCode === "DAMAGED" &&
+        !this.toBalanceId;
       if (
         this.deltaQty != null ||
         !this.fromBalanceId ||
-        !this.toBalanceId ||
+        (!this.toBalanceId && !newDamaged) ||
         sameId(this.fromBalanceId, this.toBalanceId)
       ) {
         this.invalidate(

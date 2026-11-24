@@ -1,4 +1,4 @@
-import { CustodyReceipt,CustodyRelease,PurchaseReceipt,GoodsInspection,GoodsArrival,PurchaseOrder,ApprovalHistory,StockTransaction,InventoryBalance,DefectReport,Product } from '../../models/runtime.js';
+import { CustodyReceipt,CustodyRelease,PurchaseReceipt,GoodsInspection,GoodsArrival,PurchaseOrder,ApprovalHistory,StockTransaction,StockReversal,InventoryBalance,DefectReport,Product } from '../../models/runtime.js';
 import { exact } from '../../models/model-utils.js';
 import { command,checkVersion,saveVersion,same,hash } from '../../shared/utils/document-command.js';
 import { requirePermission,requireWarehouseAccess } from '../../shared/utils/access.js';
@@ -14,6 +14,40 @@ async function custody(id,actor,session,version){const d=await findPurchase(id,a
 async function origin(d,item,session){const ref=item.sources.find(r=>r.subjectCollection==='goods_inspections');const inspection=ref&&await GoodsInspection.findById(ref.documentId).session(session);const row=inspection?.items.id(ref.itemId);const arrival=inspection&&await GoodsArrival.findById(inspection.header.arrivalId).session(session);const arrived=arrival?.items.id(row?.details.inspectedSourceLineId);if(!row||!arrived||!same(arrival.header.supplierId,d.header.ownerId))throw validationError('Nguồn giữ hộ không hợp lệ');return {inspection,row,arrival,arrived};}
 async function allocations(d,item,session){
  const posting=await StockTransaction.findById(d.stockTransactionId).session(session);const moves=posting?.movements.filter(m=>same(m.sourceLineId,item._id))||[];if(moves.length!==1)throw validationError('Thiếu nguồn tồn giữ hộ');return moves[0];
+}
+// An ownership reversal can return cartons split from the original group under new portion IDs.
+export async function restoredCustodyPortions(receipt, session) {
+  const purchases = await PurchaseReceipt.find({
+    workflowStatus: 'REVERSED',
+    'items.sources': { $elemMatch: { subjectCollection: 'custody_receipts', documentId: receipt._id } },
+    stockTransactionId: { $exists: true },
+  }).select('items stockTransactionId').session(session);
+  const restored = new Map();
+  if (!purchases.length) return restored;
+  const reversals = await StockReversal.find({
+    'header.originalTransactionId': { $in: purchases.map(purchase => purchase.stockTransactionId) },
+    workflowStatus: 'POSTED',
+  }).select('header.originalTransactionId items stockTransactionId').session(session);
+  for (const reversal of reversals) {
+    const purchase = purchases.find(row => same(row.stockTransactionId, reversal.header.originalTransactionId));
+    const original = await StockTransaction.findById(purchase.stockTransactionId).session(session);
+    const returned = await StockTransaction.findOne({
+      _id: reversal.stockTransactionId, reversedTransactionId: purchase.stockTransactionId,
+    }).session(session);
+    for (const movement of returned?.movements ?? []) {
+      const reversedItem = reversal.items.id(movement.sourceLineId);
+      const originalMove = original?.movements.find(move => reversedItem?.sources.some(ref => same(ref.itemId, move._id)));
+      const purchaseItem = purchase.items.id(originalMove?.sourceLineId);
+      const source = purchaseItem?.sources.find(ref => ref.subjectCollection === 'custody_receipts' && same(ref.documentId, receipt._id));
+      if (!source?.itemId || !movement.toBalanceId || !same(originalMove.fromBalanceId, movement.toBalanceId) ||
+          !same(originalMove.toBalanceId, movement.fromBalanceId)) continue;
+      const key = String(source.itemId);
+      const ids = restored.get(key) ?? new Set();
+      for (const id of movement.packagingPortionIds ?? []) ids.add(String(id));
+      restored.set(key, ids);
+    }
+  }
+  return restored;
 }
 async function consumed(d,item,session){let total=exact('0');for(const Model of [PurchaseReceipt,CustodyRelease]){const docs=await Model.find({workflowStatus:{$nin:['CANCELLED','REVERSED']},'items.sources.documentId':d._id}).session(session);for(const doc of docs)for(const row of doc.items)if(row.sources.some(s=>same(s.documentId,d._id)&&same(s.itemId,item._id)))total=total.plus(String(row.qtyBase));}return total;}
 async function available(d,item,quantity,session){const product=await Product.findById(item.productId).session(session);if(!product||(product.wholeBaseUnits&&!exact(quantity).isInteger()))throw validationError('Lượng giữ hộ phải đúng đơn vị gốc của sản phẩm');const used=await consumed(d,item,session);if(!exact(quantity).gt(0)||used.plus(quantity).gt(String(item.qtyBase)))throw validationError('Vượt lượng giữ hộ chưa cam kết');}
@@ -53,7 +87,10 @@ export async function postOwnedCustody(receipt,item,po,posting,actor,session){
  const ref=item.sources.find(s=>s.subjectCollection==='custody_receipts');const d=ref&&await custody(ref.documentId,actor,session);const original=d?.items.id(ref.itemId);if(!original)throw validationError('Sai nguồn giữ hộ');const decision=await ApprovalHistory.findById(receipt.custodyDecisionId).session(session);if(!decision||decision.reviewedContent.action!=='ACCEPT'||!same(decision.subjectId,d._id))throw validationError('Thiếu quyết định nhận sở hữu');
  const move=await allocations(d,original,session);if(!same(move.toBalanceId,item.custodyBalanceId))throw validationError('Sai balance nguồn');const ctx=await sourceContext(item.custodyBalanceId,session);if(ctx.balance.ownerType!=='SUPPLIER'||!same(ctx.balance.ownerId,po.header.supplierId)||!same(ctx.location?.warehouseId,po.header.warehouseId)||!same(ctx.balance.batchId,item.lotId))throw validationError('Sai chủ/lô/kho giữ hộ');
  const inspection=await GoodsInspection.findById(item.inspectionId).session(session),checked=inspection?.items.id(item.inspectionResultId);if(!checked||checked.details.qualityCode!=='GOOD')throw validationError('Chưa có kết quả GOOD');
- await locationAt(item.destinationLocationId,po.header.warehouseId,['RECEIVING'],session);await guardLocations([ctx.location._id,item.destinationLocationId],session);const target=await balanceAt({type:'LOCATION',locationId:item.destinationLocationId},{batchId:item.lotId,ownerType:'STORE',ownerId:null},'GOOD',session);await transferCustodyStock(item.custodyBalanceId,target,item,posting,actor,session);await verifyCapacity([ctx.location._id,item.destinationLocationId],session);await saveVersion(d,d.version,session);
+ const ids = move.packagingPortionIds?.length
+   ? [...move.packagingPortionIds, ...((await restoredCustodyPortions(d, session)).get(String(original._id)) ?? [])]
+   : undefined;
+ await locationAt(item.destinationLocationId,po.header.warehouseId,['RECEIVING'],session);await guardLocations([ctx.location._id,item.destinationLocationId],session);const target=await balanceAt({type:'LOCATION',locationId:item.destinationLocationId},{batchId:item.lotId,ownerType:'STORE',ownerId:null},'GOOD',session);await transferCustodyStock(item.custodyBalanceId,target,item,posting,actor,session,ids);await verifyCapacity([ctx.location._id,item.destinationLocationId],session);await saveVersion(d,d.version,session);
 }
 export function postCustodyRelease(user,id,input){return command(user,'POST_PURCHASE_CUSTODY_RELEASE','purchase_custody:execute',id,input,replayPurchase,async(session,actor)=>{
  const doc=await findPurchase(id,actor,session,{kind:'CUSTODY_RELEASE'});checkVersion(doc,input.expectedVersion);if(doc.workflowStatus!=='DRAFT')throw validationError('Phiếu không còn nháp');const decision=await ApprovalHistory.findById(doc.custodyDecisionId).session(session);if(!decision||decision.reviewedContent.action!=='RETURN')throw validationError('Thiếu thỏa thuận trả');const posting=beginStock(doc,actor,'CUSTODY_RELEASE',input);const locations=[];

@@ -4,7 +4,7 @@
 
 – Hanoi, Nov 2026 –
 
-> Draft synchronized with the backend (`be/src`) and frontend (`fe/src`) code on 14/11/2026 and with the updated Report 3 (`WMSD_Report3_Fix.docx.txt`). Database tables in I.3 are generated from the live Mongoose schemas. Diagrams cover only the main business flows BF-01–BF-08 of Report 3, split into smaller sequences where one diagram would be too long.
+> Draft synchronized with the backend (`be/src`) and frontend (`fe/src`) code on 14/11/2026 and with the updated Report 3 (`WMSD_Report3_Fix.docx.txt`). Database tables in I.3 are generated from the live Mongoose schemas. The selected scope follows Report 3: SO -> direct Goods Issue, issue-linked receipt evidence and customer returns. Customer catalogue management and separate delivery workflows are excluded. Runtime schema snapshots below retain explicitly labelled compatibility structures; this document update performs no migration.
 
 ---
 
@@ -18,12 +18,16 @@
 - II. Detailed Code Design
   - 0. Shared command pipeline (Report 3 I.2.9, EX-01–EX-05)
   - 1. BF-01 Replenishment, purchasing and goods receipt
+    - 1.1 Replenishment Request (RR)
+    - 1.2 Purchase Order (PO)
+    - 1.3 Goods Inspection (ARR + INS)
+    - 1.4 Purchase Goods Receipt (GR)
   - 2. BF-02 Defect detection, isolation and disposition
   - 3. BF-03 Same-warehouse relocation
   - 4. BF-04 Inter-warehouse transfer
   - 5. BF-05 Stocktake, reconciliation and adjustment
-  - 6. BF-06 Sales order, warehouse issue and delivery
-  - 7. BF-07 Customer returns and failed-delivery intake
+  - 6. BF-06 Sales order and direct warehouse issue
+  - 7. BF-07 Customer returns
   - 8. BF-08 Supplier return
 - III. Design for Non-Functional Requirements
 - IV. Other Design Specifications
@@ -44,7 +48,7 @@
 
 ### 1. Software Architecture
 
-WMSD is a three-tier web application: a React single-page application, a Node.js/Express REST API and a MongoDB replica set (local replica set for development, MongoDB Atlas `wmsd_database` for the shared environment). Every stock-changing command runs inside one multi-document MongoDB transaction.
+WMSD is a three-tier web application: a React single-page application, a Node.js/Express REST API and a MongoDB replica set (local replica set for development, MongoDB Atlas `wmsd_database` for the shared environment). Stock-changing commands require one multi-document MongoDB transaction.
 
 ```mermaid
 flowchart LR
@@ -92,13 +96,13 @@ flowchart LR
 | 01 | `authenticate` (`middlewares/auth.js`) | Verifies the JWT from the `Authorization` header (or `claim_access_token` cookie), reloads the user with role and permissions from MongoDB on every request and rejects inactive users. |
 | 02 | `checkPermission` (`middlewares/permission.js`) | Route-level operation permission check (`ERR-CORE-403-001`). Services repeat permission, warehouse, record, state and version checks inside the transaction. |
 | 03 | `validate` / `upload` | Strict Zod schemas for params/query/body; multer for JPEG/PNG/PDF evidence up to 5 MB with content inspection. |
-| 04 | Feature modules (`src/modules/*`) | Routes plus native services per domain (replenishments, purchase-orders, po-receiving, goods-receipts, location-movements, transfers, sales-orders, return-workflows, stocktake-closure, warehouse-stock, operational-reports, users, roles, products, lots, suppliers, uoms, auth). |
+| 04 | Feature modules (`src/modules/*`) | Routes plus native services per domain (replenishments, purchase-orders, po-receiving, goods-receipts, location-movements, transfers, sales-orders, goods-issues, return-workflows, stocktake-closure, warehouse-stock, operational-reports, users, roles, products, lots, suppliers, uoms, auth). |
 | 05 | Shared command pipeline (`shared/utils/document-command.js`, `persistence.js`) | `command()` wraps every write: transaction with snapshot read concern and majority write concern, actor reload, idempotency via `operation_records`, audit log and outbox event. |
 | 06 | Stock engine (`shared/utils/stock.js`) | Balance lookup by holding point/lot/quality/owner, packaging split, reservations, capacity check, stocktake lock guard and `StockTransaction.movements`. |
 | 07 | Document numbering (`shared/utils/document-number.js`) | Allocates `_id = documentNo` = `[type]-[warehouse/department]-[YYMMDD]-[sequence]` inside the transaction; retries on collision. |
 | | **Data tier / external** | |
 | 01 | MongoDB | 58 collections registered by `src/models/index.js` (`registerModels`). Requires a replica set for transactions. |
-| 02 | Cloudinary (API-02) | Authenticated storage for SO source images and evidence; downloads use short-lived signed URLs (60 s for SO evidence). |
+| 02 | Cloudinary (API-02) | Authenticated storage for order/inspection/return source evidence; downloads use short-lived signed URLs (60 s for SO evidence). |
 | 03 | SMTP (API-01) | Design target. Commands already write `system_events` with status `PENDING`; no dispatcher/SMTP sender exists in the code yet. |
 
 ### 2. Package Diagram
@@ -155,6 +159,8 @@ flowchart TB
 
 **Conventions**
 
+The schema tables preserve the inspected runtime snapshot, rather than asserting that every stored field belongs to the selected functional scope. Customer master, WIR, OD and standalone failed-delivery records are compatibility data. New requirements use document-level buyer details and direct SO/issue links. No new wire field names or backfill rules are approved by this documentation change.
+
 - MongoDB 58 collections; Mongoose `ref` is an application link, not a database-enforced foreign key.
 - Business documents share a common envelope: `_id`/`documentNo` (DocumentIdentity), `documentKind`, `workflowStatus`, `version` (optimistic concurrency), `createdBy`, `header` (object), `items[]` (embedded lines with stable `_id`), `sources[]` (links `subjectCollection`, `documentId`, `itemId`, `linkedQty`, `relationCode`), `evidenceIds`, plus display metadata `tenLoaiPhieu`, `maDonVi`, `kyDanhSo`, `soThuTu`, `trangThaiTiengViet`.
 - Line quantities: `enteredQty` + `enteredUnit` + `baseUnitsPerUnit` (conversion snapshot) → `qtyBase` (Decimal128, base unit). API returns decimals as strings.
@@ -205,19 +211,14 @@ erDiagram
   APPROVAL_HISTORY }o--|| WAREHOUSE_TRANSFER_REQUESTS : "decision on"
 ```
 
-**ERD — sales, returns and stocktake**
+**ERD - direct sales issue, returns and stocktake**
 
 ```mermaid
 erDiagram
-  CUSTOMERS ||--o{ SALES_ORDERS : places
-  SALES_ORDERS ||--o{ WAREHOUSE_ISSUE_REQUESTS : "split into"
-  WAREHOUSE_ISSUE_REQUESTS ||--o{ DELIVERY_ORDERS : "released as"
-  DELIVERY_ORDERS ||--o{ STOCK_RESERVATIONS : reserves
-  DELIVERY_ORDERS ||--o{ SALES_GOODS_ISSUES : "issued by"
-  SALES_GOODS_ISSUES ||--|| TRANSFER_ORDERS : "PICK task"
-  SALES_GOODS_ISSUES ||--o{ FAILED_DELIVERIES : "failed part"
-  FAILED_DELIVERIES ||--o{ GOODS_RECEIPTS : "FAILED_DELIVERY receipt"
-  SALES_GOODS_ISSUES ||--o{ CUSTOMER_RETURNS : "returned from"
+  SALES_ORDERS ||--o{ SALES_GOODS_ISSUES : "direct issue"
+  SALES_GOODS_ISSUES ||--o{ ISSUE_RECEIPT_EVIDENCE : "embedded source evidence"
+  SALES_GOODS_ISSUES ||--o{ GOODS_RECEIPTS : "actual unreceived intake"
+  SALES_GOODS_ISSUES ||--o{ CUSTOMER_RETURNS : "received source"
   EXTERNAL_REFERENCES ||--o{ CUSTOMER_RETURNS : "historical source"
   CUSTOMER_RETURNS ||--o{ GOODS_RECEIPTS : "CUSTOMER_RETURN receipt"
   RETURN_QUANTITY_CLAIMS }o--|| SALES_GOODS_ISSUES : "caps"
@@ -231,23 +232,23 @@ erDiagram
   SALES_ORDERS ||--o| SALES_INVOICES : "invoiced by"
 ```
 
-**Collection catalogue (58)**
+**Runtime collection catalogue (58, including compatibility structures outside the selected scope)**
 
-| No | Collection | Purpose |
+| No | Collection | Runtime purpose / selected-scope status |
 |---|---|---|
 | 01 | `approval_history` | Versioned decision on a document/line by an independent approver. |
 | 02 | `attachments` | Private evidence file metadata (Cloudinary storage key, hash, access category). |
 | 03 | `audit_logs` | Actor, action, result and field changes; separate from stock history. |
 | 04 | `categories` | Product category (5 approved groups); one category per product. |
 | 05 | `conversions` | Versioned base-unit factor per product and optional lot, valid from a date. |
-| 06 | `custody_receipts` | Physical receipt of customer/supplier-owned goods (custody). |
+| 06 | `custody_receipts` | Supplier custody; historical customer custody remains compatibility data. New CR inspection posts no custody balance. |
 | 07 | `custody_releases` | Hand-back of custody goods; may embed supplier acknowledgements. |
-| 08 | `customer_returns` | Return after customer receipt with inspections and per-line decisions. |
-| 09 | `customers` | Customer reference: WMSD code, name, phone. |
+| 08 | `customer_returns` | Customer return against evidenced received issue quantity or verified external history, with fact-only inspection and current per-line decisions. Buyer details belong to the source document; no customer catalogue screen or required new master record. |
+| 09 | `customers` | Historical compatibility only; excluded from new functional requirements. Existing stored references are retained until an explicit migration. |
 | 10 | `defect_reports` | Defect case: source, hold, inspections, resolution plans and dispositions. |
-| 11 | `delivery_orders` | Outbound delivery (OD) for one warehouse; reservations and recipient data. |
+| 11 | `delivery_orders` | Historical compatibility only; excluded from new functional requirements. Existing stored references are retained until an explicit migration. |
 | 12 | `external_references` | External source document (historical delivery, invoice/credit-note reference). |
-| 13 | `failed_deliveries` | Issued goods not received by the customer: reason, quantity, holder. |
+| 13 | `failed_deliveries` | Historical compatibility only; excluded from new functional requirements. Existing stored references are retained until an explicit migration. |
 | 14 | `goods_arrivals` | One physical purchase delivery, kept even when everything is rejected. |
 | 15 | `goods_inspections` | Inspection of one arrival: lot, quality, packaging, ACCEPT/CUSTODY/REJECT. |
 | 16 | `goods_receipts` | Goods receipt, five kinds: PURCHASE, CUSTOMER_RETURN, FAILED_DELIVERY, TRANSFER, OTHER. |
@@ -265,9 +266,9 @@ erDiagram
 | 28 | `return_quantity_claims` | Claimed return quantity per source line, preventing over-return. |
 | 29 | `return_source_locks` | Concurrency guard per return source; quantities live in return_quantity_claims. |
 | 30 | `roles` | Default or Administrator-created role holding selected permission IDs. |
-| 31 | `sales_goods_issues` | Sales goods issue (GI-S): DRAFT → PICKED → POSTED with embedded handover. |
+| 31 | `sales_goods_issues` | Direct sales goods issue: DRAFT -> POSTED against source SO and actual stock. Receipt evidence and actual unreceived-goods intake belong to that issue. Existing PICKED/handover fields are historical compatibility only. |
 | 32 | `sales_invoices` | Final invoice per SO (model only; no API yet). |
-| 33 | `sales_orders` | Copied sales order: customer, source reference, prices, POD/payment confirmations. |
+| 33 | `sales_orders` | Copied sales order with document-level buyer information, source reference, prices and issue/payment history. No active customer catalogue dependency. Existing customerId references describe runtime compatibility until the input/model contract is aligned. |
 | 34 | `stock_adjustments` | Approved nonzero stocktake quantity adjustment (ADJ). |
 | 35 | `stock_discrepancies` | Shortage/excess/damage record and its resolution documents. |
 | 36 | `stock_holding_points` | Where stock is held: one location, or the in-transit point of a dispatch line. |
@@ -289,7 +290,7 @@ erDiagram
 | 52 | `transfer_orders` | Internal task: RELOCATE (BF-03), PICK or PUTAWAY; confirmed against the ledger. |
 | 53 | `uoms` | Unit catalogue: immutable code, name, carton flag, optional area mm². |
 | 54 | `users` | Staff account: one role, many assigned warehouses, bcrypt hash, lockReason while locked. |
-| 55 | `warehouse_issue_requests` | WIR created from SO lines for one warehouse; no stock effect. |
+| 55 | `warehouse_issue_requests` | Historical compatibility only; excluded from new functional requirements. Existing stored references are retained until an explicit migration. |
 | 56 | `warehouse_locations` | Location inside one warehouse: type, usable size, pickable flag, operation version. |
 | 57 | `warehouse_transfer_requests` | Inter-warehouse TR: requested/approved quantities and progress. |
 | 58 | `warehouses` | Physical warehouse: immutable code, dimensions, status, 2D/3D layout draft and applied snapshot. |
@@ -1148,7 +1149,7 @@ Indexes: `{documentNo:1 (unique)}`; `{items._id:1}`; `{sources.documentId:1}`; `
 
 #### 3.23 sales_orders
 
-Copied sales order: customer, source reference, prices, POD/payment confirmations.
+Copied sales order with document-level buyer information, source reference, prices and issue/payment history. No active customer catalogue dependency. Existing customerId references describe runtime compatibility until the input/model contract is aligned.
 
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
@@ -1164,7 +1165,7 @@ Copied sales order: customer, source reference, prices, POD/payment confirmation
 | `sources` | Array[Subdoc] | — |   |
 | `header` | Object | NOT NULL |   |
 | `header.externalReferenceId` | ObjectId | NOT NULL, UNIQUE, REF ExternalReference |   |
-| `header.customerId` | ObjectId | NOT NULL, REF Customer |   |
+| `header.customerId` | ObjectId | Existing runtime REF Customer | Compatibility field; not a new customer-catalogue requirement. Document-level buyer input needs API/model alignment before rollout. |
 | `header.neededOn` | Date | NOT NULL |   |
 | `header.deliveryAddressSnapshot` | String | NOT NULL |   |
 | `header.recipientName` | String | — |   |
@@ -1251,154 +1252,21 @@ Copied sales order: customer, source reference, prices, POD/payment confirmation
 | `cancellations[].cancelledAt` | Date | NOT NULL |   |
 | `cancellations[].operationId` | ObjectId | NOT NULL, REF OperationRecord |   |
 | `cancellations[].salesOrderId` | DocumentIdentity | NOT NULL, REF SalesOrder |   |
-| `deliveryConfirmations` | Array[Subdoc] | — |   |
-| `deliveryConfirmations[].documentNo` | String | NOT NULL |   |
-| `deliveryConfirmations[].documentKind` | String | NOT NULL | DELIVERY_CONFIRMATION |
-| `deliveryConfirmations[].workflowStatus` | String | NOT NULL |   |
-| `deliveryConfirmations[].version` | Number | NOT NULL |   |
-| `deliveryConfirmations[].createdBy` | ObjectId | NOT NULL, REF User |   |
-| `deliveryConfirmations[].occurredAt` | Date | — |   |
-| `deliveryConfirmations[].note` | String | — |   |
-| `deliveryConfirmations[].externalReferenceIds` | Array[Mixed] | — |   |
-| `deliveryConfirmations[].sources` | Array[Subdoc] | — |   |
-| `deliveryConfirmations[].header` | Object | NOT NULL |   |
-| `deliveryConfirmations[].header.warehouseId` | ObjectId | NOT NULL, REF Warehouse |   |
-| `deliveryConfirmations[].header.recipientName` | String | NOT NULL |   |
-| `deliveryConfirmations[].header.deliveredAt` | Date | NOT NULL |   |
-| `deliveryConfirmations[].header.confirmedBy` | ObjectId | NOT NULL, REF User |   |
-| `deliveryConfirmations[].header.confirmedAt` | Date | NOT NULL |   |
-| `deliveryConfirmations[].header.operationId` | ObjectId | NOT NULL, REF OperationRecord |   |
-| `deliveryConfirmations[].header.salesOrderId` | DocumentIdentity | NOT NULL |   |
-| `deliveryConfirmations[].header.goodsIssueId` | DocumentIdentity | REF SalesGoodsIssue |   |
-| `deliveryConfirmations[].header.correctsConfirmationId` | DocumentIdentity | — |   |
-| `deliveryConfirmations[].updatedBy` | ObjectId | REF User |   |
-| `deliveryConfirmations[].evidenceIds` | Array[Mixed] | — |   |
-| `deliveryConfirmations[].cancelledBy` | ObjectId | REF User |   |
-| `deliveryConfirmations[].cancelledAt` | Date | — |   |
-| `deliveryConfirmations[].cancelReason` | String | — |   |
-| `deliveryConfirmations[].items` | Array[Subdoc] | — |   |
-| `deliveryConfirmations[].items[].lineNo` | Number | NOT NULL |   |
-| `deliveryConfirmations[].items[].lineKind` | String | NOT NULL | PO_INSPECTION / PURCHASE_RECEIPT / STANDARD / REPLENISHMENT / SALES_ORDER / OUTBOUND_DELIVERY / SALES_GOODS_ISSUE / DELIVERY_CONFIRMATION … |
-| `deliveryConfirmations[].items[].productId` | ObjectId | NOT NULL, REF Product |   |
-| `deliveryConfirmations[].items[].lotId` | ObjectId | REF ProductBatch |   |
-| `deliveryConfirmations[].items[].enteredUnit` | String | NOT NULL |   |
-| `deliveryConfirmations[].items[].baseUnitSnapshot` | String | NOT NULL |   |
-| `deliveryConfirmations[].items[].baseUnitsPerUnit` | Decimal128 | NOT NULL |   |
-| `deliveryConfirmations[].items[].packagingSnapshot` | Object | — |   |
-| `deliveryConfirmations[].items[].enteredQty` | Decimal128 | NOT NULL |   |
-| `deliveryConfirmations[].items[].qtyBase` | Decimal128 | NOT NULL |   |
-| `deliveryConfirmations[].items[].productNameSnapshot` | String | NOT NULL |   |
-| `deliveryConfirmations[].items[].sources` | Array[Subdoc] | — |   |
-| `deliveryConfirmations[].items[].note` | String | — |   |
-| `deliveryConfirmations[].items[].evidenceIds` | Array[Mixed] | — |   |
 | `_id` | DocumentIdentity | PRIMARY KEY | documentNo, assigned in the creating transaction |
 
 Indexes: `{documentNo:1 (unique)}`; `{items._id:1}`; `{sources.documentId:1}`; `{items.sources.itemId:1}`; `{workflowStatus:1, createdAt:-1}`; `{header.externalReferenceId:1 (unique)}`; `{paymentConfirmations._id:1 (unique)}`; `{cancellations._id:1 (unique)}` …
 
-#### 3.24 warehouse_issue_requests
+#### 3.24 warehouse_issue_requests (historical compatibility)
 
-WIR created from SO lines for one warehouse; no stock effect.
+Excluded from the selected functional design. New sales use SO -> direct GI; actual unreceived-goods intake is an action on the source issue. This documentation change does not delete the existing collection or historical records. Schema history remains in the referenced runtime Data Dictionary.
 
-| Column | Type | Constraints | Notes |
-|---|---|---|---|
-| `documentNo` | String | NOT NULL, UNIQUE |   |
-| `documentKind` | String | NOT NULL | ISSUE_REQUEST |
-| `workflowStatus` | String | NOT NULL |   |
-| `version` | Number | NOT NULL |   |
-| `createdBy` | ObjectId | NOT NULL, REF User |   |
-| `occurredAt` | Date | — |   |
-| `note` | String | — |   |
-| `externalReferenceIds` | Array[Mixed] | — |   |
-| `sources` | Array[Subdoc] | — |   |
-| `header` | Object | NOT NULL |   |
-| `header.requestedWarehouseId` | ObjectId | NOT NULL, REF Warehouse |   |
-| `header.neededOn` | Date | NOT NULL |   |
-| `header.deliveryAddressSnapshot` | String | NOT NULL |   |
-| `header.salesOrderVersion` | Number | — |   |
-| `header.requestedBy` | ObjectId | REF User |   |
-| `header.requestedAt` | Date | — |   |
-| `header.salesOrderId` | DocumentIdentity | NOT NULL |   |
-| `updatedBy` | ObjectId | REF User |   |
-| `evidenceIds` | Array[Mixed] | — |   |
-| `cancelledBy` | ObjectId | REF User |   |
-| `cancelledAt` | Date | — |   |
-| `cancelReason` | String | — |   |
-| `createdAt` | Date | — |   |
-| `updatedAt` | Date | — |   |
-| `items` | Array[Subdoc] | — |   |
-| `items[].lineNo` | Number | NOT NULL |   |
-| `items[].lineKind` | String | NOT NULL | PO_INSPECTION / PURCHASE_RECEIPT / STANDARD / REPLENISHMENT / SALES_ORDER / OUTBOUND_DELIVERY / SALES_GOODS_ISSUE / DELIVERY_CONFIRMATION … |
-| `items[].productId` | ObjectId | NOT NULL, REF Product |   |
-| `items[].lotId` | ObjectId | REF ProductBatch |   |
-| `items[].enteredUnit` | String | NOT NULL |   |
-| `items[].baseUnitSnapshot` | String | NOT NULL |   |
-| `items[].baseUnitsPerUnit` | Decimal128 | NOT NULL |   |
-| `items[].packagingSnapshot` | Object | — |   |
-| `items[].enteredQty` | Decimal128 | NOT NULL |   |
-| `items[].qtyBase` | Decimal128 | NOT NULL |   |
-| `items[].productNameSnapshot` | String | NOT NULL |   |
-| `items[].sources` | Array[Subdoc] | — |   |
-| `items[].note` | String | — |   |
-| `items[].evidenceIds` | Array[Mixed] | — |   |
-| `_id` | DocumentIdentity | PRIMARY KEY | documentNo, assigned in the creating transaction |
+#### 3.25 delivery_orders (historical compatibility)
 
-Indexes: `{documentNo:1 (unique)}`; `{items._id:1}`; `{sources.documentId:1}`; `{items.sources.itemId:1}`; `{workflowStatus:1, createdAt:-1}`
-
-#### 3.25 delivery_orders
-
-Outbound delivery (OD) for one warehouse; reservations and recipient data.
-
-| Column | Type | Constraints | Notes |
-|---|---|---|---|
-| `documentNo` | String | NOT NULL, UNIQUE |   |
-| `documentKind` | String | NOT NULL | OUTBOUND_DELIVERY |
-| `workflowStatus` | String | NOT NULL |   |
-| `version` | Number | NOT NULL |   |
-| `createdBy` | ObjectId | NOT NULL, REF User |   |
-| `occurredAt` | Date | — |   |
-| `note` | String | — |   |
-| `externalReferenceIds` | Array[Mixed] | — |   |
-| `sources` | Array[Subdoc] | — |   |
-| `header` | Object | NOT NULL |   |
-| `header.warehouseId` | ObjectId | NOT NULL, REF Warehouse |   |
-| `header.plannedOn` | Date | NOT NULL |   |
-| `header.recipientName` | String | — |   |
-| `header.recipientPhone` | String | — |   |
-| `header.deliveryAddress` | String | — |   |
-| `header.deliveryInstructions` | String | — |   |
-| `header.releasedBy` | ObjectId | REF User |   |
-| `header.releasedAt` | Date | — |   |
-| `header.issueRequestId` | DocumentIdentity | NOT NULL |   |
-| `header.replacesDeliveryOrderId` | DocumentIdentity | REF DeliveryOrder |   |
-| `updatedBy` | ObjectId | REF User |   |
-| `evidenceIds` | Array[Mixed] | — |   |
-| `cancelledBy` | ObjectId | REF User |   |
-| `cancelledAt` | Date | — |   |
-| `cancelReason` | String | — |   |
-| `createdAt` | Date | — |   |
-| `updatedAt` | Date | — |   |
-| `items` | Array[Subdoc] | — |   |
-| `items[].lineNo` | Number | NOT NULL |   |
-| `items[].lineKind` | String | NOT NULL | PO_INSPECTION / PURCHASE_RECEIPT / STANDARD / REPLENISHMENT / SALES_ORDER / OUTBOUND_DELIVERY / SALES_GOODS_ISSUE / DELIVERY_CONFIRMATION … |
-| `items[].productId` | ObjectId | NOT NULL, REF Product |   |
-| `items[].lotId` | ObjectId | REF ProductBatch |   |
-| `items[].enteredUnit` | String | NOT NULL |   |
-| `items[].baseUnitSnapshot` | String | NOT NULL |   |
-| `items[].baseUnitsPerUnit` | Decimal128 | NOT NULL |   |
-| `items[].packagingSnapshot` | Object | — |   |
-| `items[].enteredQty` | Decimal128 | NOT NULL |   |
-| `items[].qtyBase` | Decimal128 | NOT NULL |   |
-| `items[].productNameSnapshot` | String | NOT NULL |   |
-| `items[].sources` | Array[Subdoc] | — |   |
-| `items[].note` | String | — |   |
-| `items[].evidenceIds` | Array[Mixed] | — |   |
-| `_id` | DocumentIdentity | PRIMARY KEY | documentNo, assigned in the creating transaction |
-
-Indexes: `{documentNo:1 (unique)}`; `{items._id:1}`; `{sources.documentId:1}`; `{items.sources.itemId:1}`; `{workflowStatus:1, createdAt:-1}`
+Excluded from the selected functional design. New sales use SO -> direct GI; actual unreceived-goods intake is an action on the source issue. This documentation change does not delete the existing collection or historical records. Schema history remains in the referenced runtime Data Dictionary.
 
 #### 3.26 sales_goods_issues
 
-Sales goods issue (GI-S): DRAFT → PICKED → POSTED with embedded handover.
+Direct sales goods issue: DRAFT -> POSTED against source SO and actual stock. Receipt evidence and actual unreceived-goods intake belong to that issue. Existing PICKED/handover fields are historical compatibility only.
 
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
@@ -1416,7 +1284,7 @@ Sales goods issue (GI-S): DRAFT → PICKED → POSTED with embedded handover.
 | `header.issueKind` | String | NOT NULL | SALE |
 | `header.issuedAt` | Date | — |   |
 | `header.issuedBy` | ObjectId | REF User |   |
-| `header.deliveryOrderId` | DocumentIdentity | REF DeliveryOrder |   |
+| `header.deliveryOrderId` | DocumentIdentity | Legacy REF DeliveryOrder | Historical records only; direct issues reference SO instead. |
 | `updatedBy` | ObjectId | REF User |   |
 | `evidenceIds` | Array[Mixed] | — |   |
 | `cancelledBy` | ObjectId | REF User |   |
@@ -1614,7 +1482,7 @@ Indexes: `{documentNo:1 (unique)}`; `{items._id:1}`; `{sources.documentId:1}`; `
 
 #### 3.28 customer_returns
 
-Return after customer receipt with inspections and per-line decisions.
+Customer return against evidenced received issue quantity or verified external history, with fact-only inspection and current per-line decisions. Buyer details belong to the source document; no customer catalogue screen or required new master record.
 
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
@@ -1629,7 +1497,7 @@ Return after customer receipt with inspections and per-line decisions.
 | `sources` | Array[Subdoc] | — |   |
 | `header` | Object | NOT NULL |   |
 | `header.warehouseId` | ObjectId | NOT NULL, REF Warehouse |   |
-| `header.customerId` | ObjectId | NOT NULL, REF Customer |   |
+| `header.customerId` | ObjectId | Existing runtime REF Customer | Compatibility field; not a new customer-catalogue requirement. Document-level buyer input needs API/model alignment before rollout. |
 | `header.financialFollowupStatus` | String | NOT NULL |   |
 | `header.openedBy` | ObjectId | REF User |   |
 | `header.openedAt` | Date | — |   |
@@ -1683,54 +1551,9 @@ Return after customer receipt with inspections and per-line decisions.
 
 Indexes: `{documentNo:1 (unique)}`; `{items._id:1}`; `{sources.documentId:1}`; `{items.sources.itemId:1}`; `{workflowStatus:1, createdAt:-1}`; `{inspections._id:1 (unique)}`
 
-#### 3.29 failed_deliveries
+#### 3.29 failed_deliveries (historical compatibility)
 
-Issued goods not received by the customer: reason, quantity, holder.
-
-| Column | Type | Constraints | Notes |
-|---|---|---|---|
-| `documentNo` | String | NOT NULL, UNIQUE |   |
-| `documentKind` | String | NOT NULL | FAILED_DELIVERY |
-| `workflowStatus` | String | NOT NULL |   |
-| `version` | Number | NOT NULL |   |
-| `createdBy` | ObjectId | NOT NULL, REF User |   |
-| `occurredAt` | Date | — |   |
-| `note` | String | — |   |
-| `externalReferenceIds` | Array[Mixed] | — |   |
-| `sources` | Array[Subdoc] | — |   |
-| `header` | Object | NOT NULL |   |
-| `header.warehouseId` | ObjectId | NOT NULL, REF Warehouse |   |
-| `header.failureEvidenceId` | ObjectId | NOT NULL, REF Attachment |   |
-| `header.reason` | String | NOT NULL |   |
-| `header.reportedBy` | ObjectId | REF User |   |
-| `header.recordedAt` | Date | — |   |
-| `header.goodsIssueId` | DocumentIdentity | REF SalesGoodsIssue |   |
-| `updatedBy` | ObjectId | REF User |   |
-| `evidenceIds` | Array[Mixed] | — |   |
-| `cancelledBy` | ObjectId | REF User |   |
-| `cancelledAt` | Date | — |   |
-| `cancelReason` | String | — |   |
-| `createdAt` | Date | — |   |
-| `updatedAt` | Date | — |   |
-| `items` | Array[Subdoc] | — |   |
-| `items[].lineNo` | Number | NOT NULL |   |
-| `items[].lineKind` | String | NOT NULL | PO_INSPECTION / PURCHASE_RECEIPT / STANDARD / REPLENISHMENT / SALES_ORDER / OUTBOUND_DELIVERY / SALES_GOODS_ISSUE / DELIVERY_CONFIRMATION … |
-| `items[].productId` | ObjectId | NOT NULL, REF Product |   |
-| `items[].lotId` | ObjectId | REF ProductBatch |   |
-| `items[].enteredUnit` | String | NOT NULL |   |
-| `items[].baseUnitSnapshot` | String | NOT NULL |   |
-| `items[].baseUnitsPerUnit` | Decimal128 | NOT NULL |   |
-| `items[].packagingSnapshot` | Object | — |   |
-| `items[].enteredQty` | Decimal128 | NOT NULL |   |
-| `items[].qtyBase` | Decimal128 | NOT NULL |   |
-| `items[].productNameSnapshot` | String | NOT NULL |   |
-| `items[].sources` | Array[Subdoc] | — |   |
-| `items[].note` | String | — |   |
-| `items[].evidenceIds` | Array[Mixed] | — |   |
-| `items[].holderName` | String | — |   |
-| `_id` | DocumentIdentity | PRIMARY KEY | documentNo, assigned in the creating transaction |
-
-Indexes: `{documentNo:1 (unique)}`; `{items._id:1}`; `{sources.documentId:1}`; `{items.sources.itemId:1}`; `{workflowStatus:1, createdAt:-1}`
+Excluded from the selected functional design. New sales use SO -> direct GI; actual unreceived-goods intake is an action on the source issue. This documentation change does not delete the existing collection or historical records. Schema history remains in the referenced runtime Data Dictionary.
 
 #### 3.30 supplier_returns
 
@@ -2054,79 +1877,93 @@ sequenceDiagram
 
 ### 1. BF-01 Replenishment, purchasing and goods receipt — Implemented
 
-#### 1.1 Class Diagram
+BF-01 creates four linked documents in this order: Replenishment Request (RR), Purchase Order (PO), Goods Inspection (INS, created with its Goods Arrival ARR) and purchase Goods Receipt (GR). Sections 1.1 to 1.4 give one class diagram and one sequence diagram per document. Every write command also runs the shared pipeline in section 0. In the class diagrams, a dotted arrow is a call or read/write dependency and a solid arrow with multiplicity is a stored reference.
+
+#### 1.1 Replenishment Request (RR)
+
+##### 1.1.1 Class Diagram
 
 ```mermaid
 classDiagram
+  class ReplenishmentRoutes {
+    <<replenishment.routes.js>>
+    +GET /options, /options/lots, /options/sources
+    +POST /evaluate
+    +GET /, /:id, /:id/submissions
+    +POST / replenishment_request:create
+    +PUT /:id replenishment_request:update
+    +POST /:id/submit replenishment_request:update
+    +POST /:id/review replenishment_request:approve
+    +POST /:id/cancel
+  }
   class ReplenishmentCommands {
+    <<replenishment.commands.js>>
     +getReplenishmentOptions()
+    +getReplenishmentLotOptions()
     +evaluateReplenishment()
     +createReplenishment()
     +updateReplenishment()
     +submitReplenishment()
     +reviewReplenishment()
     +cancelReplenishment()
+    -items()
+    -checkWarnings()
+    -submission()
   }
   class ReplenishmentEvaluation {
+    <<replenishment.evaluation.js>>
     +evaluateLines()
-    +activeRequests()
-    +reviewRequired()
     +resolveSource()
+    +reviewRequired()
+    -availableStock()
+    -openRequests()
+    -incomingPurchaseOrders()
+    -otherWarehouseOptions()
   }
-  class PurchaseOrderCommands {
-    +createPurchaseOrder()
-    +updatePurchaseOrder()
-    +confirmPurchaseOrder()
-    +rescheduleExpectedOn()
-    +requestClose()
-    +approveClose()
-    +executeClose()
+  class ReplenishmentReads {
+    <<replenishment.service.js and replenishment.sources.js>>
+    +listReplenishments()
+    +getReplenishment()
+    +listReplenishmentSubmissions()
+    +getReplenishmentSourceOptions()
   }
-  class PoReceivingService {
-    +inspectionContext()
-    +createInspection()
-    +updateInspection()
-    +confirmInspection()
-    +postReceipt()
-    +postCustodyReceipt()
+  class ReplenishmentRequest {
+    <<replenishment_requests>>
+    _id RR-warehouse-YYMMDD-seq
+    workflowStatus DRAFT SUBMITTED APPROVED REJECTED CANCELLED
+    header.warehouseId, neededOn, triggerReason
+    header.approvedRevision, latestDecisionId
+    items[].qtyBase, approvedQtyBase
+    items[].details.triggerType, source, evaluation snapshot
+    submissions[]
   }
-  class PurchasePutawayService {
-    +putawayContext()
-    +createPutaway()
-    +confirmPutaway()
-    +cancelPutaway()
+  class ApprovalHistory {
+    <<approval_histories>>
+    subjectType replenishment_requests
+    subjectRevision, decision
+    itemDecisions[].approvedQtyBase
   }
-  class PurchaseCorrectionService {
-    +reversalPreflight()
-    +reverseReceipt()
+  class SourceDocument {
+    <<SalesOrder, WarehouseIssueRequest or Stocktake>>
   }
-  class ReplenishmentRequest
-  class PurchaseOrder
-  class GoodsArrival
-  class GoodsInspection
-  class GoodsReceipt
-  class CustodyReceipt
-  class TransferOrder
-  class InventoryBalance
-  class StockTransaction
-  class ApprovalHistory
-  ReplenishmentCommands --> ReplenishmentEvaluation : warnings
-  ReplenishmentCommands --> ReplenishmentRequest
-  ReplenishmentCommands --> ApprovalHistory : review
-  PurchaseOrderCommands --> PurchaseOrder
-  PurchaseOrderCommands --> ReplenishmentRequest : approved source
-  PurchaseOrderCommands --> ApprovalHistory : close approval
-  PoReceivingService --> GoodsArrival
-  PoReceivingService --> GoodsInspection
-  PoReceivingService --> GoodsReceipt : PURCHASE
-  PoReceivingService --> CustodyReceipt
-  PoReceivingService --> InventoryBalance
-  PoReceivingService --> StockTransaction
-  PurchasePutawayService --> TransferOrder : PUTAWAY
-  PurchaseCorrectionService --> GoodsReceipt
+  class StockAndPurchaseData {
+    <<read only>>
+    InventoryBalance
+    Product.stockThresholds
+    PurchaseOrder OPEN or PARTIAL
+  }
+  ReplenishmentRoutes ..> ReplenishmentCommands : calls
+  ReplenishmentRoutes ..> ReplenishmentReads : calls
+  ReplenishmentCommands ..> ReplenishmentEvaluation : evaluates lines
+  ReplenishmentEvaluation ..> SourceDocument : resolveSource
+  ReplenishmentEvaluation ..> StockAndPurchaseData : reads for warnings
+  ReplenishmentCommands ..> ReplenishmentRequest : writes
+  ReplenishmentCommands ..> ApprovalHistory : writes on review
+  ReplenishmentRequest "1" --> "0..*" ApprovalHistory : decisions
+  ReplenishmentRequest "0..*" --> "0..*" SourceDocument : items.sources
 ```
 
-#### 1.2 Sequence — Create, submit and approve RR
+##### 1.1.2 Sequence — Create, submit, review and cancel RR
 
 ```mermaid
 sequenceDiagram
@@ -2135,95 +1972,446 @@ sequenceDiagram
   actor O as Store Owner
   participant FE as RR pages
   participant API as /api/replenishments
-  participant RS as ReplenishmentCommands
-  participant EV as ReplenishmentEvaluation
+  participant RC as replenishment.commands
+  participant EV as replenishment.evaluation
   participant DB as MongoDB
-  SW->>FE: Open Create request (menu, SO or stocktake)
-  FE->>API: GET /options?mode=CREATE, /options/lots
-  FE->>API: POST /evaluate {warehouseId, neededOn, lines}
-  API->>EV: evaluateLines (snapshot read)
-  EV->>DB: available stock, thresholds, open RR, OPEN/PARTIAL PO, other warehouses
+  SW->>FE: Open Create request (menu, SO shortage or stocktake)
+  FE->>API: GET /options?mode=CREATE, /options/lots, /options/sources
+  FE->>API: POST /evaluate {warehouseId, neededOn, lines[productId, enteredUnit, enteredQty, lotId?, source?]}
+  API->>EV: evaluateLines
+  EV->>DB: read source document, free stock, threshold, open RR, OPEN/PARTIAL PO, other warehouses
+  EV->>EV: resolve trigger (SALES_SHORTAGE, STOCKTAKE_LOW_STOCK, STOCK_THRESHOLD, MANUAL_OTHER)
   EV-->>FE: per line quantities + warnings[OPEN_REQUEST, INCOMING_PO, STOCK_SUFFICIENT]
-  SW->>FE: Enter quantities, confirm independent need + reason on warned lines
-  FE->>API: POST / {SAVE_DRAFT|SUBMIT, creationKey, lines}
-  API->>RS: createReplenishment
-  RS->>EV: re-evaluate inside transaction
-  alt warned line without confirmation
-    RS-->>FE: 409 ERR-RR-409-004 {latestEvaluations, invalidLines}
+  SW->>FE: Confirm independent need + reason on warned lines
+  FE->>API: POST / {action SAVE_DRAFT or SUBMIT, creationKey, warehouseId, neededOn, triggerReason, lines}
+  API->>RC: createReplenishment
+  RC->>EV: re-evaluate inside the transaction (strict source version on SUBMIT)
+  alt warned line without confirmation, or source version changed
+    RC-->>FE: 409 ERR-RR-409-004 {latestEvaluations, invalidLines}
   else valid
-    RS->>DB: save RR DRAFT or SUBMITTED + warning snapshot
-    RS-->>FE: receipt
+    RC->>DB: allocate RR id, save DRAFT (or SUBMITTED + submissions[] snapshot)
+    RC-->>FE: receipt
+  end
+  opt edit or submit a saved request (creator, DRAFT, no PO)
+    FE->>API: PUT /:id {expectedVersion, operationKey, lines}
+    FE->>API: POST /:id/submit {expectedVersion, operationKey, evaluations?}
+    RC->>EV: re-evaluate saved lines, require warning confirmations
+    RC->>DB: save RR SUBMITTED + submissions[] snapshot
   end
   O->>FE: Open submitted RR
-  FE->>API: POST /:id/review {decision, lines[approvedQty], expectedVersion}
-  API->>RS: reviewReplenishment
-  RS->>DB: check Owner ≠ creator, every line, qty ≤ requested
-  RS->>DB: ApprovalHistory + RR APPROVED / REJECTED / returned
-  RS-->>FE: receipt (no stock, no PO)
+  FE->>API: POST /:id/review {decision APPROVE/REJECT, reason, lines[lineId, approvedQtyBase, reason?], expectedVersion}
+  API->>RC: reviewReplenishment
+  RC->>RC: check reviewer ≠ creator, status SUBMITTED, decision reason present
+  RC->>RC: APPROVE checks every line, approved ≤ requested, whole cartons/base units, line reason when reduced, one line > 0
+  alt check fails
+    RC-->>FE: 400 / 403
+  else valid
+    RC->>DB: save ApprovalHistory, items.approvedQtyBase, header.latestDecisionId, approvedRevision
+    RC->>DB: save RR APPROVED / REJECTED
+    RC-->>FE: receipt (no stock movement, no PO created)
+  end
+  opt cancel a request without PO
+    FE->>API: POST /:id/cancel {expectedVersion, operationKey, reason}
+    RC->>RC: creator for DRAFT/SUBMITTED, Owner for APPROVED
+    RC->>DB: save RR CANCELLED
+  end
 ```
 
-#### 1.3 Sequence — Purchase order lifecycle
+#### 1.2 Purchase Order (PO)
+
+##### 1.2.1 Class Diagram
+
+```mermaid
+classDiagram
+  class PurchaseOrderRoutes {
+    <<purchase-order.routes.js and purchase-order.commands.routes.js>>
+    +GET /, /supplier-options, /:id purchase_order:read
+    +POST / purchase_order:create
+    +PUT /:id purchase_order:update
+    +POST /:id/confirm purchase_order:update
+    +POST /:id/expected-on purchase_order:update
+    +POST /:id/close-remainder purchase_order:update
+    +POST /:id/reopen purchase_order:update
+    +POST /:id/cancel purchase_order:update
+  }
+  class PurchaseOrderCommands {
+    <<purchase-order.commands.js>>
+    +createPurchaseOrder()
+    +updatePurchaseOrder()
+    +confirmPurchaseOrder()
+    +rescheduleExpectedOn()
+    +closeRemainder()
+    +reopenPurchaseOrder()
+    +cancelPurchaseOrder()
+    -draftItems()
+    -validateClose()
+  }
+  class PurchaseOrderService {
+    <<purchase-order.service.js>>
+    +purchaseOrderQuantities()
+    +cancelBlocker()
+    +getPurchaseOrder()
+    +listPurchaseOrders()
+    +listPurchaseOrderSupplierOptions()
+  }
+  class PurchaseOrder {
+    <<purchase_orders>>
+    _id PO-warehouse-YYMMDD-seq
+    workflowStatus DRAFT OPEN PARTIAL COMPLETED CLOSED CANCELLED
+    replenishmentRequestId, unset on cancel
+    header.supplierId, supplierSnapshot, expectedOn, issuedAt
+    header.approvedRequestRevision, closedAt, closureReason
+    items[].requestItemId, qtyBase, unitPurchasePrice, lineAmount
+    items[].cancelledRemainderQtyBase
+    totalAmount, currency VND
+  }
+  class ReplenishmentRequest {
+    <<APPROVED>>
+  }
+  class ApprovalHistory {
+    <<latest APPROVE decision>>
+  }
+  class Supplier {
+    <<ACTIVE>>
+  }
+  class PurchaseReceipt {
+    <<goods_receipts PURCHASE>>
+    POSTED counts as received
+    DRAFT counts as commitment
+  }
+  PurchaseOrderRoutes ..> PurchaseOrderCommands : calls
+  PurchaseOrderRoutes ..> PurchaseOrderService : calls
+  PurchaseOrderCommands ..> PurchaseOrderService : quantities, cancelBlocker
+  PurchaseOrderCommands ..> PurchaseOrder : writes
+  PurchaseOrderCommands ..> ApprovalHistory : reads approved ceiling
+  PurchaseOrderService ..> PurchaseReceipt : sums received and draft qty
+  PurchaseOrder "0..1" --> "1" ReplenishmentRequest : live PO per RR
+  PurchaseOrder "0..*" --> "1" Supplier : supplierId
+  PurchaseReceipt "0..*" --> "1" PurchaseOrder : purchaseOrderId
+```
+
+##### 1.2.2 Sequence — Create, confirm, reschedule, close remainder and cancel PO
 
 ```mermaid
 sequenceDiagram
   autonumber
   actor A as Accountant
-  actor O as Store Owner
+  participant FE as PO pages
   participant API as /api/purchase-orders
-  participant PC as PurchaseOrderCommands
+  participant PC as purchase-order.commands
+  participant PS as purchase-order.service
   participant DB as MongoDB
   Note over A: Agree quantity, price and date with the supplier outside WMSD
-  A->>API: POST / {replenishmentRequestId, supplierId, lines[rrLineId, qty, price, note], expectedOn, creationKey}
+  A->>FE: Create PO from an APPROVED RR
+  FE->>API: POST / {creationKey, warehouseId, supplierId, currency VND, expectedOn?, lines[rrLineId, approvalId, enteredQty, uomCode?, unitPurchasePrice, note?]}
   API->>PC: createPurchaseOrder
-  PC->>DB: RR APPROVED, latest decision, no PO yet (unique index), qty ≤ approved, active supplier/products
-  PC->>DB: save PO DRAFT, touch RR.updatedAt
-  opt edit while DRAFT
-    A->>API: PUT /:id {expectedVersion, operationKey, lines}
+  PC->>DB: read RR, latest ApprovalHistory, supplier, warehouse, products
+  PC->>PC: RR APPROVED in the same warehouse, one PO line per RR line, qty ≤ approvedQtyBase, expectedOn not before today
+  alt RR already has a live PO (partial unique index) or a check fails
+    PC-->>FE: 400
+  else valid
+    PC->>DB: touch RR.updatedAt, save PO DRAFT with supplierSnapshot and totalAmount
+    PC-->>FE: receipt
   end
-  A->>API: POST /:id/confirm
-  PC->>DB: recheck RR ceilings → PO OPEN, issuedAt
-  opt supplier changes delivery date
-    A->>API: POST /:id/expected-on {expectedOn, reason}
-    PC->>DB: OPEN/PARTIAL only, audit RESCHEDULE_PO_EXPECTED_ON
+  opt edit while DRAFT
+    FE->>API: PUT /:id {expectedVersion, operationKey, lines}
+    PC->>PC: same checks, RR source cannot change
+    PC->>DB: save PO DRAFT
+  end
+  A->>FE: Issue PO
+  FE->>API: POST /:id/confirm {expectedVersion, operationKey}
+  PC->>PC: RR still APPROVED at approvedRequestRevision, lines within approval, supplier, warehouse and products active
+  PC->>DB: save PO OPEN, issuedAt
+  opt supplier changes the delivery date
+    FE->>API: POST /:id/expected-on {expectedOn, reason, expectedVersion, operationKey}
+    PC->>DB: OPEN/PARTIAL only, save expectedOn, audit RESCHEDULE_PO_EXPECTED_ON before/after
+  end
+  opt stop waiting for the remainder (one step, evidence optional)
+    FE->>API: POST /:id/close-remainder {lines[poLineId, qtyBase], reason, evidenceIds?}
+    PC->>PS: purchaseOrderQuantities
+    PC->>PC: qty ≤ outstanding − open draft GR
+    PC->>DB: add cancelledRemainderQtyBase, PO CLOSED + closedAt when nothing is outstanding, audit CLOSE_PO_REMAINDER
   end
   opt cancel before any receiving document
-    A->>API: POST /:id/cancel {expectedVersion, reason}
-    PC->>DB: DRAFT/OPEN without arrival/receipt → CANCELLED, unset replenishmentRequestId (RR free for a new PO)
-  end
-  opt stop waiting for the remainder
-    A->>API: POST /:id/close-remainder {lines, reason, evidenceIds?}
-    PC->>DB: cancelledRemainderQtyBase, audit CLOSE_PO_REMAINDER, PO CLOSED when nothing outstanding
+    FE->>API: POST /:id/cancel {expectedVersion, operationKey, reason}
+    PC->>PS: cancelBlocker (DRAFT/OPEN, no remainder closed, no arrival or GR)
+    PC->>DB: save PO CANCELLED, unset replenishmentRequestId (RR free for a new PO)
   end
 ```
 
-#### 1.4 Sequence — Inspection, goods receipt posting and put-away
+#### 1.3 Goods Inspection (ARR + INS)
+
+##### 1.3.1 Class Diagram
+
+```mermaid
+classDiagram
+  class PurchaseReceivingRoutes {
+    <<po-receiving.routes.js purchaseReceivingRouter and queueRouter>>
+    +GET /purchase-orders/:id/inspection-context
+    +POST /purchase-orders/:id/inspections goods_receipt_inspection:create
+    +GET /purchase-orders/:id/receiving-summary, /receiving-trips
+    +GET /purchase-receiving/queue
+  }
+  class InspectionRoutes {
+    <<po-receiving.routes.js inspectionRouter>>
+    +GET /goods-inspections, /:id, /:id/history
+    +PUT /:id goods_receipt_inspection:update
+    +POST /:id/confirm goods_receipt_inspection:update
+    +POST /:id/cancel goods_receipt_inspection:update
+    +GET /:id/correction-preflight
+    +POST /:id/corrections goods_receipt_inspection:update
+  }
+  class PoReceivingService {
+    <<po-receiving.service.js>>
+    +inspectionContext()
+    +createInspection()
+    +updateInspection()
+    +confirmInspection()
+    +cancelDraft()
+    +activePo()
+    +prepare()
+  }
+  class PurchaseCorrectionService {
+    <<purchase-correction.service.js>>
+    +correctionPreflight()
+    +replaceInspection()
+    -correctionBlockers()
+  }
+  class GoodsArrival {
+    <<goods_arrivals>>
+    _id ARR-warehouse-YYMMDD-seq
+    workflowStatus DRAFT RECORDED CANCELLED
+    header.purchaseOrderId, arrivedAt, deliveredBy, deliveryReference
+    items[].purchaseOrderItemId, lotId, qtyBase, packagingCondition
+  }
+  class GoodsInspection {
+    <<goods_inspections>>
+    _id INS-warehouse-YYMMDD-seq
+    workflowStatus DRAFT CONFIRMED CANCELLED
+    header.arrivalId, previousInspectionId, correctionReason
+    items[].details.qualityCode GOOD DAMAGED PENDING BLOCKED
+    items[].details.ownershipDecision ACCEPT CUSTODY REJECT
+    items[].details.receivingLocationId, packagingCondition
+  }
+  class PurchaseOrder {
+    <<OPEN or PARTIAL>>
+  }
+  class PurchaseReceipt {
+    <<GR PURCHASE DRAFT>>
+  }
+  class CustodyReceipt {
+    <<custody_receipts DRAFT, owner SUPPLIER>>
+  }
+  PurchaseReceivingRoutes ..> PoReceivingService : calls
+  InspectionRoutes ..> PoReceivingService : calls
+  InspectionRoutes ..> PurchaseCorrectionService : calls
+  PurchaseCorrectionService ..> PoReceivingService : activePo, prepare
+  PoReceivingService ..> PurchaseOrder : reads headroom
+  PoReceivingService ..> GoodsArrival : writes
+  PoReceivingService ..> GoodsInspection : writes
+  PoReceivingService ..> PurchaseReceipt : creates on confirm
+  PoReceivingService ..> CustodyReceipt : creates on confirm
+  PurchaseCorrectionService ..> GoodsInspection : writes replacement
+  GoodsArrival "0..*" --> "1" PurchaseOrder : purchaseOrderId
+  GoodsInspection "1" --> "1" GoodsArrival : arrivalId
+  GoodsInspection "0..1" --> "0..1" GoodsInspection : previousInspectionId
+  PurchaseReceipt "0..1" --> "1" GoodsInspection : ACCEPT lines
+  CustodyReceipt "0..1" --> "1" GoodsInspection : CUSTODY lines
+```
+
+##### 1.3.2 Sequence — Record arrival, inspect and confirm
 
 ```mermaid
 sequenceDiagram
   autonumber
   actor W as Warehouse Staff
-  participant API as /api/purchase-orders, /goods-inspections, /goods-receipts/purchase, /putaway-tasks
-  participant RV as PoReceivingService
-  participant PW as PurchasePutawayService
+  participant FE as PO detail / inspection page
+  participant API as /api/purchase-orders, /api/goods-inspections
+  participant RV as po-receiving.service
+  participant CR as purchase-correction.service
   participant DB as MongoDB
-  W->>API: GET /purchase-orders/:id/inspection-context
-  W->>API: POST /purchase-orders/:id/inspections {arrivedAt, deliveredBy, lines[poLineId, lotId, enteredUnit, enteredQty, qualityCode, ownershipDecision, packagingCondition]}
+  W->>FE: Open a receiving trip on an OPEN/PARTIAL PO
+  FE->>API: GET /purchase-orders/:id/inspection-context
+  API-->>FE: PO lines, quantities (headroom in base units), VERIFIED lots, locations, products, cartonUnits
+  W->>FE: Count by whole cartons or base units, choose lot, quality and decision
+  FE->>API: POST /purchase-orders/:id/inspections {creationKey, expectedPoVersion, arrivedAt, deliveredBy?, deliveryReference?, lines[poLineId, lotId, enteredUnit?, enteredQty, qualityCode, ownershipDecision, packagingCondition, receivingLocationId?]}
   API->>RV: createInspection
-  RV->>DB: convert by lot Conversion, check PO allowance in qtyBase
-  RV->>DB: GoodsArrival + GoodsInspection DRAFT
-  W->>API: POST /goods-inspections/:id/confirm {destinations}
-  RV->>DB: GoodsReceipt PURCHASE DRAFT (ACCEPT) + CustodyReceipt DRAFT (CUSTODY)
-  W->>API: POST /goods-receipts/purchase/:id/post {packaging?}
-  RV->>DB: check quality, allowance, capacity, stocktake lock
-  RV->>DB: InventoryBalance STORE +qty at RECEIVING, StockTransaction, PO PARTIAL/COMPLETED
-  W->>API: POST /goods-receipts/purchase/:id/putaway-tasks {lines[receiptLineId, qtyBase, toLocationId]}
-  API->>PW: createPutaway
-  PW->>DB: simulate carton split (whole cartons + whole loose part) → TransferOrder PUTAWAY OPEN
-  W->>API: POST /putaway-tasks/:id/confirm {lines[taskLineId, actualQtyBase]}
-  PW->>DB: move RECEIVING → STORAGE, capacity check, task PARTIAL/CONFIRMED
-  opt custody goods
-    W->>API: POST /custody-receipts/:id/post {destinations}
-    RV->>DB: SUPPLIER-owned balance at CUSTODY/QUARANTINE (PO received qty unchanged)
+  RV->>DB: read PO at expectedPoVersion, lot Conversion, lots, locations
+  RV->>RV: PO OPEN/PARTIAL, SEALED lines in whole cartons, arrivedAt not before lot manufacture
+  RV->>RV: non-GOOD lines must be CUSTODY, receivingLocationId only for ACCEPT at RECEIVING
+  RV->>DB: save GoodsArrival DRAFT + GoodsInspection DRAFT
+  RV-->>FE: receipt (resultRefs goods_arrivals)
+  opt edit or cancel the draft
+    FE->>API: PUT /goods-inspections/:id {expectedVersion, expectedPoVersion, lines}
+    FE->>API: POST /goods-inspections/:id/cancel {reason} (INS and ARR become CANCELLED)
+  end
+  W->>FE: Confirm inspection and choose a location for every ACCEPT line
+  FE->>API: POST /goods-inspections/:id/confirm {expectedVersion, expectedPoVersion, destinations[inspectionItemId, locationId]}
+  API->>RV: confirmInspection
+  RV->>DB: read PO and posted/draft GR quantities
+  RV->>RV: only GOOD may be ACCEPT, ACCEPT total ≤ PO acceptance headroom per line, destination type RECEIVING
+  alt check fails
+    RV-->>FE: 400
+  else valid
+    RV->>DB: save GoodsReceipt PURCHASE DRAFT for ACCEPT lines
+    RV->>DB: save CustodyReceipt DRAFT (owner SUPPLIER) for CUSTODY lines, REJECT lines create no document
+    RV->>DB: save INS CONFIRMED, ARR RECORDED, PO version bump (no stock movement)
+    RV-->>FE: receipt (resultRefs goods_receipts, custody_receipts)
+  end
+  opt correct a confirmed inspection
+    FE->>API: GET /goods-inspections/:id/correction-preflight
+    FE->>API: POST /goods-inspections/:id/corrections {expectedVersion, expectedPoVersion, reason, evidenceIds?, lines}
+    API->>CR: replaceInspection
+    CR->>CR: blocked until dependent GR and custody receipts are cancelled or reversed
+    CR->>DB: save new ARR + INS DRAFT with previousInspectionId
+  end
+```
+
+#### 1.4 Purchase Goods Receipt (GR)
+
+##### 1.4.1 Class Diagram
+
+```mermaid
+classDiagram
+  class GoodsReceiptRoutes {
+    <<goods-receipt.routes.js>>
+    +GET /goods-receipts, /:id
+    +GET /goods-receipts/purchase, /:id goods_receipt_inspection:read
+  }
+  class PurchaseReceiptRoutes {
+    <<po-receiving.routes.js receiptRouter at /goods-receipts/purchase>>
+    +POST /:id/post goods_receipt_inspection:post
+    +PATCH /:id/destinations goods_receipt_inspection:update
+    +POST /:id/cancel goods_receipt_inspection:update
+    +GET /:id/reversal-preflight
+    +POST /:id/reverse goods_receipt_inspection:reverse and :post
+  }
+  class CustodyRoutes {
+    <<po-receiving.routes.js custodyRouter>>
+    +GET /custody-receipts, /:id
+    +POST /:id/post goods_receipt_inspection:post
+    +POST /:id/cancel
+    +POST /:id/reverse
+  }
+  class PoReceivingService {
+    <<po-receiving.service.js>>
+    +postReceipt()
+    +changeDestinations()
+    +cancelDraft()
+    +postCustodyReceipt()
+    -intakePortions()
+  }
+  class PurchaseCorrectionService {
+    <<purchase-correction.service.js>>
+    +reversalPreflight()
+    +reverseReceipt()
+    +eligible()
+  }
+  class StockUtils {
+    <<shared/utils/stock.js>>
+    +guardLocations()
+    +locationAt()
+    +balanceAt()
+    +receiveStock()
+    +verifyCapacity()
+  }
+  class PurchaseReceipt {
+    <<goods_receipts documentKind PURCHASE>>
+    _id GR-warehouse-YYMMDD-seq
+    workflowStatus DRAFT POSTED REVERSED CANCELLED
+    header.purchaseOrderId, arrivalId, supplierId, receivedAt
+    items[].purchaseOrderItemId, inspectionId, inspectionResultId
+    items[].destinationLocationId, lotId, qtyBase
+    stockTransactionId, postedBy, postedAt
+  }
+  class CustodyReceipt {
+    <<custody_receipts>>
+    workflowStatus DRAFT POSTED CANCELLED REVERSED
+    header.ownerType SUPPLIER, ownerId
+  }
+  class InventoryBalance {
+    STORE owned at RECEIVING
+    SUPPLIER owned at CUSTODY or QUARANTINE
+  }
+  class StockTransaction {
+    PURCHASE_RECEIPT, CUSTODY_RECEIPT, REVERSAL
+  }
+  class StockReversal {
+    <<stock_reversals>>
+  }
+  class PurchaseOrder {
+    <<PARTIAL or COMPLETED>>
+  }
+  GoodsReceiptRoutes ..> PurchaseReceiptRoutes : mounts /purchase
+  PurchaseReceiptRoutes ..> PoReceivingService : calls
+  PurchaseReceiptRoutes ..> PurchaseCorrectionService : calls
+  CustodyRoutes ..> PoReceivingService : calls
+  CustodyRoutes ..> PurchaseCorrectionService : calls
+  PoReceivingService ..> StockUtils : posts stock
+  PurchaseCorrectionService ..> StockUtils : guards locations
+  PoReceivingService ..> PurchaseReceipt : posts
+  PoReceivingService ..> CustodyReceipt : posts
+  PoReceivingService ..> PurchaseOrder : sets PARTIAL or COMPLETED
+  PurchaseCorrectionService ..> StockReversal : writes
+  StockUtils ..> InventoryBalance : writes
+  StockUtils ..> StockTransaction : writes
+  PurchaseReceipt "0..*" --> "1" PurchaseOrder : purchaseOrderId
+  PurchaseReceipt "1" --> "0..1" StockTransaction : stockTransactionId
+  CustodyReceipt "1" --> "0..1" StockTransaction : stockTransactionId
+  StockReversal "0..1" --> "1" StockTransaction : originalTransactionId
+  StockTransaction "0..*" --> "1..*" InventoryBalance : movements
+```
+
+##### 1.4.2 Sequence — Post GR, custody receipt and reversal
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor W as Warehouse Staff
+  participant FE as GR detail page
+  participant API as /api/goods-receipts/purchase, /api/custody-receipts
+  participant RV as po-receiving.service
+  participant CR as purchase-correction.service
+  participant ST as shared stock utils
+  participant DB as MongoDB
+  W->>FE: Open GR DRAFT created by the confirmed inspection
+  opt change the receiving location before posting
+    FE->>API: PATCH /:id/destinations {expectedVersion, operationKey, reason, lines[lineId, receivingLocationId]}
+    RV->>RV: DRAFT only, location type RECEIVING in the same warehouse
+    RV->>DB: save GR destinations
+  end
+  FE->>API: POST /:id/post {expectedVersion, expectedPoVersion, operationKey, packaging?}
+  API->>RV: postReceipt
+  RV->>DB: read GR, PO, source INS lines
+  RV->>RV: GR DRAFT, PO OPEN/PARTIAL, no PO line over headroom
+  RV->>RV: source INS line still CONFIRMED, GOOD, ACCEPT, same lot, product and qty
+  RV->>ST: guardLocations (active, not locked by stocktake)
+  RV->>ST: balanceAt(RECEIVING, STORE, GOOD) + receiveStock (sealed, open or loose portions)
+  RV->>ST: verifyCapacity
+  alt check fails (headroom, source, location lock or capacity)
+    RV-->>FE: 400, transaction rolled back
+  else valid
+    RV->>DB: save StockTransaction PURCHASE_RECEIPT, GR POSTED (postedBy, postedAt, receivedAt)
+    RV->>DB: save PO COMPLETED when nothing is outstanding, else PARTIAL
+    RV-->>FE: receipt + stockTransactionId
+  end
+  Note over FE,DB: GR ends at POSTED. Moving goods from RECEIVING to STORAGE uses BF-03 relocation (capabilities.relocate). Purchase put-away routes were removed on 17/11/2026.
+  opt cancel a draft GR
+    FE->>API: POST /:id/cancel {expectedVersion, expectedPoVersion, operationKey, reason}
+    RV->>DB: save GR CANCELLED (PO headroom returned, INS stays CONFIRMED)
+  end
+  opt post custody goods from the inspection
+    FE->>API: POST /custody-receipts/:id/post {destinations[lineId, locationId], handedOverBy?, packaging?}
+    RV->>ST: guardLocations, SUPPLIER-owned balance at CUSTODY/QUARANTINE, verifyCapacity
+    RV->>DB: save StockTransaction CUSTODY_RECEIPT, custody receipt POSTED (PO received qty unchanged)
+  end
+  opt reverse a posted GR
+    FE->>API: GET /:id/reversal-preflight
+    FE->>API: POST /:id/reverse {expectedVersion, expectedPoVersion, operationKey, reason, evidenceIds?}
+    API->>CR: reverseReceipt
+    CR->>CR: eligible: movement not reversed, no dependent document, open TO, later stocktake count or active hold, qty still free
+    CR->>DB: save StockReversal POSTED + StockTransaction REVERSAL, GR REVERSED
+    CR->>DB: save PO PARTIAL or OPEN (a CLOSED PO keeps its status)
   end
 ```
 
@@ -2569,148 +2757,71 @@ sequenceDiagram
   end
 ```
 
-### 6. BF-06 Sales order, warehouse issue and delivery — SO→picking implemented; PGI/POD/PAY-CFM design target
+### 6. BF-06 Sales order and direct warehouse issue
 
-#### 6.1 Class Diagram
+Report 3 BF-06 is the requirements authority. Sales owns SO entry and issue-linked customer receipt evidence; Warehouse owns direct issue posting and actual unreceived-goods intake. Buyer information is document-scoped. New records require no customer catalogue, WIR, OD or sales picking task.
+
+#### 6.1 Direct issue relationships
 
 ```mermaid
 classDiagram
-  class SalesCreateService {
-    +uploadSourceEvidence()
-    +createSalesOrder()
-  }
-  class SalesExecutionService {
-    +salesOptions()
-    +updateSalesOrder()
-    +cancelSalesRemainder()
-    +createIssueRequest()
-    +createDelivery()
-    +createPicking()
-    +confirmPicking()
-  }
-  class SalesOrder {
-    deliveryConfirmations[]
-    paymentConfirmations[]
-  }
-  class WarehouseIssueRequest
-  class DeliveryOrder
-  class SalesGoodsIssue {
-    DRAFT|PICKED|POSTED
-  }
-  class TransferOrder {
-    taskKind PICK
-  }
-  class StockReservation
-  class Attachment
-  SalesCreateService --> SalesOrder
-  SalesCreateService --> Attachment : Cloudinary
-  SalesExecutionService --> WarehouseIssueRequest
-  SalesExecutionService --> DeliveryOrder
-  SalesExecutionService --> StockReservation
-  SalesExecutionService --> SalesGoodsIssue
-  SalesExecutionService --> TransferOrder
+  class SalesOrder
+  class SalesGoodsIssue
+  class InventoryBalance
+  class IssueReceiptEvidence
+  class GoodsReceipt
+  SalesOrder "1" --> "many" SalesGoodsIssue : source order
+  SalesGoodsIssue --> InventoryBalance : actual source stock
+  SalesGoodsIssue "1" --> "many" IssueReceiptEvidence : embedded evidence
+  SalesGoodsIssue "1" --> "many" GoodsReceipt : actual unreceived intake
 ```
 
-#### 6.2 Sequence — SO, WIR and outbound delivery
+#### 6.2 SO and direct warehouse issue
 
 ```mermaid
 sequenceDiagram
   autonumber
   actor SA as Sales Staff
-  participant API as /api/sales-orders, /outbound-deliveries
-  participant SC as SalesCreateService
-  participant SE as SalesExecutionService
-  participant CL as Cloudinary
-  participant DB as MongoDB
-  SA->>API: POST /sales-orders/source-evidence (image)
-  SC->>CL: authenticated upload
-  SC-->>SA: signed receipt (24 h)
-  SA->>API: POST /sales-orders {customerId, neededOn, deliveryAddress, source{MISA|PAPER, referenceNo}, evidenceReceipt, lines[price, qty, unit, lotId?]}
-  SC->>DB: reject duplicate source (409), convert units, SO + evidence + audit (no stock)
-  SA->>API: POST /sales-orders/:id/issue-requests {warehouseId, neededOn, lines[lineId, qtyBase]}
-  SE->>DB: SO creator, within remaining SO qty → WIR (no stock)
-  SA->>API: GET /sales-orders/options (available balances)
-  SA->>API: POST /outbound-deliveries {issueRequestId, warehouseId, plannedOn, recipient, address, lines[lineId, sourceBalanceId, sourceBalanceVersion, qtyBase]}
-  SE->>DB: lock SO/WIR source, GOOD/STORE, verified lot, pickable STORAGE, no freeze, available
-  SE->>DB: DeliveryOrder RELEASED + StockReservation
-```
-
-#### 6.3 Sequence — Picking
-
-```mermaid
-sequenceDiagram
-  autonumber
   actor W as Warehouse Staff
-  participant API as /api/outbound-deliveries, /picking-tasks
-  participant SE as SalesExecutionService
+  participant API as Order and Goods Issue API
   participant DB as MongoDB
-  W->>API: POST /outbound-deliveries/:id/picking-tasks {lines[reservationId, qtyBase, toLocationId]}
-  SE->>DB: SalesGoodsIssue DRAFT + TransferOrder PICK OPEN, reservation → task
-  loop one or more partial confirmations
-    W->>API: POST /picking-tasks/:id/confirm {lines[lineId, qtyBase]}
-    SE->>DB: assigned user, storage → STAGING, reservations moved
-    SE->>DB: StockTransaction SALES_PICK, task PARTIAL → CONFIRMED
+  SA->>API: Save verified source SO, document buyer details and lines
+  API->>DB: Validate source identity and save SO without stock change
+  W->>API: Create direct issue for SO and actual source stock
+  API->>DB: Check order allowance and save DRAFT without stock change
+  W->>API: Post actual issue with current version and operation key
+  API->>DB: Recheck allowance, stock, scope, packaging, holds and freeze
+  API->>DB: Deduct stock and commit issue, ledger, audit and idempotent result
+  SA->>API: Record externally evidenced customer receipt on issue
+  API->>DB: Check per-item shared caps and save evidence, no stock change
+  opt Unreceived goods physically return
+    W->>API: Record actual quantity, quality, destination, reason and evidence
+    API->>DB: Post linked receipt once and restore actual stock/order allowance
   end
-  SE->>DB: GI-S PICKED (not POSTED, total stock unchanged)
 ```
 
-#### 6.4 Sequence — Goods issue, delivery and payment confirmation (design target)
+The current direct-issue runtime is described in [GOODS_ISSUES.md](../08_api/GOODS_ISSUES.md). Removing required customer-master input is a scope change that still needs API/model alignment; these diagrams do not prove that change is deployed.
 
-```mermaid
-sequenceDiagram
-  autonumber
-  actor W as Warehouse Staff
-  actor SA as Sales Staff
-  participant API as Sales API (planned: goods_issue:post, delivery_confirmation:confirm, payment_confirmation:confirm)
-  participant DB as MongoDB
-  W->>API: Post GI-S at actual handover (recipient, time, handover)
-  API->>DB: net allowance, reservation, freeze → STAGING −qty once (PGI)
-  W->>API: Confirm POD per posted GI-S line with photo
-  API->>DB: effective POD + posted GR-FD + open FD ≤ PGI, SO PARTIALLY_DELIVERED / DELIVERED
-  SA->>API: Confirm full external payment (PAY-CFM)
-  API->>DB: current DELIVERED version → SO COMPLETED (no stock, no payment execution)
-  Note over API: Permission codes and model fields exist, command routes are not implemented yet
-```
+### 7. BF-07 Customer returns
 
-### 7. BF-07 Customer returns and failed-delivery intake — Implemented
+Customer returns remain active. Source eligibility uses issue-linked receipt evidence or verified external history and cumulative return claims. Inspection records facts without custody; only accepted receipt posts STORE stock. Separate failed-delivery requests/worklists are outside the selected design.
 
-#### 7.1 Class Diagram
+#### 7.1 Return relationships
 
 ```mermaid
 classDiagram
-  class NativeReturnService {
-    +createCustomerReturn()
-    +inspectCustomerReturn()
-    +decideCustomerReturn()
-    +receiveCustomerReturn()
-    +createFailedDelivery()
-    +inspectFailedDelivery()
-    +receiveFailedDelivery()
-  }
-  class NativeRead {
-    +createHistoricalSource()
-    +recordExternalReference()
-  }
   class CustomerReturn
-  class FailedDelivery
-  class GoodsReceipt {
-    CUSTOMER_RETURN | FAILED_DELIVERY
-  }
-  class ReturnQuantityClaim
+  class SalesGoodsIssue
   class ExternalReference
-  class SalesOrder {
-    demand reopening
-  }
-  NativeReturnService --> CustomerReturn
-  NativeReturnService --> FailedDelivery
-  NativeReturnService --> GoodsReceipt
-  NativeReturnService --> ReturnQuantityClaim
-  NativeReturnService --> SalesOrder : FD reopens net demand
-  NativeRead --> ExternalReference : Accountant-verified history
-  CustomerReturn --> ExternalReference
+  class ReturnQuantityClaim
+  class GoodsReceipt
+  CustomerReturn --> SalesGoodsIssue : evidenced received source
+  CustomerReturn --> ExternalReference : verified history alternative
+  CustomerReturn --> ReturnQuantityClaim : remaining source quantity
+  CustomerReturn --> GoodsReceipt : accepted actual receipt
 ```
 
-#### 7.2 Sequence — Customer return (07.CR)
+#### 7.2 Inspect, decide and receive
 
 ```mermaid
 sequenceDiagram
@@ -2718,43 +2829,26 @@ sequenceDiagram
   actor SA as Sales Staff
   actor W as Warehouse Staff
   actor O as Store Owner
-  participant API as /api/customer-returns
-  participant S as NativeReturnService
+  participant API as Customer Return API
   participant DB as MongoDB
-  SA->>API: POST / {warehouseId, customerId, lines[salesIssueLineId | historicalExternalLineId, qtyBase, reason]}
-  S->>DB: lock source, claim ≤ received − returned − open claims → CR + ReturnQuantityClaim
-  W->>API: POST /:id/inspect {custodyLocationId, lines[qtyReceived, packaging, installation, damageCause, deadline]}
-  S->>DB: customer custody balance (CUSTOMER owner), assessment version
-  alt ordinary case
-    SA->>API: POST /:id/decision (may be own CR)
-  else eligible exception
-    O->>API: POST /:id/exception-decision (Owner ≠ proposer)
+  SA->>API: Request CR from evidenced issue or verified external source
+  API->>DB: Validate remaining received quantity, save CR and source claim
+  W->>API: Record actual quantity, condition, packaging and evidence
+  API->>DB: Save inspection facts, no custody or stock posting
+  alt Ordinary eligible case
+    SA->>API: Accept or reject inspected quantities
+  else Eligible substantiated exception
+    O->>API: Decide current exception, distinct from proposer
   end
-  W->>API: POST /:id/receipt {lines[lineId, qtyBase, locationId, qualityCode]}
-  S->>DB: GoodsReceipt CUSTOMER_RETURN: custody → STORE (GOOD receiving / DAMAGED quarantine), release claim
-  opt rejected quantity
-    W->>API: POST /:id/handback {recipientName}
-    S->>DB: custody −qty
+  W->>API: Receive current accepted quantities, quality and destination
+  API->>DB: Post CUSTOMER_RETURN receipt and STORE stock once
+  opt Rejected goods handed back
+    W->>API: Record recipient, quantity and evidence
+    API->>DB: Save handback event, no stock movement
   end
 ```
 
-#### 7.3 Sequence — Failed delivery (07.FD)
-
-```mermaid
-sequenceDiagram
-  autonumber
-  actor W as Warehouse Staff
-  participant API as /api/failed-deliveries
-  participant S as NativeReturnService
-  participant DB as MongoDB
-  W->>API: POST / (multipart evidence) {source GI-S lines, reason, qty}
-  S->>DB: POD + posted GR-FD + open FD ≤ PGI → FailedDelivery + claim
-  W->>API: POST /:id/inspect {lines[qty, quality, packaging]}
-  S->>DB: inspection facts, no stock
-  W->>API: POST /:id/receipt {lines[lineId, qtyBase, locationId, qualityCode, portions?]}
-  S->>DB: GoodsReceipt FAILED_DELIVERY, stock +qty by quality, consume claim
-  S->>DB: reopen exact SO/WIR/OD net demand (demandReopenings), version++
-```
+Buyer details come from the source document. Exact API/model input changes for removing customer-master dependence remain implementation work; historical references and posted ledgers remain intact.
 
 ### 8. BF-08 Supplier return — Implemented
 
@@ -2862,9 +2956,9 @@ sequenceDiagram
 
 **c. Email password recovery**
 
-Report 3 specifies two password recovery requirements pending implementation. In UC-131, the account holder requests an OTP from Sign In. In UC-132, the Administrator requests an OTP from the target account's details. WMSD sends the code to the account's registered email address. The account holder verifies the code and chooses the new password on the Sign In screen. The Administrator sees the send outcome only.
+Report 3 specifies two password recovery requirements. UC-145 (Reset Own Password by Email, formerly UC-131) is implemented: the account holder requests an OTP from Sign In (`POST /api/auth/forgot-password/otp`), WMSD sends a six-digit code to the registered email address and the account holder enters the code and the new password on the Sign In screen (`POST /api/auth/forgot-password/reset`). UC-160 (formerly UC-132), where the Administrator requests an OTP from the target account's details, is still pending implementation.
 
-The current Forgot Password dialog directs the user to support. The current account edit form still lets an authorized operator enter a new password via `PUT /api/users/:id`.
+The account update API no longer accepts a password; an email change goes through an OTP sent to the new address.
 
 #### 1.2 Authorization & RBAC Implementation
 
@@ -2878,14 +2972,14 @@ The current Forgot Password dialog directs the user to support. The current acco
 | Data redaction | Purchase prices only for Owner/Accountant; SO prices, source evidence and internal references hidden from Warehouse and custom roles; Sales sees only available quantity, not holds/custody. |
 | FE | Menu and route guards use the session permission list (`routeAccess.ts`); the backend remains authoritative. |
 
-Default role → key permissions:
+Selected-scope role responsibilities (existing permission catalogue still includes compatibility codes; documentation alone does not revoke grants):
 
 | Role | Key permissions |
 |---|---|
 | OWNER | `replenishment_request:approve`, `purchase_order:approve_exception`, `stock_transfer:approve`, `stock_transfer:approve_variance`, `defect:approve`, `customer_return:approve_exception`, `goods_receipt_other:approve`, `stocktake:create`, `stock_adjustment:approve/post`, `product:*`, `uom:*`, `warehouse_location:create/update` |
 | ACCOUNTANT | `purchase_order:create/update`, `supplier:create/update`, `purchase_custody:decide`, `supplier_return:record_agreement/close`, `external_reference:*` |
-| WAREHOUSE | receiving (`goods_receipt_inspection:*`, `putaway_task:*`), `stock_relocation:*`, `stock_transfer:create/update/dispatch/receive`, `picking_task:create/confirm`, `goods_issue:*`, `delivery_confirmation:confirm`, `defect:create/execute`, `customer_return:inspect/post`, `failed_delivery:*`, `supplier_return:create/dispatch`, `stocktake:update/reconcile` |
-| SALES | `replenishment_request:create/update`, `sales_order:*`, `issue_request:*`, `outbound_delivery:create/update`, `customer:create/update`, `customer_return:create/accept`, `payment_confirmation:confirm` |
+| WAREHOUSE | receiving (`goods_receipt_inspection:*`, `putaway_task:*`), `stock_relocation:*`, `stock_transfer:create/update/dispatch/receive`, `goods_issue:*`, `defect:create/execute`, `customer_return:inspect/post`, `failed_delivery:post` (actual intake on issue only), `supplier_return:create/dispatch`, `stocktake:update/reconcile` |
+| SALES | `replenishment_request:create/update`, `sales_order:*`, `delivery_confirmation:confirm` (issue-linked evidence), `customer_return:create/accept`, `payment_confirmation:confirm` |
 | ADMIN | `user:*`, `access_control:*`, `warehouse_layout_function:update`; no business permissions |
 
 #### 1.3 Data Protection
@@ -2922,7 +3016,7 @@ There is no server-side cache (no Redis). Consistency is preferred over caching 
 
 ### 1. Document identity
 
-New business documents use `_id = documentNo` = `[type]-[warehouse code or KD]-[YYMMDD]-[6-digit sequence]` in Asia/Ho_Chi_Minh time, e.g. `ĐMH-K-GACH-01-261113-000001`. Transfer-group documents shorten the warehouse code (`K-GACH-01` → `KG1`). The sequence is the highest existing number in the documents and `operation_records` for the same type/unit/day plus one, allocated inside the creating transaction; a duplicate-key collision retries the transaction. Main type codes: YCBS (RR), ĐMH (PO), HĐK (arrival), PKN (inspection), PNM (purchase GR), PNK (other GR), LCV (relocation TO), YCĐC (TR), PXĐC (TD), YCNB (ITR), PNĐC (transfer receipt), CLCK (transfer difference), ĐBH (SO), YCX (WIR), LGH (OD), PXB (GI-S), LSH (picking), BCH (defect), ĐTK (CR), GHTB (FD), ĐTNCC (SR), KK (stocktake), ĐCKK (adjustment).
+New business documents use `_id = documentNo` = `[type]-[warehouse code or KD]-[YYMMDD]-[6-digit sequence]` in Asia/Ho_Chi_Minh time, e.g. `ĐMH-K-GACH-01-261113-000001`. Transfer-group documents shorten the warehouse code (`K-GACH-01` → `KG1`). The sequence is the highest existing number in the documents and `operation_records` for the same type/unit/day plus one, allocated inside the creating transaction; a duplicate-key collision retries the transaction. Selected-scope type codes (historical WIR/OD/FD numbering remains readable): YCBS (RR), ĐMH (PO), HĐK (arrival), PKN (inspection), PNM (purchase GR), PNK (other GR), LCV (relocation TO), YCĐC (TR), PXĐC (TD), YCNB (ITR), PNĐC (transfer receipt), CLCK (transfer difference), ĐBH (SO), PXB (GI-S), BCH (defect), ĐTK (CR), ĐTNCC (SR), KK (stocktake), ĐCKK (adjustment).
 
 ### 2. Inventory posting model
 
@@ -2948,13 +3042,13 @@ Each command writes a `system_events` row with status `PENDING` in the same tran
 
 | Report 3 area | Status in code (14/11/2026) |
 |---|---|
-| BF-01 RR, PO, inspection, GR, custody, put-away, reversal (UC-01–16, 37, 45–46) | Implemented; UC-11 retired. |
+| BF-01 RR, PO, inspection, GR, custody, reversal (UC-01–16, 37, 45–46) | Implemented; UC-11 retired. Purchase put-away routes were removed on 17/11/2026; RECEIVING → STORAGE uses BF-03 relocation. |
 | BF-02 defects (UC-73–78) | Implemented. |
 | BF-03 relocation (UC-47–50) | Implemented. |
 | BF-04 transfer (UC-51–56, 120) | Implemented, including differences and partial close. |
 | BF-05 stocktake (UC-93–105, 121) | List/detail and closure (UC-105) implemented; planning, activation, counting, plan proposal/approval and execution recording have no API yet. |
-| BF-06 sales (UC-57–72, 117–119, 124–130) | SO create/update/cancel remainder, WIR create, OD and picking implemented; WIR list/detail/update/cancel (UC-124, 125, 127, 128) have no dedicated API (WIR is read through SO detail); PGI (UC-71), POD (UC-129) and PAY-CFM (UC-130) not implemented. |
-| BF-07 returns (UC-79–87, 122–123) | Implemented. |
+| BF-06 sales (UC-57-61, 69-72, 117-119, 129-130) | Selected design uses SO/direct issue with inline receipt evidence/intake. The current direct runtime contract records implemented behavior; removing customer-master input still needs API/model alignment. WIR/OD/sales picking requirements are retired. |
+| BF-07 customer returns (UC-79-84, 86, 122-123) | Customer returns retained with fact-only inspection and accepted receipt. Standalone failed-delivery UCs 85/87 are retired; actual intake belongs to the source issue. Customer-master removal still needs contract alignment. |
 | BF-08 supplier return (UC-88–92) | Implemented. |
-| Master data, warehouses/locations/inventory/movement log (UC-17–44, 114–116) | Implemented. |
+| Master data, warehouses/locations/inventory/movement log (UC-17-32, 37-44, 114-116) | Retained. Customer catalogue UCs 33-36 are retired; existing customer records remain compatibility data pending explicit migration. |
 | Accounts/roles (UC-106–112), reports (UC-113) | Implemented; account lockout after failed logins and SMTP notifications not implemented. |

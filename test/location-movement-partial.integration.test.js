@@ -1,0 +1,120 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import mongoose from 'mongoose';
+import * as m from '../src/models/runtime.js';
+import * as moves from '../src/modules/location-movements/location-movement.service.js';
+import { PERMISSION_CATALOGUE, ROLE_PERMISSIONS } from '../src/seeds/data/permissions.data.js';
+import { pendingTaskQuantity } from '../src/shared/utils/stock.js';
+
+const key = () => new mongoose.Types.ObjectId().toString();
+test('BF03 confirms partial quantities, preserves history, cancels only the remainder and serializes competing confirmations', { skip: process.env.RUN_RELOCATION_PARTIAL_TESTS !== '1' }, async () => {
+  const dbName = 'relocation_partial_test_' + key();
+  await mongoose.connect('mongodb://127.0.0.1:27018/' + dbName + '?replicaSet=hieudt-test', { serverSelectionTimeoutMS: 5000 });
+  try {
+    const names = ['Permission', 'Role', 'User', 'Warehouse', 'WarehouseLocation', 'Uom', 'Category', 'Product', 'ProductBatch', 'InventoryBalance', 'StockHoldingPoint', 'StockTransaction', 'TransferOrder', 'StockReservation', 'StocktakeLocationLock', 'DefectReport', 'OperationRecord', 'AuditLog', 'SystemEvent'];
+    for (let i = 0; i < names.length; i += 6) await Promise.all(names.slice(i, i + 6).map(async name => { await m[name].createCollection(); await m[name].createIndexes(); }));
+    const permissions = await m.Permission.insertMany(PERMISSION_CATALOGUE.map(p => ({ code: p.code, name: p.code })));
+    const role = await m.Role.create({ code: 'WAREHOUSE', name: 'Warehouse', permissionIds: permissions.filter(p => ROLE_PERMISSIONS.WAREHOUSE.includes(p.code)).map(p => p._id) });
+    const warehouse = await m.Warehouse.create({ code: 'PART', name: 'Partial relocation', lengthMm: '10000', widthMm: '10000', clearHeightMm: '3000' });
+    const actor = async username => { const u = await m.User.create({ username, fullName: username, passwordHash: 'unused', roleId: role._id, warehouseIds: [warehouse._id] }); return m.User.findById(u._id).populate({ path: 'roleId', populate: { path: 'permissionIds' } }); };
+    const worker = await actor('partial-worker'), other = await actor('other-worker');
+    await m.Uom.create({ code: 'PIECE', name: 'Viên' });
+    const category = await m.Category.create({ code: 'TEST', name: 'Test' });
+    const product = await m.Product.create({ sku: 'PART-TILE', name: 'Gạch chuyển nhiều lần', manufacturerCode: 'TEST', categoryId: category._id, color: 'White', baseUnit: 'PIECE', wholeBaseUnits: true, lengthMm: '600', widthMm: '600', heightMm: '10' });
+    const batch = await m.ProductBatch.create({ productId: product._id, manufacturerLot: 'PART-LOT', identificationStatus: 'VERIFIED', piecesPerCarton: 4, cartonLengthMm: '620', cartonWidthMm: '620', cartonHeightMm: '50' });
+    const location = code => m.WarehouseLocation.create({ warehouseId: warehouse._id, code, locationType: 'STORAGE', isPickable: true, usableLengthMm: '5000', usableWidthMm: '5000' });
+    const source = await location('SRC'), destination = await location('DST'), second = await location('DST2');
+    const point = await m.StockHoldingPoint.create({ type: 'LOCATION', locationId: source._id });
+    const balance = await m.InventoryBalance.create({ holdingPointId: point._id, batchId: batch._id, ownerType: 'STORE', qualityStatus: 'GOOD', quantityBase: '48', version: 0,
+      packagingPortions: [{ packagingState: 'SEALED', sealedPackCount: 12, quantityBase: '48', createdBy: worker._id, packagingSnapshot: { packageUnit: 'BOX', baseUnitsPerPackage: '4', outerLengthMm: '620', outerWidthMm: '620', outerHeightMm: '50' } }] });
+    const create = async (qty, target = destination) => {
+      const current = await m.InventoryBalance.findById(balance._id);
+      return moves.createLocationMovement(worker, { idempotencyKey: key(), warehouseId: String(warehouse._id), reason: 'Move in trips', lines: [{ sourceBalanceId: String(balance._id), sourceBalanceVersion: current.version, toLocationId: String(target._id), enteredUnit: 'PIECE', enteredQty: qty }] });
+    };
+    const doc = id => m.TransferOrder.findById(id);
+    const request = (d, qty) => ({ idempotencyKey: key(), expectedVersion: d.version, lines: [{ lineId: String(d.items[0]._id), actualQtyBase: qty }] });
+    const created = await create('40'); let d = await doc(created.id);
+    await assert.rejects(moves.confirmLocationMovement(other, d.id, request(d, '16')), /người lập/);
+    await assert.rejects(moves.confirmLocationMovement(worker, d.id, request(d, '44')), /còn lại/);
+    await assert.rejects(moves.confirmLocationMovement(worker, d.id, request(d, '1')), /nguyên thùng/);
+    const lock = await m.StocktakeLocationLock.create({ stocktakeId: new mongoose.Types.ObjectId(), locationId: destination._id, scopeVersion: 1, status: 'LOCKED', lockedBy: worker._id, lockedAt: new Date() });
+    await assert.rejects(moves.confirmLocationMovement(worker, d.id, request(d, '16')), /kiểm kê/);
+    assert.equal(await m.StockTransaction.countDocuments(), 0); await lock.deleteOne();
+    const first = request(d, '16'); await moves.confirmLocationMovement(worker, d.id, first);
+    assert.equal((await moves.confirmLocationMovement(worker, d.id, first)).replayed, true);
+    d = await doc(d.id); assert.equal(d.workflowStatus, 'PARTIAL'); assert.equal(String(d.items[0].qtyBase), '40');
+    assert.equal(String((await m.InventoryBalance.findById(balance._id)).quantityBase), '32');
+    assert.equal((await pendingTaskQuantity(balance._id)).toFixed(), '24');
+    assert.equal(await m.StockTransaction.countDocuments({ sourceId: d.id }), 1);
+    await assert.rejects(moves.editLocationMovement(worker, d.id, { idempotencyKey: key(), expectedVersion: d.version, reason: 'Change completed plan', lines: [] }), /không còn mở/);
+    await assert.rejects(moves.confirmLocationMovement(worker, d.id, { ...request(d, '4'), expectedVersion: 1 }));
+    await assert.rejects(moves.confirmLocationMovement(worker, d.id, request(d, '28')), /còn lại/);
+    await destination.updateOne({ usableLengthMm: '1' });
+    await assert.rejects(moves.confirmLocationMovement(worker, d.id, request(d, '24')), /fit|capacity/);
+    assert.equal(await m.StockTransaction.countDocuments({ sourceId: d.id }), 1);
+    await destination.updateOne({ usableLengthMm: '5000' });
+    await moves.confirmLocationMovement(worker, d.id, request(d, '24')); d = await doc(d.id);
+    assert.equal(d.workflowStatus, 'CONFIRMED'); assert.equal((await pendingTaskQuantity(balance._id)).toFixed(), '0');
+    const detail = await moves.getLocationMovement(worker, d.id);
+    assert.equal(detail.transactions.length, 2); assert.ok(detail.transactions.every(t => t.performedByName === 'partial-worker'));
+    assert.equal(detail.transactions.flatMap(t => t.movements).reduce((n, row) => n + Number(row.quantityBase), 0), 40);
+    await assert.rejects(moves.confirmLocationMovement(worker, d.id, request(d, '4')), /không còn mở/);
+    const cancelled = await create('8'); let c = await doc(cancelled.id);
+    await moves.confirmLocationMovement(worker, c.id, request(c, '4')); c = await doc(c.id);
+    await moves.cancelLocationMovement(worker, c.id, { idempotencyKey: key(), expectedVersion: c.version, reason: 'Stop after first trip' });
+    assert.equal((await doc(c.id)).workflowStatus, 'CANCELLED'); assert.equal((await pendingTaskQuantity(balance._id)).toFixed(), '0');
+    assert.equal((await moves.getLocationMovement(worker, c.id)).transactions.length, 1);
+    assert.equal(String((await m.InventoryBalance.findById(balance._id)).quantityBase), '4');
+    const concurrent = await create('4', second); const current = await doc(concurrent.id);
+    const results = await Promise.allSettled([moves.confirmLocationMovement(worker, current.id, request(current, '4')), moves.confirmLocationMovement(worker, current.id, request(current, '4'))]);
+    assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);
+    assert.equal(await m.StockTransaction.countDocuments({ sourceId: current.id }), 1);
+    const destinationPoint = await m.StockHoldingPoint.findOne({ locationId: destination._id });
+    const shared = await m.InventoryBalance.findOne({ holdingPointId: destinationPoint._id, batchId: batch._id });
+    const multiple = await moves.createLocationMovement(worker, { idempotencyKey: key(), warehouseId: String(warehouse._id), reason: 'Selected lines from the same balance', lines: [source, second].map((target, index) => ({ sourceBalanceId: String(shared._id), sourceBalanceVersion: shared.version, toLocationId: String(target._id), enteredUnit: 'PIECE', enteredQty: index ? '8' : '4' })) });
+    let multi = await doc(multiple.id);
+    await moves.confirmLocationMovement(worker, multi.id, { idempotencyKey: key(), expectedVersion: multi.version, lines: [{ lineId: String(multi.items[1]._id), actualQtyBase: '4' }] });
+    multi = await doc(multi.id); assert.equal(multi.workflowStatus, 'PARTIAL');
+    await moves.confirmLocationMovement(worker, multi.id, { idempotencyKey: key(), expectedVersion: multi.version, lines: multi.items.map(item => ({ lineId: String(item._id), actualQtyBase: '4' })) });
+    assert.equal((await doc(multi.id)).workflowStatus, 'CONFIRMED');
+    const outsider = await actor('outside-warehouse'); outsider.warehouseIds = []; await outsider.save();
+    await assert.rejects(moves.getLocationMovement(outsider, multi.id));
+    assert.equal((await m.InventoryBalance.find()).reduce((n, b) => n + Number(b.quantityBase), 0), 48);
+
+    // A combined UI row becomes two independent packaging lines with one stock identity.
+    const mixedSource=await location('MIX-SRC'),mixedDestination=await location('MIX-DST');
+    const mixedPoint=await m.StockHoldingPoint.create({type:'LOCATION',locationId:mixedSource._id});
+    const mixedBalance=await m.InventoryBalance.create({holdingPointId:mixedPoint._id,batchId:batch._id,ownerType:'STORE',qualityStatus:'GOOD',quantityBase:'62',version:0,packagingPortions:[
+      {packagingState:'SEALED',sealedPackCount:15,quantityBase:'60',createdBy:worker._id,packagingSnapshot:{packageUnit:'BOX',baseUnitsPerPackage:'4',outerLengthMm:'620',outerWidthMm:'620',outerHeightMm:'50'}},
+      {packagingState:'LOOSE',quantityBase:'2',measuredVolumeMm3:'7200000',createdBy:worker._id},
+    ]});
+    const common={sourceBalanceId:String(mixedBalance._id),sourceBalanceVersion:0,toLocationId:String(mixedDestination._id),enteredUnit:'PIECE'};
+    const mixedBody={idempotencyKey:key(),warehouseId:String(warehouse._id),reason:'10 cartons plus one loose piece',lines:[{...common,enteredQty:'40',packagingState:'SEALED'},{...common,enteredQty:'1',packagingState:'LOOSE'}]};
+    await assert.rejects(moves.createLocationMovement(worker,{...mixedBody,idempotencyKey:key(),lines:[{...common,enteredQty:'3',packagingState:'LOOSE'}]}),/không đủ/);
+    await assert.rejects(moves.createLocationMovement(worker,{...mixedBody,idempotencyKey:key(),lines:[{...common,enteredQty:'1',packagingState:'SEALED'}]}),/nguyên thùng/);
+    const mixed=await moves.createLocationMovement(worker,mixedBody);let combined=await doc(mixed.id);
+    assert.deepEqual(combined.items.map(item=>item.details.packagingState),['SEALED','LOOSE']);
+    const itemIds=combined.items.map(item=>String(item._id));
+    await moves.editLocationMovement(worker,combined.id,{idempotencyKey:key(),expectedVersion:combined.version,reason:mixedBody.reason,lines:mixedBody.lines});
+    combined=await doc(combined.id);assert.deepEqual(combined.items.map(item=>String(item._id)),itemIds);
+    const looseLine=combined.items.find(item=>item.details.packagingState==='LOOSE'),sealedLine=combined.items.find(item=>item.details.packagingState==='SEALED');
+    const looseTrip={idempotencyKey:key(),expectedVersion:combined.version,lines:[{lineId:String(looseLine._id),actualQtyBase:'1'}]};
+    await moves.confirmLocationMovement(worker,combined.id,looseTrip);
+    assert.equal((await moves.confirmLocationMovement(worker,combined.id,looseTrip)).replayed,true);
+    for(const quantity of ['20','20']){
+      combined=await doc(combined.id);
+      await moves.confirmLocationMovement(worker,combined.id,{idempotencyKey:key(),expectedVersion:combined.version,lines:[{lineId:String(sealedLine._id),actualQtyBase:quantity}]});
+    }
+    combined=await doc(combined.id);assert.equal(combined.workflowStatus,'CONFIRMED');
+    const sourceAfter=await m.InventoryBalance.findById(mixedBalance._id);
+    const destPoint=await m.StockHoldingPoint.findOne({locationId:mixedDestination._id});
+    const destAfter=await m.InventoryBalance.findOne({holdingPointId:destPoint._id,batchId:batch._id});
+    const sumPackaging=(row,state)=>row.packagingPortions.filter(p=>p.packagingState===state).reduce((n,p)=>n+Number(p.quantityBase),0);
+    assert.equal(String(sourceAfter.quantityBase),'21');assert.equal(sumPackaging(sourceAfter,'SEALED'),20);assert.equal(sumPackaging(sourceAfter,'LOOSE'),1);
+    assert.equal(String(destAfter.quantityBase),'41');assert.equal(sumPackaging(destAfter,'SEALED'),40);assert.equal(sumPackaging(destAfter,'LOOSE'),1);
+    assert.equal(sourceAfter.packagingPortions.find(p=>p.packagingState==='SEALED').sealedPackCount,5);
+    const mixedDetail=await moves.getLocationMovement(worker,combined.id);assert.deepEqual(mixedDetail.items.map(item=>item.details.packagingState),['SEALED','LOOSE']);
+    assert.equal(mixedDetail.transactions.length,3);assert.equal((await pendingTaskQuantity(mixedBalance._id)).toFixed(),'0');
+    assert.equal((await m.InventoryBalance.find()).reduce((n,b)=>n+Number(b.quantityBase),0),110);
+  } finally { assert.equal(mongoose.connection.name, dbName); assert.match(dbName, /^relocation_partial_test_[a-f0-9]{24}$/); await mongoose.connection.dropDatabase(); await mongoose.disconnect(); }
+});

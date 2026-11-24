@@ -81,10 +81,10 @@ export const listQuerySchema = z
     warehouseId: objectIdSchema.optional(),
     createdBy: objectIdSchema.optional(),
     status: z
-      .enum(["DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "REVISION_REQUIRED", "CANCELLED"])
+      .enum(["DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "CANCELLED"])
       .optional(),
     approvalDecision: z
-      .enum(["APPROVE", "REJECT", "REVISE", "NONE"])
+      .enum(["APPROVE", "REJECT", "NONE"])
       .optional(),
     hasPurchaseOrder: z
       .union([z.boolean(), z.enum(["true", "false"])])
@@ -205,7 +205,7 @@ export const submitReplenishmentSchema = z.object({
 const reviewLineSchema = z
   .object({
     lineId: objectIdSchema,
-    approvedQtyBase: approvedQty,
+    approvedQtyBase: approvedQty.optional(),
     reason: z.string().trim().max(2000).optional().nullable(),
   })
   .strict();
@@ -217,12 +217,19 @@ export const reviewReplenishmentSchema = z.object({
     .object({
       expectedVersion,
       operationKey,
-      decision: z.enum(["APPROVE", "REJECT", "REVISE"]),
+      decision: z.enum(["APPROVE", "REJECT"]),
       evaluations,
       reason: z.string().trim().max(2000).optional().nullable(),
       lines: z.array(reviewLineSchema).max(100).optional().default([]),
     })
-    .strict(),
+    .strict()
+    .superRefine(({ decision, lines }, ctx) => {
+      if (decision !== "APPROVE") return;
+      for (const [index, line] of lines.entries()) {
+        if (line.approvedQtyBase == null)
+          ctx.addIssue({ code: "custom", path: ["lines", index, "approvedQtyBase"], message: "Thiếu lượng duyệt" });
+      }
+    }),
 });
 
 export const replenishmentLotOptionsSchema = z.object({

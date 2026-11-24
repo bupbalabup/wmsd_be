@@ -1,3 +1,5 @@
+Trạng thái triển khai 17/11/2026: [nền/tường/cửa](IMPLEMENTATION.md), [khu vực/ô](STAGE2_ZONES.md), [lớp hàng và số đo pallet](STAGE3_PALLET_LAYERS.md), [chọn/kéo pallet 2D–3D](STAGE4_PALLET_PLACEMENT.md). Nội dung đặc tả bên dưới giữ nguồn quyết định ban đầu; không thay bằng chứng kiểm chứng có ngày trong các chặng.
+
 # Đặc tả chức năng Kho 3D — Phiên bản 1
 
 - Ngày lập: 12/11/2026.

@@ -5,7 +5,7 @@ export const documentCollections = Object.freeze({
   INTERNAL_TRANSFER_REQUIREMENT: 'internal_transfer_requirements',
   TRANSFER_DISPATCH: 'transfer_dispatches', MWTR: 'goods_receipts', TRANSFER: 'goods_receipts',
   SALES_ORDER: 'sales_orders', ISSUE_REQUEST: 'warehouse_issue_requests',
-  OUTBOUND_DELIVERY: 'delivery_orders', GI_SALE: 'sales_goods_issues',
+  OUTBOUND_DELIVERY: 'delivery_orders', GI_SALE: 'sales_goods_issues', DELIVERY_SCHEDULE: 'delivery_schedules',
   DELIVERY_CONFIRMATION: 'delivery_confirmations', PAYMENT_CONFIRMATION: 'external_payment_confirmations',
   DEFECT_CASE: 'defect_reports', DISPOSITION: 'defect_resolution_plans', SCRAP: 'stock_scrap_records',
   STOCKTAKE: 'stocktakes', ADJUSTMENT: 'stock_adjustments', FAILED_DELIVERY: 'failed_deliveries',
@@ -55,14 +55,16 @@ export const legacyMigrationCollections = [...new Set([...migrationCollections.f
 import { removedCollections } from './consolidation.js';
 // Categories belong to the current design; the historical migration profile
 // deliberately retains its original collection/field contract.
-export const newCollections = [...new Set(migrationCollections.filter(name => !removedCollections.includes(name))), 'categories', 'uoms', 'conversions'];
+export const newCollections = [...new Set(migrationCollections.filter(name => !removedCollections.includes(name))), 'categories', 'uoms', 'conversions', 'stocktake_plans',
+  // System administration collections (23/11/2026).
+  'app_settings', 'api_endpoints', 'error_logs'];
 
 export const workflowModelNames = Object.freeze({
   REPLENISHMENT: 'ReplenishmentRequest', PO: 'PurchaseOrder', ARRIVAL: 'GoodsArrival',
   INSPECTION: 'GoodsInspection', GR_PURCHASE: 'PurchaseReceipt', TO: 'TransferOrder',
   TRANSFER_REQUEST: 'WarehouseTransferRequest', INTERNAL_TRANSFER_REQUIREMENT: 'InternalTransferRequirement',
   TRANSFER_DISPATCH: 'TransferDispatch', MWTR: 'TransferReceipt', SALES_ORDER: 'SalesOrder',
-  ISSUE_REQUEST: 'WarehouseIssueRequest', OUTBOUND_DELIVERY: 'DeliveryOrder', GI_SALE: 'SalesGoodsIssue',
+  ISSUE_REQUEST: 'WarehouseIssueRequest', OUTBOUND_DELIVERY: 'DeliveryOrder', GI_SALE: 'SalesGoodsIssue', DELIVERY_SCHEDULE: 'DeliverySchedule',
   DELIVERY_CONFIRMATION: 'DeliveryConfirmation', PAYMENT_CONFIRMATION: 'ExternalPaymentConfirmation',
   DEFECT_CASE: 'DefectReport', DISPOSITION: 'DefectResolutionPlan', SCRAP: 'StockScrapRecord',
   STOCKTAKE: 'Stocktake', ADJUSTMENT: 'StockAdjustment', FAILED_DELIVERY: 'FailedDelivery',
@@ -81,5 +83,4 @@ export const modelNames = Object.freeze({
   DemandReopening: 'DeliveryDemandReopening', OdCommitmentTransfer: 'DeliveryCommitmentTransfer',
   DefectHold: 'StockHold', CountAttempt: 'StocktakeCount', LocationLock: 'StocktakeLocationLock',
   AuditEvent: 'AuditLog', OutboxEvent: 'SystemEvent', BusinessOperation: 'OperationRecord',
-  ReplenishmentPlanningGuard: 'ReplenishmentLock',
 });

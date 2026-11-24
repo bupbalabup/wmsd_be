@@ -147,7 +147,7 @@ run('open request warning counts only other active same-warehouse requests and r
   const submitted = await request('3', warehouse, 'SUBMITTED');
   const approved = await request('10');
   await request('90', otherWarehouse, 'DRAFT');
-  await request('90', warehouse, 'REVISION_REQUIRED');
+  await request('90', warehouse, 'REJECTED');
   const options = { requestId: String(draft._id) };
   let [evaluation] = await evaluate([manual()], options);
   assert.deepEqual(evaluation.warnings, ['OPEN_REQUEST']);

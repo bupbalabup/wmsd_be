@@ -213,7 +213,8 @@ async function incomingPurchaseOrders(productId, warehouseId, excludeRequestId, 
   return incoming;
 }
 
-async function availableStock(productId, warehouseId, lotId, session) {
+// Exported for low-stock alerts and the owner dashboard (23/11/2026).
+export async function availableStock(productId, warehouseId, lotId, session) {
   const locations = await m.WarehouseLocation.find({
     warehouseId, isActive: true, locationType: "STORAGE", isPickable: true,
   }).select("_id").session(session);

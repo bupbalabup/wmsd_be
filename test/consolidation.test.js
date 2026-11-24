@@ -23,7 +23,9 @@ test('all merged record types retain IDs, fields, quantities and history', () =>
   const sorted=rows=>[...rows].sort((a,b)=>String(a._id).localeCompare(String(b._id)));
   for (const old of Object.keys(embeddedTables)) assert.deepEqual(sorted(expanded[old]),sorted(source[old].map(row=>expectedRecord(old,row))),old);
   for (const old of removedCollections) { assert.ok(!models.has(old)); assert.ok(!Object.hasOwn(data,old)); }
-  assert.equal(models.size, 58);
+  assert.equal(models.size, 62);
+  assert.equal(models.get('sales_orders').schema.path('replenishmentPlanningVersion'), undefined);
+  assert.equal(models.get('warehouse_transfer_requests').schema.path('header.executionStatus'), undefined);
 });
 test('model serialization preserves every embedded history field and reference', async () => {
   const saved=Object.fromEntries([...models].map(([name,Model])=>[name,current[name].map(row=>new Model(row).toObject())]));
@@ -114,9 +116,11 @@ test('products have exact dimensions and mandatory color; SKU identity permits s
   await assert.rejects(new Product({...white,heightMm:'0'}).validate());
   await assert.rejects(new Product({...white,color:''}).validate());
 });
-test('batch has fixed pieces and measured outer carton dimensions, without calibre or tone',async()=>{
+test('batch has fixed pieces and measured outer carton dimensions, with optional tone and calibre',async()=>{
   const Batch=models.get('product_batches'),row=copy(data.product_batches[0]);
-  await new Batch(row).validate();assert.ok(!Batch.schema.path('calibre'));assert.ok(!Batch.schema.path('tone'));
+  await new Batch(row).validate();assert.ok(Batch.schema.path('calibre'));assert.ok(Batch.schema.path('tone'));
+  await new Batch({...row,tone:'B08',calibre:'C2'}).validate();
+  await assert.rejects(new Batch({...row,tone:'x'.repeat(21)}).validate());
   assert.ok(Batch.schema.indexes().some(([key,settings])=>Object.keys(key).length===2&&key.productId&&key.manufacturerLot&&settings.unique));
   await assert.rejects(new Batch({...row,piecesPerCarton:4.5}).validate());
   await assert.rejects(new Batch({...row,cartonLengthMm:0}).validate());

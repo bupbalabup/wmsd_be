@@ -1,4 +1,7 @@
 import { createUserSchema } from "./user.model.js";
+import { createAppSettingSchema } from "./app-setting.model.js";
+import { createApiEndpointSchema } from "./api-endpoint.model.js";
+import { createErrorLogSchema } from "./error-log.model.js";
 import { createRoleSchema } from "./role.model.js";
 import { createPermissionSchema } from "./permission.model.js";
 import { createWarehouseSchema } from "./warehouse.model.js";
@@ -22,7 +25,6 @@ import { createNotificationSchema } from "./notification.model.js";
 import { createAuditLogSchema } from "./audit-log.model.js";
 import { createSystemEventSchema } from "./system-event.model.js";
 import { createOperationRecordSchema } from "./operation-record.model.js";
-import { createReplenishmentLockSchema } from "./replenishment-lock.model.js";
 import { createReturnSourceLockSchema } from "./return-source-lock.model.js";
 import { createExternalReferenceSchema } from "./external-reference.model.js";
 import { createProductBatchSchema } from "./product-batch.model.js";
@@ -39,9 +41,11 @@ import { createSalesOrderSchema } from "./sales-order.model.js";
 import { createWarehouseIssueRequestSchema } from "./warehouse-issue-request.model.js";
 import { createDeliveryOrderSchema } from "./delivery-order.model.js";
 import { createSalesGoodsIssueSchema } from "./sales-goods-issue.model.js";
+import { createDeliveryScheduleSchema } from "./delivery-schedule.model.js";
 import { createDefectReportSchema } from "./defect-report.model.js";
 import { createStockScrapRecordSchema } from "./stock-scrap-record.model.js";
 import { createStocktakeSchema } from "./stocktake.model.js";
+import { createStocktakePlanSchema } from "./stocktake-plan.model.js";
 import { createStockAdjustmentSchema } from "./stock-adjustment.model.js";
 import { createFailedDeliverySchema } from "./failed-delivery.model.js";
 import { createStockQualityChangeSchema } from "./stock-quality-change.model.js";
@@ -165,11 +169,6 @@ export function modelSchemaEntries() {
       schema: createOperationRecordSchema(),
     },
     {
-      name: "ReplenishmentLock",
-      collection: "replenishment_locks",
-      schema: createReplenishmentLockSchema(),
-    },
-    {
       name: "ReturnSourceLock",
       collection: "return_source_locks",
       schema: createReturnSourceLockSchema(),
@@ -243,6 +242,11 @@ export function modelSchemaEntries() {
       name: "DeliveryOrder",
       collection: "delivery_orders",
       schema: createDeliveryOrderSchema(),
+    },
+    {
+      name: "DeliverySchedule",
+      collection: "delivery_schedules",
+      schema: createDeliveryScheduleSchema(),
     },
     {
       name: "SalesGoodsIssue",
@@ -324,5 +328,14 @@ export function modelSchemaEntries() {
       collection: "sales_invoices",
       schema: createSalesInvoiceSchema(),
     },
+    {
+      name: "StocktakePlan",
+      collection: "stocktake_plans",
+      schema: createStocktakePlanSchema(),
+    },
+    // System administration collections (user decision 23/11/2026).
+    { name: "AppSetting", collection: "app_settings", schema: createAppSettingSchema() },
+    { name: "ApiEndpoint", collection: "api_endpoints", schema: createApiEndpointSchema() },
+    { name: "ErrorLog", collection: "error_logs", schema: createErrorLogSchema() },
   ];
 }

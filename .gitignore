@@ -6,7 +6,11 @@ dist/
 .env
 **/.env
 .env.local
+.dev.vars*
+.wrangler/
 .local/
 npm-debug.log*
 superpower/
 superpowers/
+
+.collab/

@@ -42,8 +42,9 @@ export function slotCorners(zone,slot) {
 }
 export function containmentIssues(layout) {
   const issues=[];
+  const stagingIds=new Set((layout.functions||[]).filter(({name})=>['khu tập kết','tập kết'].includes(name.trim().normalize('NFC').toLocaleLowerCase('vi'))).map(({id})=>id));
   for(const zone of layout.zones||[]){
-    if(!containsPolygon(layout.points,corners(zone)))issues.push(`Khu vực ${zone.name} nằm ngoài kho.`);
+    if(!stagingIds.has(zone.functionId)&&!containsPolygon(layout.points,corners(zone)))issues.push(`Khu vực ${zone.name} nằm ngoài kho.`);
     for(const slot of zone.slots||[])if(slot.x<0||slot.y<0||slot.x+slot.width>zone.width+EPS||slot.y+slot.length>zone.length+EPS)issues.push(`Ô ${slot.name} nằm ngoài khu vực ${zone.name}.`);
   }
   return issues;
@@ -52,7 +53,41 @@ export function arrangementSize(plan) {
   return {width:plan.columns*plan.palletWidth+(plan.columns-1)*plan.gap+2*plan.margin,length:plan.rows*plan.palletLength+(plan.rows-1)*plan.gap+2*plan.margin};
 }
 export function applicationIssues(layout) {
-  const issues=[...containmentIssues(layout),...(layout.zones||[]).filter(zone=>!zone.functionId).map(zone=>`Khu vực ${zone.name} chưa được gán chức năng.`)];
-  for(const zone of layout.zones||[])for(const slot of zone.slots||[])for(const pallet of slot.pallets||[]){const height=pallet.actualHeight??pallet.baseHeight+pallet.stackHeight,limit=zone.maxHeight??layout.maxStackHeight??layout.height;if(height>limit)issues.push(`Pallet ${pallet.code} vượt giới hạn chiều cao ${limit} m.`);}
+  return [...containmentIssues(layout),...(layout.zones||[]).filter(zone=>!zone.functionId).map(zone=>`Khu vực ${zone.name} chưa được gán chức năng.`)];
+}
+export function palletHeight(pallet) {
+  if(pallet.measuredCargoHeight!==undefined)return pallet.baseHeight+pallet.measuredCargoHeight;
+  if(pallet.actualHeight!==undefined)return pallet.actualHeight;
+  return pallet.baseHeight+(pallet.layers?.length?pallet.layers.reduce((sum,layer)=>sum+layer.height,0):pallet.stackHeight);
+}
+export function palletCorners(zone,slot,pallet) {
+  return slotCorners(zone,{...pallet,x:slot.x+pallet.x,y:slot.y+pallet.y});
+}
+export function heightWarnings(layout) {
+  const warnings=[];
+  for(const zone of layout.zones||[])for(const slot of zone.slots||[])for(const pallet of slot.pallets||[]){
+    const height=palletHeight(pallet),limit=zone.maxHeight??layout.maxStackHeight??layout.height;
+    if(height>limit+EPS)warnings.push(`Pallet ${pallet.code} · ${zone.name} / ${slot.name}: cao ${height.toFixed(3)} m, giới hạn ${limit.toFixed(3)} m, vượt ${(height-limit).toFixed(3)} m.`);
+  }
+  return warnings;
+}
+export function palletIssues(layout) {
+  const issues=[],ids=new Set(),codes=new Set();
+  for(const zone of layout.zones||[])for(const slot of zone.slots||[])for(const pallet of slot.pallets||[]){
+    const fail=message=>issues.push(`Pallet ${pallet.code}: ${message}`);
+    if(!pallet.id||!pallet.code.trim()||ids.has(pallet.id)||codes.has(pallet.code.trim().toLocaleLowerCase('vi')))fail('mã bị trùng hoặc để trống.');
+    ids.add(pallet.id);codes.add(pallet.code.trim().toLocaleLowerCase('vi'));
+    if(![pallet.x,pallet.y,pallet.width,pallet.length,pallet.baseHeight,pallet.stackHeight].every(Number.isFinite)||pallet.width<0.01||pallet.length<0.01||pallet.baseHeight<0.01||pallet.stackHeight<0)fail('kích thước chưa hợp lệ.');
+    if(pallet.x<0||pallet.y<0||pallet.x+pallet.width>slot.width+EPS||pallet.y+pallet.length>slot.length+EPS)fail(`nằm ngoài ô ${slot.name}.`);
+    if(pallet.measuredCargoHeight!==undefined&&(!Number.isFinite(pallet.measuredCargoHeight)||pallet.measuredCargoHeight<0))fail('chiều cao hàng đo chưa hợp lệ.');
+    if(!Number.isFinite(palletHeight(pallet))||palletHeight(pallet)<0||palletHeight(pallet)>100)fail('tổng chiều cao phải từ 0 đến 100 m.');
+    const layers=pallet.layers||[];
+    if(layers.length>100||new Set(layers.map(layer=>layer.id)).size!==layers.length)fail('lớp hàng bị trùng mã hoặc vượt 100 lớp.');
+    for(const layer of layers){
+      if(!Number.isFinite(layer.height)||layer.height<0.01||layer.height>100||!layer.items.length||layer.items.length>100)fail('lớp hàng cần chiều cao dương và từ 1 đến 100 dòng hàng.');
+      if(new Set(layer.items.map(item=>item.id)).size!==layer.items.length)fail('dòng hàng bị trùng mã trong lớp.');
+      if(layer.items.some(item=>!item.productCode.trim()||!item.lotCode.trim()||!Number.isSafeInteger(item.cartons)||item.cartons<1))fail('điền mã sản phẩm, lô và số thùng nguyên dương cho từng dòng.');
+    }
+  }
   return issues;
 }

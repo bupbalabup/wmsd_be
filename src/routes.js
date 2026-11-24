@@ -1,17 +1,18 @@
 import warehouseStockRouter from './modules/warehouse-stock/routes.js';
 import openingStockRouter from './modules/opening-stock/routes.js';
 import { Router } from "express";
+import notificationsRouter from './modules/notifications/routes.js';
 import stocktakeClosureRouter from './modules/stocktake-closure/stocktake-closure.routes.js';
+import stocktakePlanRouter from './modules/stocktake-plans/stocktake-plan.routes.js';
 import operationalReportsRouter from './modules/operational-reports/operational-reports.routes.js';
 import locationMovementRouter from "./modules/location-movements/location-movement.routes.js";
 import transferReadRouter from "./modules/transfers/transfer-read.routes.js";
 import transferWriteRouter from "./modules/transfers/transfer-write.routes.js";
-import {
-  salesOrderRouter,
-  outboundDeliveryRouter,
-  pickingRouter,
-} from "./modules/sales-orders/sales-read.routes.js";
+import { salesOrderRouter, outboundDeliveryRouter, pickingRouter } from "./modules/sales-orders/sales-read.routes.js";
+import { deliveryScheduleRouter, deliveryOrderRouter } from "./modules/delivery-orders/delivery-order.routes.js";
 import healthRouter from "./modules/health/health.routes.js";
+import systemRouter from "./modules/system/system.routes.js";
+import overviewRouter from "./modules/dashboard/dashboard.routes.js";
 import authRouter from "./modules/auth/auth.routes.js";
 import usersRouter from "./modules/users/user.routes.js";
 import rolesRouter from "./modules/roles/role.routes.js";
@@ -24,7 +25,7 @@ import purchaseOrderCommandsRouter from './modules/purchase-orders/purchase-orde
 import {
   inspectionRouter,
   purchaseReceivingRouter,
-  custodyReleaseRouter, custodyRouter, reversalRouter, putawayRouter, queueRouter, purchaseDocumentRouter,
+  custodyReleaseRouter, custodyRouter, reversalRouter, queueRouter, purchaseDocumentRouter,
 } from "./modules/po-receiving/po-receiving.routes.js";
 
 import returnWorkflowsRouter from './modules/return-workflows/workflow.routes.js';
@@ -33,18 +34,25 @@ import goodsReceiptRouter from './modules/goods-receipts/goods-receipt.routes.js
 import goodsIssueRouter from './modules/goods-issues/goods-issue.routes.js';
 
 const router = Router();
+router.use('/notifications', notificationsRouter);
 router.use('/opening-stocks', openingStockRouter);
 router.use(warehouseStockRouter);
 router.use('/stocktakes',stocktakeClosureRouter);
+router.use('/stocktake-plans',stocktakePlanRouter);
 router.use('/reports',operationalReportsRouter);
 router.use('/uoms',uomRouter);
 router.use("/location-movements", locationMovementRouter);
 router.use("/warehouse-transfers", transferWriteRouter, transferReadRouter);
 router.use("/sales-orders", salesOrderRouter);
 router.use("/outbound-deliveries", outboundDeliveryRouter);
-router.use('/picking-tasks',pickingRouter);
+router.use("/picking-tasks", pickingRouter);
+router.use("/delivery-schedules", deliveryScheduleRouter);
+router.use("/delivery-orders", deliveryOrderRouter);
 
 router.use("/health", healthRouter);
+// Administration and owner overview (23/11/2026): /system/*, /dashboard/owner, /settings/sales-policy, /stock-alerts, /search.
+router.use("/system", systemRouter);
+router.use(overviewRouter);
 router.use("/auth", authRouter);
 router.use("/users", usersRouter);
 router.use("/roles", rolesRouter);
@@ -61,7 +69,6 @@ router.use("/custody-receipts", custodyRouter);
 router.use("/custody-releases", custodyReleaseRouter);
 router.use('/goods-receipts', goodsReceiptRouter);
 router.use('/goods-issues', goodsIssueRouter);
-router.use('/putaway-tasks', putawayRouter);
 router.use('/purchase-receiving/queue', queueRouter);
 router.use('/purchase-documents', purchaseDocumentRouter);
 router.use(returnWorkflowsRouter);

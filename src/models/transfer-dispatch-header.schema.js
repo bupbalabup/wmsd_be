@@ -15,6 +15,11 @@ export function createTransferDispatchHeaderSchema() {
     approvedRevision: revision(),
     sourceWarehouseId: ref("Warehouse", false),
     destinationWarehouseId: ref("Warehouse", false),
+    // True when one request line is supplied from more than one lot; the dispatcher must acknowledge it.
+    mixedLots: { type: Boolean, default: false },
+    mixedLotAcceptedBy: ref("User", false),
+    // Set when the picker confirmed less than the planned quantity.
+    shortPickReason: { type: String, maxlength: 500 },
   });
   return schema;
 }

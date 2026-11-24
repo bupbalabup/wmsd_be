@@ -24,6 +24,15 @@ export async function guardLocations(ids, session) {
     if (await StocktakeLocationLock.exists({ locationId, status: 'LOCKED' }).session(session)) throw validationError('Vị trí đang khóa kiểm kê');
   }
 }
+// Read-side helper for every option/lookup that offers stock (decision 22 Nov 2026, same for every role):
+// stock in a location held by an active stocktake lock (status LOCKED) has zero selectable quantity.
+// Returns the Set of those location ids (as strings). Writers keep their own guardLocations refusal.
+export async function stocktakeLockedLocations(locationIds, session) {
+  const ids = [...new Set((locationIds || []).filter(Boolean).map(String))];
+  if (!ids.length) return new Set();
+  const locks = await StocktakeLocationLock.find({ locationId: { $in: ids }, status: 'LOCKED' }).select('locationId').session(session).lean();
+  return new Set(locks.map(lock => String(lock.locationId)));
+}
 export async function locationAt(id, warehouseId, kinds, session) {
   const location = await WarehouseLocation.findOne({ _id: id, warehouseId, isActive: true }).session(session);
   if (!location || (kinds?.length && !kinds.includes(location.locationType))) throw validationError('Vị trí không thuộc kho hoặc sai loại');
@@ -88,9 +97,9 @@ export function beginStock(document, user, operation, input) {
     requestHash, performedBy: user._id, occurredAt: new Date(), recordedAt: new Date(), movements: [] });
 }
 
-// Outbound may open cartons using conservative volume bounds; other movements
-// keep the existing whole-carton / whole-measured-portion restriction.
-export function splitPortions(portions, quantity, actorId, { allowOpening = false } = {}) {
+// Outbound may open cartons; explicit LOOSE relocation may split existing loose
+// stock with conservative volume bounds. Other movements keep whole portions.
+export function splitPortions(portions, quantity, actorId, { allowOpening = false, allowLooseSplit = false } = {}) {
   let remaining = exact(quantity);
   const kept = [], taken = [];
   const ordered = allowOpening ? [...portions].sort((a, b) => Number(a.packagingState === 'SEALED') - Number(b.packagingState === 'SEALED')) : portions;
@@ -99,7 +108,7 @@ export function splitPortions(portions, quantity, actorId, { allowOpening = fals
     const available = exact(portion.quantityBase);
     if (remaining.isZero()) { kept.push(portion); continue; }
     if (remaining.gte(available)) { taken.push(portion); remaining = remaining.minus(available); continue; }
-    if (allowOpening && (portion.packagingState !== 'SEALED' || portion.measuredVolumeMm3 != null || exact(portion.extraOccupiedVolumeMm3 || '0').gt(0) || !remaining.div(String(portion.packagingSnapshot?.baseUnitsPerPackage || '1')).isInteger())) {
+    if ((allowOpening || (allowLooseSplit && portion.packagingState === 'LOOSE')) && (portion.packagingState !== 'SEALED' || portion.measuredVolumeMm3 != null || exact(portion.extraOccupiedVolumeMm3 || '0').gt(0) || !remaining.div(String(portion.packagingSnapshot?.baseUnitsPerPackage || '1')).isInteger())) {
       const snapshot = portion.packagingSnapshot;
       const cartonVolume = snapshot?.outerLengthMm && snapshot.outerWidthMm && snapshot.outerHeightMm
         ? exact(String(snapshot.outerLengthMm)).mul(String(snapshot.outerWidthMm)).mul(String(snapshot.outerHeightMm)) : null;
@@ -150,7 +159,7 @@ async function saveBalance(balance, beforeVersion, session) {
     { $set: { quantityBase: balance.quantityBase, packagingPortions: balance.packagingPortions }, $inc: { version: 1 } }, { session });
   if (result.matchedCount !== 1) throw versionConflict('Tồn đã thay đổi');
 }
-export async function moveStock(sourceId, destinationId, quantity, itemId, stockTransaction, user, session, { preserveReservations = false, excludeTaskId, portionIds, allowOpening = false } = {}) {
+export async function moveStock(sourceId, destinationId, quantity, itemId, stockTransaction, user, session, { preserveReservations = false, excludeTaskId, portionIds, allowOpening = false, packagingState } = {}) {
   if (same(sourceId, destinationId)) throw validationError('Nguồn và đích phải khác nhau');
   const source = await InventoryBalance.findById(sourceId).session(session);
   const destination = await InventoryBalance.findById(destinationId).session(session);
@@ -166,8 +175,8 @@ export async function moveStock(sourceId, destinationId, quantity, itemId, stock
   if (amount.plus(pending).plus(preserveReservations ? '0' : reserved).plus(await heldQuantity(sourceId, session)).gt(from)) throw validationError('Lượng chuyển thuộc phần hàng đang bị chặn');
   if (amount.plus(pending).plus(preserveReservations ? '0' : reserved).gt(from)) throw validationError('Tồn đã được giữ hoặc lập lệnh khác');
   // portionIds limits the split to the portions of one source line (e.g. one receipt line in a shared receiving balance).
-  const inPool = row => portionIds === undefined || portionIds.some(id => same(id, row._id));
-  const split = splitPortions(source.packagingPortions.filter(inPool), amount, user._id, { allowOpening });
+  const inPool = row => (portionIds === undefined || portionIds.some(id => same(id, row._id))) && (!packagingState || row.packagingState === packagingState);
+  const split = splitPortions(source.packagingPortions.filter(inPool), amount, user._id, { allowOpening, allowLooseSplit: packagingState === 'LOOSE' });
   const kept = [...source.packagingPortions.filter(row => !inPool(row)).map(row => row.toObject ? row.toObject() : { ...row }), ...split.kept], taken = split.taken;
   // Retain existing subdocuments rather than recasting their immutable creation
   // timestamps when an earlier portion is removed from the array.
@@ -229,7 +238,8 @@ export async function receiveStock(balance, item, portions, posting, user, sessi
   const batch = await ProductBatch.findById(balance.batchId).session(session);
   const product = batch && await Product.findById(batch.productId).session(session);
   const amount = exact(item.qtyBase);
-  if ((!batch || !product) && (!portions?.length || portions.some(row => row.packagingState !== 'SEALED' && row.measuredVolumeMm3 == null))) {
+  const lacksVolume = row => row.packagingState !== 'SEALED' && (row.measuredVolumeMm3 ?? row.volumeUpperBoundMm3) == null;
+  if ((!batch || !product) && (!portions?.length || portions.some(lacksVolume))) {
     throw validationError(missingVolumeDimensions);
   }
   if (!batch || batch.identificationStatus !== 'VERIFIED' || !product?.isActive || !same(batch.productId, item.productId) || (product.wholeBaseUnits && !amount.isInteger())) throw validationError('Lô hoặc lượng nhập không hợp lệ');
@@ -259,7 +269,7 @@ export async function receiveStock(balance, item, portions, posting, user, sessi
   if (!packaging.reduce((sum,row) => sum.plus(String(row.quantityBase)), exact('0')).eq(amount)) throw validationError('Tổng quy cách khác lượng thực nhập');
   const received = packaging.map(row => ({
     ...row,
-    ...(row.packagingState !== 'SEALED' && row.measuredVolumeMm3 == null
+    ...(lacksVolume(row)
       ? { measuredVolumeMm3: estimateVolume(row.packagingState, row.quantityBase, batch, product) }
       : {}),
     _id: newId(),
@@ -271,4 +281,22 @@ export async function receiveStock(balance, item, portions, posting, user, sessi
   await saveBalance(balance, balance.version, session);
   posting.movements.push({ transactionId: posting._id, lineNo: posting.movements.length + 1,
     packagingPortionIds: received.map(row=>row._id), sourceLineId: item._id, toBalanceId: balance._id, quantityBase: amount.toFixed(), toBefore: before.toFixed(), toAfter: balance.quantityBase });
+}
+// Eligible pick locations of one lot in one warehouse, oldest receipt first. `free` is
+// the quantity still available there (other reservations already deducted).
+export async function fifoCandidates(warehouseId, lotId, session) {
+  const frozen = await StocktakeLocationLock.find({ status: 'LOCKED' }).session(session).distinct('locationId');
+  const locations = await WarehouseLocation.find({ warehouseId, _id: { $nin: frozen }, isActive: true, locationType: 'STORAGE', isPickable: true }).session(session).lean();
+  const points = await StockHoldingPoint.find({ type: 'LOCATION', locationId: { $in: locations.map(l => l._id) } }).session(session).lean();
+  const balances = await InventoryBalance.find({ holdingPointId: { $in: points.map(p => p._id) }, batchId: lotId, ownerType: 'STORE', qualityStatus: 'GOOD', quantityBase: { $gt: 0 } }).session(session).lean();
+  const receipts = await StockTransaction.aggregate([{ $unwind: '$movements' }, { $match: { 'movements.toBalanceId': { $in: balances.map(b => b._id) } } }, { $group: { _id: '$movements.toBalanceId', firstReceivedAt: { $min: '$occurredAt' } } }]).session(session);
+  const candidates = [];
+  for (const balance of balances) {
+    const free = await freeQuantity(balance, session);
+    if (!free.gt(0)) continue;
+    const point = points.find(p => same(p._id, balance.holdingPointId));
+    const firstReceivedAt = receipts.find(r => same(r._id, balance._id))?.firstReceivedAt ?? null;
+    candidates.push({ balance, locationId: point.locationId, free, firstReceivedAt });
+  }
+  return candidates.sort((a, b) => (a.firstReceivedAt ? +new Date(a.firstReceivedAt) : Infinity) - (b.firstReceivedAt ? +new Date(b.firstReceivedAt) : Infinity) || String(a.balance._id).localeCompare(String(b.balance._id)));
 }

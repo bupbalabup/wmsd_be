@@ -16,9 +16,9 @@ The former `docs/api/iteration-1/README.md` reference is absent from this checko
 | GET `/api/replenishments/options?mode=CREATE|FILTER` | create/update or read | warehouse lookup only |
 | POST `/api/replenishments` | create | SAVE_DRAFT or direct SUBMIT |
 | GET `/api/replenishments/:id` | read | current lines, approvals, live stock, submission summary |
-| PUT `/api/replenishments/:id` | update | creator edits DRAFT/REVISION_REQUIRED |
+| PUT `/api/replenishments/:id` | update | creator edits DRAFT |
 | POST `/:id/submit` | update | saved RR submit + snapshot |
-| POST `/:id/review` | approve | Owner decision |
+| POST `/:id/review` | approve | Owner decision: APPROVE or REJECT (reason required) |
 | GET `/:id/submissions` | read | paged snapshots, newest version first |
 | GET `/:id/submissions/:version` | read | immutable snapshot + approval; unavailable when historical data is missing |
 
@@ -48,12 +48,15 @@ decimal strings and dates are Asia/Saigon calendar dates on the wire.
 ## State, version and history
 
 ```text
-DRAFT -> SUBMITTED -> APPROVED | REJECTED | REVISION_REQUIRED
-REVISION_REQUIRED -> (edit) REVISION_REQUIRED -> SUBMITTED
+DRAFT -> SUBMITTED -> APPROVED | REJECTED
 ```
 
+- 22/11/2026 (user decision): the Owner only approves or rejects with a reason.
+  `REVISE` / `REVISION_REQUIRED` were removed; old RR in that state are moved to
+  `REJECTED` by `npm run rr:drop-revision -- --apply` (local DB only). Approval
+  history keeps its recorded `REVISE` decisions.
 - Create v1; edit/submit increment version; review does not.
-- Only DRAFT/REVISION_REQUIRED can be edited/submitted.
+- Only DRAFT can be edited/submitted.
 - Omitted current lines are soft-deleted via `details.removedAt`; IDs are never
   reused and a new line number exceeds all historical line numbers.
 - Submit stores an immutable ReplenishmentSubmission for that exact version with

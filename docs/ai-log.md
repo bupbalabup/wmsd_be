@@ -35,6 +35,66 @@ Validation performed / not performed:
 
 ## Log entries
 
+### 2026-11-20 — Link a replaced inspection to its replacement (UC-37)
+
+- Date: 2026-11-20
+- Work item / change: inspection detail returns `replacedBy`, and `capabilities.correct` is false once a non-cancelled replacement exists.
+- Tool and model: Claude Code (Claude Opus 5.5)
+- Prompt summary: the user asked to mark an old inspection as replaced and to link it to the replacement.
+- Result used: `purchase-read.service.js`, a focused integration assertion, the API contract and the change log.
+- Intervention: Adopted
+- Human changes: the user chose to add the link after reviewing how corrections keep the old inspection.
+- Files affected: `src/modules/po-receiving/purchase-read.service.js`, `test/native-api.integration.test.js`, `git_doc/docs/08_api/GOODS_RECEIPTS.md`, `git_doc/change_logs.md`, `docs/rtm.md`.
+- Validation: the `inspection correction` case passed with `RUN_NATIVE_API_TESTS=1` on a temporary local database; `npm run docs:check`. Other native API cases were not run.
+
+### 2026-11-20 — Analysis and plan: receipt reversal, custody receipt cancel/reverse, inspection correction blockers (UC-15, UC-37)
+
+- **Work item:** Analysis and implementation plan only. No code changed.
+  - **Review comments checked:** (1) a purchase receipt is hard to reverse because receipts of the same lot share one balance at the receiving bay; (2) cancelling a draft receipt does not let the goods be received again, because the inspection stays CONFIRMED and changing it needs the correction command. Both were confirmed in the code.
+  - **Findings:**
+    - `eligible()` in `purchase-correction.service.js` blocks on any later transaction touching the balance (line 23), any reservation on it (25), and a balance different from `toAfter` (28-29). The CONFIRMED branch of line 26 also blocks after any confirmed relocation from the balance. `eligible()` is shared with the OTHER receipt reversal.
+    - `transferCustodyStock` already removes only this receipt's packaging portions (`packagingPortionIds`) and checks `freeQuantity`, but `eligible()` blocks before it runs.
+    - Custody receipts have no cancel or reverse route; a custody receipt that is not CANCELLED blocks `replaceInspection` forever. Capabilities already return `cancel` for a draft custody receipt.
+    - A cancelled draft GR frees PO headroom, because PO quantities count only DRAFT/POSTED receipts.
+    - The FE has no inspection correction UI and no cancel/reverse action on the custody page.
+  - **Decision (user):**
+    - reversal: drop lines 23, 25, 28-29 and the CONFIRMED branch of 26; block only when this receipt's own portions were moved, issued or opened;
+    - cancelling a draft GR keeps the current behaviour;
+    - custody receipts behave like receipts (cancel a DRAFT, reverse a POSTED one);
+    - `replaceInspection` returns the full list of blocking documents and gets a preflight API;
+    - evidence becomes optional for purchase receipt reversal, OTHER receipt reversal, custody reversal and inspection correction; the reason stays required;
+    - return workflows (supplier returns, custody releases) are out of scope.
+  - **Rejected options:** reopening a confirmed inspection to DRAFT (bypasses the evidence rule), cancelling the inspection together with the draft GR, recreating a GR from a confirmed inspection, relying on custody reinspection (no FE).
+- **Tool and model:** Claude Code (Claude Opus 5.5).
+- **Prompt summary:** Check the two review comments; compare with MISA, Odoo and SAP Business One; evaluate options for cancelling a draft GR and for correcting an inspection that has custody lines; check how packaging portions are stored and reversed; write a detailed plan for another agent.
+- **Result used:** Plan file `PLAN_dao_phieu_nhap_va_giu_ho.md` in the workspace root, outside the `be/` and `fe/` repositories.
+- **Intervention:** Edited.
+- **Human changes:** The user chose every rule listed under Decision, removed the evidence requirement, and limited the scope to receipts, custody receipts and the purchase/receiving flow.
+- **Files affected:** `be/docs/ai-log.md`, `be/docs/rtm.md`. Planned BE scope: `src/modules/po-receiving/{purchase-correction.service,po-receiving.service,po-receiving.routes,purchase-read.service}.js`, `src/modules/goods-receipts/{goods-receipt.routes,other-receipt.service}.js`, `src/shared/utils/ApiError.js`, `test/native-api.integration.test.js`, `test/goods-receipt.integration.test.js`, `git_doc/docs/08_api/GOODS_RECEIPTS.md`, `git_doc/change_logs.md`. No model change.
+- **Validation:** Code reading only. No tests run, because no code changed.
+
+### 2026-11-18 - PO line in the RR unit may not exceed the approved amount (UC-09)
+
+- **Work item:** Stop a PO from ordering more than the approved amount when it uses the same unit as the replenishment request (RR).
+- **Tool and model:** Claude Code (Sonnet 5.5).
+- **Prompt summary:** The PO rule only compares pieces and allows one unit of overage, so an RR approved at 4 m² accepts 5 m² on the PO; add a stop for the same unit.
+- **Result used:** `withinApproved` takes an optional `approvedEntered` and rejects a larger `enteredQty` first. Draft create/edit, PO issuing and the `RR_ALLOWANCE` reconciliation pass the RR line's `approvedEnteredQty` only when the PO unit equals the RR unit. Other units and older approvals without `approvedEnteredQty` keep the previous rule.
+- **Intervention:** Edited.
+- **Human changes / reason for rejection:** The user decided the rule (same unit as the RR: no more than `approvedEnteredQty`).
+- **Files affected:** `src/shared/utils/conversions.js`, `src/modules/purchase-orders/purchase-order.commands.js`, `src/modules/po-receiving/purchase-reconciliation.js`, `test/area-conversion.test.js`, `git_doc/change_logs.md`, `git_doc/docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md`, `docs/rtm.md`.
+- **Validation performed / not performed:** `node --test test/area-conversion.test.js` passed 6/6 including the new same-unit case; `npm run docs:check` passed. Not performed: HTTP integration test for the 5 m² rejection, the other PO integration suites, the full suite. Existing POs already above the approved amount in the same unit will now appear in `RR_ALLOWANCE`; no data was migrated.
+
+### 2026-11-18 - Approve replenishment requests in the line's entered unit (UC-06, UC-09)
+
+- **Work item:** Keep one unit from creating to approving a replenishment request (RR) so an approval of 4 m² is no longer shown on the PO as 4.32 m².
+- **Tool and model:** Claude Code (Sonnet 5.5, then Opus 5.5 for the analysis).
+- **Prompt summary:** Explain how an approved amount converts to pieces and back on the PO; compare unit handling in Odoo, SAP, Business Central and tile ERPs; implement the chosen option and the PO display.
+- **Result used:** `reviewReplenishment` accepts `approvedEnteredQty` in the line's own unit and derives `approvedQtyBase` from the line's saved `baseUnitsPerUnit` with `toBaseQuantity`; a full approval keeps `qtyBase`, more than `enteredQty` is rejected. The optional `approvedEnteredQty` is stored on the RR item and on `approval_history.itemDecisions` and returned by the read API. Clients that send only `approvedQtyBase` still work. PO creation still checks pieces against `approvedQtyBase`.
+- **Intervention:** Edited.
+- **Human changes / reason for rejection:** The user chose to separate requested and approved amounts, chose option B and asked for the PO part. A default purchase unit on the product was left undecided because it needs a model change.
+- **Files affected:** `src/models/replenishment-request.model.js`, `src/models/approval-history-item-decisions.schema.js`, `src/modules/replenishments/{replenishment.validation.js,replenishment.commands.js,replenishment.service.js}`, `test/replenishment-warnings.integration.test.js`, `git_doc/MODEL_MAP.md`, `git_doc/docs/03_thiet_ke/DB_Rebuild_Review/13_Duyet_yeu_cau_bo_sung_va_don_mua.md`, `git_doc/docs/08_api/NATIVE_MODEL_RUNTIME.md`, `git_doc/change_logs.md`, `src/models/CHANGELOG.md`.
+- **Validation performed / not performed:** With `RUN_NATIVE_API_TESTS=1` on the local MongoDB, the RR warnings suite passed 11/11 including the new entered-unit case, and the native API plus area-conversion suites passed 33/33; `npm run docs:check` passed. A temporary test (removed) captured real payloads: 4 m² at 2.777777777778 stored `qtyBase` 12 and both approved fields. Not performed: the new case uses the piece unit, so the m² rounding rests on the existing area-conversion test; older approvals were not migrated and keep no entered amount; the archived foundation test fails on an existing import path; the full suite was not run.
+
 ### 2026-11-16 - Estimate occupied volume when receiving open cartons and loose pieces
 
 - **Work item:** Implement the approved receiving-volume plan for UC-37 and the shared stock intake used by OTHER receipts, returns and positive stocktake adjustments.

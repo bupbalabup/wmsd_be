@@ -10,6 +10,7 @@ import {
   ProductBatch,
 } from "../../models/runtime.js";
 import { exact } from "../../models/model-utils.js";
+import { normalizedEnteredQty } from "../../shared/utils/conversions.js";
 import { saigonDateOnly } from "../../shared/utils/domain.js";
 import {
   requirePermission,
@@ -121,6 +122,9 @@ async function items(input, actor, session, previous = [], requestId) {
       throw validationError(
         "Không đổi nguồn của dòng đã lưu; xóa dòng và chọn nguồn hợp lệ",
       );
+    if (!exact(line.enteredQty).isInteger() &&
+        await Uom.exists({ code: line.enteredUnit, isCarton: true }).session(session))
+      throw validationError("Số thùng phải là số nguyên");
     const value = await makeItem(line, index + 1, session, {
       previous: old,
       lineKind: "REPLENISHMENT",
@@ -278,7 +282,7 @@ export async function requireEditableRequest(user, requestId) {
   const document = await readRequest(requestId, user);
   if (!same(document.createdBy, user._id))
     throw forbiddenError("Chỉ người lập được sửa");
-  if (!["DRAFT", "REVISION_REQUIRED"].includes(document.workflowStatus))
+  if (document.workflowStatus !== "DRAFT")
     throw validationError("Yêu cầu không còn được sửa");
   if (await PurchaseOrder.exists({ replenishmentRequestId: requestId }))
     throw validationError("Yêu cầu đã có đơn mua");
@@ -412,7 +416,7 @@ export function updateReplenishment(user, id, input) {
       checkVersion(document, input.expectedVersion);
       if (!same(document.createdBy, actor._id))
         throw forbiddenError("Chỉ người lập được sửa");
-      if (!["DRAFT", "REVISION_REQUIRED"].includes(document.workflowStatus))
+      if (document.workflowStatus !== "DRAFT")
         throw validationError("Yêu cầu không còn được sửa");
       if (
         await PurchaseOrder.exists({ replenishmentRequestId: id }).session(
@@ -444,7 +448,7 @@ export function submitReplenishment(user, id, input) {
       checkVersion(document, input.expectedVersion);
       if (!same(document.createdBy, actor._id))
         throw forbiddenError("Chỉ người lập được gửi");
-      if (!["DRAFT", "REVISION_REQUIRED"].includes(document.workflowStatus))
+      if (document.workflowStatus !== "DRAFT")
         throw validationError("Yêu cầu không thể gửi ở trạng thái hiện tại");
       await assessSavedRequest(document, actor, session, input.evaluations);
       document.version = input.expectedVersion + 1;
@@ -487,20 +491,28 @@ export function reviewReplenishment(user, id, input) {
       const products = await Product.find({
         _id: { $in: document.items.map((item) => item.productId) },
       }).session(session);
+      const uoms = await Uom.find({
+        code: { $in: document.items.map((item) => item.enteredUnit) },
+      }).session(session);
       let positive = false;
       const itemDecisions = document.items.map((item) => {
         const decision = input.lines.find((row) => same(row.lineId, item._id));
-        const quantity =
-          input.decision === "APPROVE"
-            ? exact(decision.approvedQtyBase)
-            : exact("0");
         const product = products.find((row) => same(row._id, item.productId));
+        const approve = input.decision === "APPROVE";
+        if (approve && decision.approvedQtyBase == null)
+          throw validationError("Thiếu lượng duyệt");
+        const quantity = exact(approve ? decision.approvedQtyBase : "0");
         if (!product || (product.wholeBaseUnits && !quantity.isInteger()))
           throw validationError(
             "Lượng duyệt phải đúng đơn vị gốc của sản phẩm",
           );
         if (quantity.gt(String(item.qtyBase)))
           throw validationError("Lượng duyệt vượt lượng đề nghị");
+        const uom = uoms.find((row) => row.code === item.enteredUnit);
+        const factor = String(item.baseUnitsPerUnit);
+        if (uom?.isCarton && !quantity.mod(factor).isZero())
+          throw validationError("Số thùng duyệt phải là số nguyên");
+        normalizedEnteredQty(quantity, factor, product, uom);
         // H01: a reduced approval needs its own line explanation, not the general decision note.
         if (input.decision === "APPROVE" && quantity.lt(String(item.qtyBase)) && !decision?.reason?.trim())
           throw validationError("Cần lý do cho dòng duyệt giảm số lượng");
@@ -542,11 +554,8 @@ export function reviewReplenishment(user, id, input) {
       document.header.latestDecisionId = approval._id;
       if (input.decision === "APPROVE")
         document.header.approvedRevision = document.version;
-      document.workflowStatus = {
-        APPROVE: "APPROVED",
-        REJECT: "REJECTED",
-        REVISE: "REVISION_REQUIRED",
-      }[input.decision];
+      document.workflowStatus =
+        input.decision === "APPROVE" ? "APPROVED" : "REJECTED";
       return {
         document: await saveVersion(document, input.expectedVersion, session),
         versionBefore: input.expectedVersion,
@@ -579,7 +588,7 @@ export function cancelReplenishment(user, id, input) {
       if (document.workflowStatus === "APPROVED") {
         if (!isOwner(actor)) throw forbiddenError("Owner xử lý phần đã duyệt");
       } else if (
-        !["DRAFT", "SUBMITTED", "REVISION_REQUIRED"].includes(
+        !["DRAFT", "SUBMITTED"].includes(
           document.workflowStatus,
         ) ||
         !same(document.createdBy, actor._id)

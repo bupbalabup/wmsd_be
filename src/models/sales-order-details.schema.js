@@ -4,8 +4,8 @@ import { Schema, embeddedOptions, text, ref } from "./model-utils.js";
 export function createSalesOrderDetailsSchema() {
   const schema = new Schema(
     {
-      externalReferenceId: ref("ExternalReference"),
-      externalLineId: ref("ExternalReferenceLine"),
+      externalReferenceId: ref("ExternalReference", false),
+      externalLineId: ref("ExternalReferenceLine", false),
       requiredTone: text(60, { required: false }),
       requiredCalibre: text(60, { required: false }),
     },

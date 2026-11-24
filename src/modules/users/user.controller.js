@@ -26,3 +26,13 @@ export const toggleUserStatus = catchAsync(async (req, res) => {
   const result = await userService.toggleUserStatus(req.params.id, req.body.isActive, req.user._id, req.body.reason);
   formatApiResponse(res, { message: 'Cập nhật trạng thái thành công', data: result });
 });
+
+export const requestUserEmailOtp = catchAsync(async (req, res) => {
+  const result = await userService.requestUserEmailOtp(req.user._id, req.params.id, req.body);
+  formatApiResponse(res, { message: `Đã gửi mã xác thực tới ${result.maskedEmail}`, data: result });
+});
+
+export const confirmUserEmail = catchAsync(async (req, res) => {
+  const result = await userService.confirmUserEmail(req.user._id, req.params.id, req.body);
+  formatApiResponse(res, { message: 'Đã đổi email tài khoản', data: result });
+});

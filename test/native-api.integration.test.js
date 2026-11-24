@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import mongoose from 'mongoose';
 import * as m from '../src/models/runtime.js';
 import { PERMISSION_CATALOGUE, ROLE_PERMISSIONS } from '../src/seeds/data/permissions.data.js';
@@ -7,15 +10,16 @@ import * as rr from '../src/modules/replenishments/replenishment.commands.js';
 import * as po from '../src/modules/purchase-orders/purchase-order.commands.js';
 import * as receiving from '../src/modules/po-receiving/po-receiving.service.js';
 import { getDocument, listDocuments, receivingQueue, receivingSummary } from '../src/modules/po-receiving/purchase-read.service.js';
-import * as putaway from '../src/modules/po-receiving/purchase-putaway.service.js';
+import { createLocationMovement, confirmLocationMovement } from '../src/modules/location-movements/location-movement.service.js';
 import * as correction from '../src/modules/po-receiving/purchase-correction.service.js';
 import * as productService from '../src/modules/products/product.service.js';
 import { createLot, getLot, getLotMovements, listLots, updateLot } from '../src/modules/lots/lot.service.js';
 import { backfillConversions } from '../src/migrations/conversions.js';
 import { makeItem } from '../src/shared/utils/document-items.js';
 import { transaction } from '../src/shared/utils/persistence.js';
-import { moveStock } from '../src/shared/utils/stock.js';
+import { pendingTaskQuantity } from '../src/shared/utils/stock.js';
 import { reconcilePurchasing } from '../src/modules/po-receiving/purchase-reconciliation.js';
+import { operationalReport } from '../src/modules/operational-reports/operational-reports.service.js';
 const enabled=process.env.RUN_NATIVE_API_TESTS==='1';
 const run=(name,fn)=>test(name,{skip:!enabled},fn);
 let owner,worker,accountant,warehouse,product,batch,supplier,receivingLocation,storageLocation;
@@ -141,6 +145,10 @@ run('area units auto-generate conversions and round up to whole pieces', async (
   assert.equal(created.conversions.find(row => row.uom.code === 'SQM').basePerUnit, '2.777777777778');
   const make = (enteredQty, enteredUnit = 'SQM') => transaction(session =>
     makeItem({ productId: created.id, enteredUnit, enteredQty }, 1, session));
+  const rounded = await make('20');
+  assert.equal(rounded.enteredQty, '20.16');
+  assert.equal(rounded.qtyBase, '56');
+  assert.equal((await make(rounded.enteredQty)).qtyBase, rounded.qtyBase);
   assert.equal((await make('100')).qtyBase, '278');
   assert.equal((await make('0.36')).qtyBase, '1');
   await assert.rejects(make('1.5', 'BOX'), /Thiếu quy đổi/);
@@ -184,12 +192,15 @@ run('planned PO conversion and actual lot conversion remain separate through rec
  });
  const requestInput = {
    creationKey: key(), action: 'SUBMIT', warehouseId: String(warehouse._id), neededOn: '2026-12-01',
-   triggerReason: 'Conversion test', lines: [{ productId: String(product._id), enteredUnit: 'BOX', enteredQty: '10', reasonNote: 'Test' }],
+   triggerReason: 'Conversion test', lines: [{
+     productId: String(product._id), lotId: String(batch._id), enteredUnit: 'BOX', enteredQty: '15', reasonNote: 'Test',
+   }],
  };
  await acknowledgeIndependentNeed(requestInput);
  const created = await rr.createReplenishment(worker, requestInput);
  let request = await m.ReplenishmentRequest.findById(created.id);
  assert.equal(String(request.items[0].qtyBase), '60');
+ assert.equal(String(request.items[0].baseUnitsPerUnit), '4');
  await rr.reviewReplenishment(owner, created.id, {
    ...input(), expectedVersion: request.version, decision: 'APPROVE', reason: 'Test',
    lines: [{ lineId: String(request.items[0]._id), approvedQtyBase: '60' }],
@@ -201,6 +212,8 @@ run('planned PO conversion and actual lot conversion remain separate through rec
  });
  await po.confirmPurchaseOrder(accountant, order.id, { ...input(), expectedVersion: 1 });
  let orderDoc = await m.PurchaseOrder.findById(order.id);
+ assert.equal(String(orderDoc.items[0].baseUnitsPerUnit), '4');
+ assert.equal(String(orderDoc.items[0].qtyBase), '40');
  const inspect = async enteredQty => {
    const createdInspection = await receiving.createInspection(worker, order.id, {
      creationKey: key(), expectedPoVersion: orderDoc.version, arrivedAt: new Date().toISOString(),
@@ -212,23 +225,24 @@ run('planned PO conversion and actual lot conversion remain separate through rec
    ...input(), expectedVersion: inspection.version, expectedPoVersion: orderDoc.version,
    destinations: [{ inspectionItemId: String(inspection.items[0]._id), locationId: String(receivingLocation._id) }],
  });
- const over = await inspect('8');
+ const over = await inspect('6');
  await assert.rejects(confirm(over), /vượt/i);
- const inspection = await inspect('7');
+ const inspection = await inspect('4');
  assert.equal(String(inspection.items[0].baseUnitsPerUnit), '8');
- assert.equal(String(inspection.items[0].qtyBase), '56');
+ assert.equal(String(inspection.items[0].qtyBase), '32');
  const confirmed = await confirm(inspection);
  const receiptId = confirmed.resultRefs.find(ref => ref.documentType === 'goods_receipts').documentId;
  orderDoc = await m.PurchaseOrder.findById(order.id);
  await receiving.postReceipt(worker, receiptId, { ...input(), expectedVersion: 1, expectedPoVersion: orderDoc.version });
  const receipt = await m.PurchaseReceipt.findById(receiptId);
  assert.equal(String(receipt.items[0].baseUnitsPerUnit), '8');
- assert.equal(String(receipt.items[0].qtyBase), '56');
+ assert.equal(String(receipt.items[0].qtyBase), '32');
  const [balance] = await receiving.commitments(await m.PurchaseOrder.findById(order.id));
- assert.equal(balance.outstandingQtyBase, '4');
- assert.equal(String(orderDoc.items[0].baseUnitsPerUnit), '6');
+ assert.equal(balance.outstandingQtyBase, '8');
+ assert.equal(String(orderDoc.items[0].baseUnitsPerUnit), '4');
+ assert.equal(String(orderDoc.items[0].lotId), String(batch._id));
 });
-async function postedReceipt(packagingCondition='SEALED',custodyOnly=false,qualityCode='GOOD',{qtyBase,location=receivingLocation,portion}={}){
+async function postedReceipt(packagingCondition='SEALED',custodyOnly=false,qualityCode='GOOD',{qtyBase,location=receivingLocation,portion,custodyLocation}={}){
  const requestInput={creationKey:key(),action:'SUBMIT',warehouseId:String(warehouse._id),neededOn:'2026-12-01',triggerReason:'Test',lines:[{productId:String(product._id),lotId:String(batch._id),enteredUnit:'BOX',enteredQty:'2',reasonNote:'Test'}]};
  await acknowledgeIndependentNeed(requestInput);
  const created=await rr.createReplenishment(worker,requestInput);const replay=await rr.createReplenishment(worker,requestInput);assert.equal(replay.id,created.id);assert.equal(replay.replayed,true);
@@ -236,12 +250,12 @@ async function postedReceipt(packagingCondition='SEALED',custodyOnly=false,quali
  await assert.rejects(rr.reviewReplenishment(worker,created.id,{...input(),expectedVersion:request.version,decision:'APPROVE',reason:'Test',lines:request.items.map(i=>({lineId:String(i._id),approvedQtyBase:'8'}))}));
  await assert.rejects(rr.reviewReplenishment(owner,created.id,{...input(),expectedVersion:request.version,decision:'APPROVE',reason:'Test fractional approval',lines:request.items.map(i=>({lineId:String(i._id),approvedQtyBase:'1.5'}))}),/đơn vị gốc/);
  await rr.reviewReplenishment(owner,created.id,{...input(),expectedVersion:request.version,decision:'APPROVE',reason:'Test',lines:request.items.map(i=>({lineId:String(i._id),approvedQtyBase:'8'}))});request=await m.ReplenishmentRequest.findById(created.id);
- const order=await po.createPurchaseOrder(accountant,{creationKey:key(),warehouseId:String(warehouse._id),supplierId:String(supplier._id),expectedOn:'2026-12-01',currency:'VND',lines:[{rrLineId:String(request.items[0]._id),approvalId:String(request.header.latestDecisionId),enteredQty:'2',unitPurchasePrice:'100000'}]});
+ const order=await po.createPurchaseOrder(accountant,{creationKey:key(),warehouseId:String(warehouse._id),supplierId:String(supplier._id),expectedOn:'2026-12-01',currency:'VND',lines:[{rrLineId:String(request.items[0]._id),approvalId:String(request.header.latestDecisionId),uomCode:'PIECE',enteredQty:'8',unitPurchasePrice:'100000'}]});
  await po.confirmPurchaseOrder(accountant,order.id,{...input(),expectedVersion:1});let orderDoc=await m.PurchaseOrder.findById(order.id);
  const inspection=await receiving.createInspection(worker,order.id,{creationKey:key(),expectedPoVersion:orderDoc.version,arrivedAt:new Date().toISOString(),deliveredBy:'Người giao A - 0901234567',deliveryReference:'PG-001',lines:[{poLineId:String(orderDoc.items[0]._id),lotId:String(batch._id),enteredQty:qtyBase??'2',enteredUnit:qtyBase?'PIECE':'BOX',qualityCode,ownershipDecision:custodyOnly?'CUSTODY':'ACCEPT',packagingCondition}]});
  let inspected=await m.GoodsInspection.findById(inspection.id);
  const confirmed=await receiving.confirmInspection(worker,inspection.id,{...input(),expectedVersion:inspected.version,expectedPoVersion:orderDoc.version,destinations:custodyOnly?[]:[{inspectionItemId:String(inspected.items[0]._id),locationId:String(location._id)}]});
- if(custodyOnly){const ref=confirmed.resultRefs.find(r=>r.documentType==='custody_receipts');const d=await m.CustodyReceipt.findById(ref.documentId);const loc=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:key(),locationType:'CUSTODY',usableLengthMm:'5000',usableWidthMm:'5000'});await receiving.postCustodyReceipt(worker,d._id,{...input(),expectedVersion:d.version,handedOverBy:'Supplier',destinations:[{lineId:String(d.items[0]._id),locationId:String(loc._id)}]});return m.CustodyReceipt.findById(d._id);}
+ if(custodyOnly){const ref=confirmed.resultRefs.find(r=>r.documentType==='custody_receipts');const d=await m.CustodyReceipt.findById(ref.documentId);const loc=custodyLocation??await m.WarehouseLocation.create({warehouseId:warehouse._id,code:key(),locationType:'CUSTODY',usableLengthMm:'5000',usableWidthMm:'5000'});await receiving.postCustodyReceipt(worker,d._id,{...input(),expectedVersion:d.version,handedOverBy:'Supplier',destinations:[{lineId:String(d.items[0]._id),locationId:String(loc._id)}]});return m.CustodyReceipt.findById(d._id);}
  const receiptId=confirmed.resultRefs.find(r=>r.documentType==='goods_receipts').documentId;orderDoc=await m.PurchaseOrder.findById(order.id);
  const post={...input(),expectedVersion:1,expectedPoVersion:orderDoc.version};
  if(portion){
@@ -255,11 +269,16 @@ run('product image URLs create, list, detail, update, audit and legacy defaults'
  const suffix=key().slice(0,8);const imageUrls=[`https://images.example.com/${suffix}-front.webp`,`https://images.example.com/${suffix}-texture.webp`];
  const created=await productService.createProduct(owner,{sku:`IMG-${suffix}`,name:'Image URL test tile',manufacturerCode:'TEST',categoryId:String(product.categoryId),baseUnit:'PIECE',wholeBaseUnits:true,lengthMm:'600',widthMm:'600',heightMm:'10',color:`Image ${suffix}`,imageUrls});
  assert.deepEqual(created.imageUrls,imageUrls);
+ assert.equal(created.category,'Tile');
  const legacyCreated=await productService.createProduct(owner,{sku:`IMG-OLD-${suffix}`,name:'Legacy image client tile',manufacturerCode:'TEST',categoryId:String(product.categoryId),baseUnit:'PIECE',wholeBaseUnits:true,lengthMm:'600',widthMm:'600',heightMm:'10',color:`Legacy ${suffix}`});
  assert.deepEqual(legacyCreated.imageUrls,[]);
- assert.deepEqual((await productService.getProduct(owner,created.id)).imageUrls,imageUrls);
+ const fetchedCreated=await productService.getProduct(owner,created.id);
+ assert.deepEqual(fetchedCreated.imageUrls,imageUrls);
+ assert.equal(fetchedCreated.category,'Tile');
  const listed=await productService.listProducts(owner,{page:1,limit:100,sortBy:'createdAt',sortOrder:'desc'});
- assert.deepEqual(listed.items.find(item=>item.id===created.id).imageUrls,imageUrls);
+ const listedCreated=listed.items.find(item=>item.id===created.id);
+ assert.deepEqual(listedCreated.imageUrls,imageUrls);
+ assert.equal(listedCreated.category,'Tile');
 
  const id=new mongoose.Types.ObjectId(created.id);let current=await m.Product.findById(id).lean();
  const editable={name:current.name,manufacturerCode:current.manufacturerCode,categoryId:String(current.categoryId),material:current.material??null,surface:current.surface??null,origin:current.origin??null,description:current.description??null,baseUnit:current.baseUnit,wholeBaseUnits:current.wholeBaseUnits,lengthMm:String(current.lengthMm),widthMm:String(current.widthMm),heightMm:String(current.heightMm),color:current.color};
@@ -286,8 +305,8 @@ run('product image URLs create, list, detail, update, audit and legacy defaults'
  const legacyList=await productService.listProducts(owner,{page:1,limit:100,sortBy:'createdAt',sortOrder:'desc'});
  assert.deepEqual(legacyList.items.find(item=>item.id===String(product._id)).imageUrls,[]);
 });
-run('native RR → PO → inspection → receipt → partial putaway preserves stock, sources and replay',async()=>{
- const receipt=await postedReceipt();const context=await putaway.putawayContext(worker,receipt._id);
+run('posting a purchase receipt updates the PO and exposes its balance for relocation', async () => {
+ const receipt = await postedReceipt();
  const detail = await getDocument(worker, receipt._id, 'GR_PURCHASE');
  assert.equal(detail.header.supplierName, supplier.name);
  assert.equal(detail.header.warehouseName, warehouse.name);
@@ -302,135 +321,110 @@ run('native RR → PO → inspection → receipt → partial putaway preserves s
  });
  assert.equal(detail.items[0].inspectionResult.qualityCode, 'GOOD');
  assert.equal(detail.items[0].lotLabelSnapshot, batch.manufacturerLot);
- const task=await putaway.createPutaway(worker,receipt._id,{creationKey:key(),expectedVersion:receipt.version,lines:[{receiptLineId:String(receipt.items[0]._id),expectedSourceVersion:context.items[0].sourceBalanceVersion,qtyBase:'8',toLocationId:String(storageLocation._id)}]});
- const taskDetail=await putaway.getPutaway(worker,task.id);assert.equal(taskDetail.header.receiptId,String(receipt._id));assert.deepEqual([taskDetail.items[0].actualQtyBase,taskDetail.items[0].remainingQtyBase],['0','8']);
- let taskDoc=await m.TransferOrder.findById(task.id);
- // Same line in two spellings must not pass the remaining-quantity check twice.
- await assert.rejects(putaway.confirmPutaway(worker,task.id,{...input(),expectedVersion:taskDoc.version,lines:[{taskLineId:String(taskDoc.items[0]._id),actualQtyBase:'8'},{taskLineId:String(taskDoc.items[0]._id).toUpperCase(),actualQtyBase:'8'}]}),/trùng/);
-  const partialInput={...input(),expectedVersion:taskDoc.version,lines:[{taskLineId:String(taskDoc.items[0]._id),actualQtyBase:'4'}]};
-  const partial=await putaway.confirmPutaway(worker,task.id,partialInput);
-  const replay=await putaway.confirmPutaway(worker,task.id,partialInput);
-  assert.equal(replay.operationId,partial.operationId);
-  assert.equal(replay.replayed,true);
-  assert.equal(await m.StockTransaction.countDocuments({sourceId:task.id}),1);
- const taskQuery = { page: 1, limit: 1, status: 'PARTIAL', purchaseOrderId: String(receipt.header.purchaseOrderId) };
- const taskList = await putaway.listPutaway(worker, { ...taskQuery, q: taskDoc.documentNo.slice(0, -1).toLowerCase() });
- assert.equal(taskList.total, 1);
- assert.deepEqual([taskList.items[0].plannedQtyBase, taskList.items[0].actualQtyBase, taskList.items[0].remainingQtyBase], ['8','4','4']);
- assert.equal(taskList.items[0].sourceReceipt.id, String(receipt._id));
- assert.equal((await putaway.listPutaway(worker, { ...taskQuery, q: '.*' })).total, 0);
- const queueQuery = { page: 1, limit: 1, stage: 'AWAITING_PUTAWAY', purchaseOrderId: taskQuery.purchaseOrderId };
- const queue = await receivingQueue(worker, { ...queueQuery, q: receipt.documentNo.slice(0, -1).toLowerCase() });
- assert.equal(queue.total, 1);
- assert.equal(queue.items[0]._id, String(receipt._id));
- assert.equal((await receivingQueue(worker, { ...queueQuery, q: '.*' })).total, 0);
- assert.ok((await receivingSummary(worker, String(receipt.header.purchaseOrderId))).documents.some(row => row.kind === 'PUTAWAY' && row.id === task.id));
- taskDoc=await m.TransferOrder.findById(task.id);assert.equal(taskDoc.workflowStatus,'PARTIAL');await putaway.confirmPutaway(worker,task.id,{...input(),expectedVersion:taskDoc.version,lines:[{taskLineId:String(taskDoc.items[0]._id),actualQtyBase:'4'}]});
- assert.equal((await m.TransferOrder.findById(task.id)).workflowStatus,'CONFIRMED');assert.equal((await putaway.placementQuantities(receipt))[0].unplacedQtyBase,'0');const report=await reconcilePurchasing();assert.deepEqual(report.issues,[]);
- const preflight=await correction.reversalPreflight(worker,receipt._id);assert.equal(preflight.eligible,false);
+ const summary = await receivingSummary(worker, String(receipt.header.purchaseOrderId));
+ assert.equal(summary.quantities[0].receivedQtyBase, '8');
+ assert.equal(summary.purchaseOrder.workflowStatus, 'COMPLETED');
+ assert.ok(summary.documents.some(row => row.kind === 'GR_PURCHASE' && row.id === String(receipt._id)));
+ assert.deepEqual(summary.openWork, { draftInspections: 0, draftReceipts: 0 });
+ const posting = await m.StockTransaction.findById(receipt.stockTransactionId);
+ const sourceBalanceId = String(posting.movements[0].toBalanceId);
+ assert.equal(detail.items[0].receivingBalanceId, sourceBalanceId);
+ assert.equal(detail.capabilities.relocate, true);
+ assert.equal((await getDocument(accountant, receipt._id, 'GR_PURCHASE')).capabilities.relocate, false);
+
+ const balance = await m.InventoryBalance.findById(sourceBalanceId);
+ const created = await createLocationMovement(worker, {
+   idempotencyKey: key(), warehouseId: String(warehouse._id), reason: 'Put stock on the shelf',
+   lines: [{ sourceBalanceId, sourceBalanceVersion: balance.version, enteredUnit: 'PIECE',
+     enteredQty: '8', toLocationId: String(storageLocation._id) }],
+ });
+ assert.match((await correction.reversalPreflight(worker, receipt._id)).reason, /Đã lập lệnh/);
+ const task = await m.TransferOrder.findById(created.id);
+ assert.equal(task.header.taskKind, 'RELOCATE');
+ await confirmLocationMovement(worker, created.id, { idempotencyKey: key(), expectedVersion: task.version,
+   lines: [{ lineId: String(task.items[0]._id), actualQtyBase: '8' }] });
+ const relocation = await m.StockTransaction.findOne({ sourceId: created.id, operation: 'RELOCATE' });
+ assert.equal(String(relocation.movements[0].fromBalanceId), sourceBalanceId);
+ assert.equal(String(relocation.movements[0].quantityBase), '8');
+ assert.equal(String((await m.InventoryBalance.findById(sourceBalanceId)).quantityBase), '0');
+ assert.match((await correction.reversalPreflight(worker, receipt._id)).reason, /đã bị chuyển, xuất hoặc mở thùng tại vị trí IN/);
+ assert.deepEqual((await reconcilePurchasing()).issues, []);
 });
-run('locked products can finish open purchase putaway but cannot start a new task', async () => {
-  const receipt = await postedReceipt();
-  const unplannedReceipt = await postedReceipt();
-  async function plan(receipt) {
-    const context = await putaway.putawayContext(worker, receipt._id);
-    const row = context.items[0];
-    return putaway.createPutaway(worker, receipt._id, {
-      creationKey: key(),
-      expectedVersion: context.receiptVersion,
-      lines: [{
-        receiptLineId: row.lineId,
-        expectedSourceVersion: row.sourceBalanceVersion,
-        qtyBase: '8',
-        toLocationId: String(storageLocation._id),
-      }],
-    });
-  }
-  const task = await plan(receipt);
-  const before = await m.Product.findById(product._id);
-  const locked = await productService.changeProductStatus(owner, String(product._id), {
-    expectedUpdatedAt: before.updatedAt.toISOString(),
-    isActive: false,
-    reason: 'Stop sales',
-  });
-  try {
-    await assert.rejects(plan(unplannedReceipt), /đã ngừng kinh doanh/);
-    for (const [version, expectedStatus] of [[1, 'PARTIAL'], [2, 'CONFIRMED']]) {
-      const current = await m.TransferOrder.findById(task.id);
-      await putaway.confirmPutaway(worker, task.id, {
-        ...input(),
-        expectedVersion: version,
-        lines: [{ taskLineId: String(current.items[0]._id), actualQtyBase: '4' }],
-      });
-      assert.equal((await m.TransferOrder.findById(task.id)).workflowStatus, expectedStatus);
-    }
-    const postings = await m.StockTransaction.find({ sourceId: task.id });
-    assert.deepEqual(postings.flatMap(row => row.movements.map(move => String(move.quantityBase))), ['4', '4']);
-    for (const { movements: [move] } of postings) {
-      assert.notEqual(String(move.fromBalanceId), String(move.toBalanceId));
-      assert.equal(Number(move.fromBefore) - Number(move.fromAfter), 4);
-      assert.equal(Number(move.toAfter) - Number(move.toBefore), 4);
-    }
-    assert.equal((await m.Product.findById(product._id)).isActive, false);
-  } finally {
-    await productService.changeProductStatus(owner, String(product._id), {
-      expectedUpdatedAt: locked.updatedAt,
-      isActive: true,
-      reason: 'Restore shared test fixture',
-    });
-  }
+
+run('receiving queue lists only draft receipts awaiting post, by PO and search text', async () => {
+ const [draft, posted] = [await postedReceipt(), await postedReceipt()];
+ // Only the queue filter is under test, so reuse a full fixture and mark it unposted.
+ await m.PurchaseReceipt.updateOne({ _id: draft._id }, { $set: { workflowStatus: 'DRAFT' } });
+ const query = { page: 1, limit: 1, stage: 'AWAITING_POST', warehouseId: String(warehouse._id) };
+ const byPo = await receivingQueue(worker, { ...query, purchaseOrderId: String(draft.header.purchaseOrderId) });
+ assert.equal(byPo.total, 1);
+ assert.equal(byPo.stage, 'AWAITING_POST');
+ assert.equal(byPo.items[0]._id, String(draft._id));
+ assert.equal(byPo.items[0].capabilities.relocate, false);
+ assert.equal((await receivingQueue(worker, { ...query, purchaseOrderId: String(posted.header.purchaseOrderId) })).total, 0);
+ assert.equal((await receivingQueue(worker, { ...query, q: draft.documentNo })).items[0]._id, String(draft._id));
 });
-run('purchase putaway uses each receipt line’s measured portions and blocks missing provenance',async()=>{
-  const location=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'IN-PORTIONS',locationType:'RECEIVING',usableLengthMm:'5000',usableWidthMm:'5000'});
-  const shelf=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'ST-PORTIONS',locationType:'STORAGE',usableLengthMm:'5000',usableWidthMm:'5000'});
-  const a=await postedReceipt('OPENED',false,'GOOD',{qtyBase:'2',location});
-  const b=await postedReceipt('OPENED',false,'GOOD',{qtyBase:'3',location});
-  const contextLine=async receipt=>(await putaway.putawayContext(worker,receipt._id)).items[0];
-  const plan=async(receipt,qtyBase)=>{
-    const row=await contextLine(receipt);
-    const current=await m.PurchaseReceipt.findById(receipt._id);
-    return putaway.createPutaway(worker,receipt._id,{creationKey:key(),expectedVersion:current.version,lines:[{receiptLineId:row.lineId,expectedSourceVersion:row.sourceBalanceVersion,qtyBase,toLocationId:String(shelf._id)}]});
-  };
-  const confirm=async(task,qty)=>{
-    const detail=await putaway.getPutaway(worker,task.id);
-    return putaway.confirmPutaway(worker,task.id,{...input(),expectedVersion:detail.version,lines:[{taskLineId:String(detail.items[0]._id),actualQtyBase:qty}]});
-  };
-  const [rowA,rowB]=await Promise.all([contextLine(a),contextLine(b)]);
-  assert.equal(rowA.sourceBalanceId,rowB.sourceBalanceId);
-  assert.deepEqual([rowA.looseQtyBase,rowB.looseQtyBase],['2','3']);
-  const taskA=await plan(a,'2');
-  await assert.rejects(plan(b,'1'),/Phần hàng mở\/lẻ/);
-  const taskB=await plan(b,'3');
-  assert.equal(taskB.workflowStatus,'OPEN');
-  const postingA=await m.StockTransaction.findById(a.stockTransactionId);
-  const postingB=await m.StockTransaction.findById(b.stockTransactionId);
-  const c=await postedReceipt('OPENED',false,'GOOD',{qtyBase:'3',location});
-  const taskC=await plan(c,'3');
-  await m.StockTransaction.collection.updateOne({_id:c.stockTransactionId},{$unset:{'movements.0.packagingPortionIds':1}});
-  const blocked='Thiếu thông tin kiện của dòng phiếu nhập. Cần đối chiếu trước khi cất.';
-  const before=await m.InventoryBalance.findById(rowA.sourceBalanceId).lean();
-  const oldRow=await contextLine(c);
-  assert.equal(oldRow.putawayBlockedReason,blocked);
-  assert.equal(oldRow.looseQtyBase,undefined);
-  assert.equal((await putaway.getPutaway(worker,taskC.id)).items[0].putawayBlockedReason,blocked);
-  await assert.rejects(plan(c,'3'),{statusCode:400,message:blocked});
-  await assert.rejects(confirm(taskC,'3'),{statusCode:400,message:blocked});
-  assert.equal(await m.StockTransaction.countDocuments({sourceId:taskC.id}),0);
-  assert.equal((await m.TransferOrder.findById(taskC.id)).workflowStatus,'OPEN');
-  assert.deepEqual(await m.InventoryBalance.findById(rowA.sourceBalanceId).lean(),before);
-  await confirm(taskA,'2');
-  const move=await m.StockTransaction.findOne({sourceId:taskA.id});
-  const target=await m.InventoryBalance.findById(move.movements[0].toBalanceId);
-  const source=await m.InventoryBalance.findById(rowA.sourceBalanceId);
-  const [portionA]=postingA.movements[0].packagingPortionIds;
-  const [portionB]=postingB.movements[0].packagingPortionIds;
-  assert.ok(target.packagingPortions.id(portionA));
-  assert.ok(!source.packagingPortions.id(portionA));
-  assert.ok(source.packagingPortions.id(portionB));
-  await assert.rejects(transaction(session=>moveStock(source._id,target._id,'3',b.items[0]._id,{movements:[]},worker,session,
-    {excludeTaskId:taskB.id,portionIds:[]})),/Quy cách tồn không đủ số lượng/);
+
+run('retiring purchase putaway previews changes and preserves partially moved stock', async () => {
+ const location = await m.WarehouseLocation.create({
+   warehouseId: warehouse._id, code: 'RETIRE-IN', locationType: 'RECEIVING',
+   usableLengthMm: '5000', usableWidthMm: '5000',
+ });
+ const receipt = await postedReceipt('SEALED', false, 'GOOD', { location });
+ const posting = await m.StockTransaction.findById(receipt.stockTransactionId);
+ const sourceBalanceId = posting.movements[0].toBalanceId;
+ const create = async () => {
+   const balance = await m.InventoryBalance.findById(sourceBalanceId);
+   const result = await createLocationMovement(worker, {
+     idempotencyKey: key(), warehouseId: String(warehouse._id), reason: 'Legacy task fixture',
+     lines: [{ sourceBalanceId: String(sourceBalanceId), sourceBalanceVersion: balance.version, enteredUnit: 'PIECE',
+       enteredQty: '4', toLocationId: String(storageLocation._id) }],
+   });
+   return m.TransferOrder.findById(result.id);
+ };
+ const partial = await create();
+ const open = await create();
+ await confirmLocationMovement(worker, String(partial._id), { idempotencyKey: key(), expectedVersion: partial.version,
+   lines: [{ lineId: String(partial.items[0]._id), actualQtyBase: '4' }] });
+ await m.TransferOrder.updateMany({ _id: { $in: [partial._id, open._id] } }, {
+   $set: { 'header.taskKind': 'PUTAWAY' },
+   $push: { sources: { subjectCollection: 'goods_receipts', documentId: receipt._id, relationCode: 'PURCHASE_PUTAWAY' } },
+ });
+ await m.TransferOrder.updateOne({ _id: partial._id }, {
+   $set: { workflowStatus: 'PARTIAL', 'items.0.qtyBase': '8', 'items.0.enteredQty': '8' },
+ });
+ const legacyPermission = await m.Permission.create({ code: 'putaway_task:create', name: 'Retired permission' });
+ const runScript = async (...args) => {
+   const script = fileURLToPath(new URL('../scripts/retire-purchase-putaway.mjs', import.meta.url));
+   const port = process.env.RUN_HIEUDT_TESTS === '1' ? 27018 : 27017;
+   const { stdout } = await promisify(execFile)(process.execPath, [script,
+     `--uri=mongodb://127.0.0.1:${port}/${mongoose.connection.name}`, ...args]);
+   return JSON.parse(stdout);
+ };
+ assert.equal((await pendingTaskQuantity(sourceBalanceId)).toFixed(), '8');
+ const preview = await runScript();
+ assert.equal(preview.applied, false);
+ assert.deepEqual(preview.tasks.map(row => row.previousStatus).sort(), ['OPEN', 'PARTIAL']);
+ assert.ok(preview.tasks.every(row => row.lines[0].releasedQtyBase === '4'));
+ assert.equal((await m.TransferOrder.findById(open._id)).workflowStatus, 'OPEN');
+ assert.equal((await m.Permission.findById(legacyPermission._id)).isActive, true);
+ assert.equal(await m.AuditLog.countDocuments({ action: 'RETIRE_PURCHASE_PUTAWAY' }), 0);
+
+ const applied = await runScript('--apply');
+ assert.equal(applied.applied, true);
+ assert.deepEqual(applied.tasks, preview.tasks);
+ const cancelled = await m.TransferOrder.findById(open._id);
+ assert.equal(cancelled.workflowStatus, 'CANCELLED');
+ assert.equal(cancelled.version, open.version + 1);
+ assert.ok(cancelled.cancelledAt && cancelled.cancelReason);
+ assert.equal((await m.TransferOrder.findById(partial._id)).workflowStatus, 'CANCELLED');
+ assert.equal(await m.StockTransaction.countDocuments({ sourceId: partial._id }), 1);
+ assert.equal((await pendingTaskQuantity(sourceBalanceId)).toFixed(), '0');
+ assert.equal(await m.AuditLog.countDocuments({ action: 'RETIRE_PURCHASE_PUTAWAY', actorType: 'SYSTEM' }), 2);
+ assert.equal((await m.Permission.findById(legacyPermission._id)).isActive, false);
+ assert.deepEqual((await runScript('--apply')).tasks, []);
 });
-run('BF03 confirms one complete relocation only and an idempotent retry posts once',async()=>{
+run('BF03 whole-carton confirmation stays compatible and an idempotent retry posts once',async()=>{
  const relocations=await import('../src/modules/location-movements/location-movement.service.js');
  const overflow=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'BF03-ALT',locationType:'STORAGE',usableLengthMm:'5000',usableWidthMm:'5000'});
  const point=await m.StockHoldingPoint.findOne({locationId:storageLocation._id});
@@ -443,7 +437,7 @@ run('BF03 confirms one complete relocation only and an idempotent retry posts on
  const other=await m.User.findById(otherRaw._id).populate({path:'roleId',populate:{path:'permissionIds'}});
  await assert.rejects(relocations.confirmLocationMovement(other,created.id,{idempotencyKey:key(),expectedVersion:1,lines:[{lineId:String((await m.TransferOrder.findById(created.id)).items[0]._id),actualQtyBase:'4'}]}),/người lập/);
  const open=await m.TransferOrder.findById(created.id);
- await assert.rejects(relocations.confirmLocationMovement(worker,created.id,{idempotencyKey:key(),expectedVersion:open.version,lines:[{lineId:String(open.items[0]._id),actualQtyBase:'1'}]}),/bằng lượng lệnh/);
+ await assert.rejects(relocations.confirmLocationMovement(worker,created.id,{idempotencyKey:key(),expectedVersion:open.version,lines:[{lineId:String(open.items[0]._id),actualQtyBase:'1'}]}),/nguyên thùng/);
  const confirmInput={idempotencyKey:key(),expectedVersion:open.version,lines:[{lineId:String(open.items[0]._id),actualQtyBase:'4'}]};
  await relocations.confirmLocationMovement(worker,created.id,confirmInput);
  await relocations.confirmLocationMovement(worker,created.id,confirmInput);
@@ -460,7 +454,59 @@ run('Warehouse reversal restores PO headroom once without separate approval',asy
  const order=await m.PurchaseOrder.findById(receipt.header.purchaseOrderId);const payload={...input(),expectedVersion:receipt.version,expectedPoVersion:order.version,reason:'Wrong entry',evidenceIds:[String(attachment._id)]};
  const reversal=await correction.reverseReceipt(worker,receipt._id,payload);await correction.reverseReceipt(worker,receipt._id,payload);
  assert.equal((await m.StockReversal.findById(reversal.id)).workflowStatus,'POSTED');assert.equal(await m.StockTransaction.countDocuments({reversedTransactionId:receipt.stockTransactionId}),1);assert.equal((await m.PurchaseReceipt.findById(receipt._id)).workflowStatus,'REVERSED');assert.deepEqual((await reconcilePurchasing()).issues,[]);
+ const detail = await getDocument(worker, receipt._id, 'GR_PURCHASE');
+ assert.equal(detail.capabilities.relocate, false);
+ assert.equal(detail.items[0].receivingBalanceId, undefined);
 });
+
+run('purchase reversal deducts its own portions on a shared balance with reservations and confirmed relocations', async t => {
+ const api = await receivingApi(t);
+ const location = await m.WarehouseLocation.create({
+  warehouseId: warehouse._id, code: 'IN-REVERSE', locationType: 'RECEIVING', usableLengthMm: '5000', usableWidthMm: '5000',
+ });
+ const { receipt, post } = await draftPurchaseReceipt('SEALED', { location, quantities: ['1', '1'] });
+ await receiving.postReceipt(worker, receipt._id, post);
+ const source = await m.PurchaseReceipt.findById(receipt._id);
+ const unrelated = await postedReceipt('LOOSE', false, 'GOOD', { qtyBase: '4', location });
+ const backup = await postedReceipt('SEALED', false, 'GOOD', { location });
+ const moves = async doc => (await m.StockTransaction.findById(doc.stockTransactionId)).movements;
+ const sourceMoves = await moves(source);
+ assert.equal(sourceMoves.length, 2);
+ const balanceId = String(sourceMoves[0].toBalanceId);
+ const shared = await m.InventoryBalance.findById(balanceId);
+ assert.equal(String(shared.quantityBase), '20');
+ assert.equal(String((await moves(unrelated))[0].toBalanceId), balanceId);
+ assert.equal(String((await moves(backup))[0].toBalanceId), balanceId);
+ const relocation = await createLocationMovement(worker, {
+  idempotencyKey: key(), warehouseId: String(warehouse._id), reason: 'Move only the loose receipt',
+  lines: [{ sourceBalanceId: balanceId, sourceBalanceVersion: shared.version, toLocationId: String(storageLocation._id),
+   enteredUnit: 'PIECE', enteredQty: '4', packagingState: 'LOOSE' }],
+ });
+ assert.match((await correction.reversalPreflight(worker, source._id)).reason, /Đã lập lệnh/);
+ const task = await m.TransferOrder.findById(relocation.id);
+ await confirmLocationMovement(worker, relocation.id, { idempotencyKey: key(), expectedVersion: task.version,
+  lines: [{ lineId: String(task.items[0]._id), actualQtyBase: '4' }] });
+ assert.match((await correction.reversalPreflight(worker, unrelated._id)).reason, /đã bị chuyển, xuất hoặc mở thùng/);
+ assert.equal((await correction.reversalPreflight(worker, source._id)).eligible, true);
+ const reservation = await m.StockReservation.create({
+  demandRef: { documentType: 'sales_orders', documentId: key() },
+  balanceId, reservedQty: '9', creationKey: key(), createdBy: worker._id,
+ });
+ assert.match((await correction.reversalPreflight(worker, source._id)).reason, /chỉ còn khả dụng 7/);
+ await m.StockReservation.updateOne({ _id: reservation._id }, { $set: { releasedQty: '5' } });
+ assert.equal((await correction.reversalPreflight(worker, source._id)).eligible, true);
+ const order = await m.PurchaseOrder.findById(source.header.purchaseOrderId);
+ const reversePath = '/goods-receipts/purchase/' + encodeURIComponent(source._id) + '/reverse';
+ const payload = { ...input(), expectedVersion: source.version, expectedPoVersion: order.version, reason: 'Ghi nhầm phiếu' };
+ assert.match((await api('POST', reversePath, { ...payload, evidenceIds: [key()] })).body.message, /Bằng chứng không thuộc chứng từ/);
+ const reversal = await api('POST', reversePath, payload);
+ assert.equal(reversal.status, 200, JSON.stringify(reversal.body));
+ const after = await m.InventoryBalance.findById(balanceId);
+ assert.equal(String(after.quantityBase), '8');
+ assert.deepEqual(after.packagingPortions.map(row => String(row._id)), (await moves(backup))[0].packagingPortionIds.map(String));
+ assert.equal(String((await m.StockReservation.findById(reservation._id)).releasedQty), '5');
+});
+
 run('reversal reopens a COMPLETED PO but keeps a CLOSED PO terminal',async()=>{
  const reverse=async(status)=>{
   const receipt=await postedReceipt();const attachment=await m.Attachment.create({ownerDocumentType:'goods_receipts',ownerDocumentId:receipt._id,purpose:'TEST',originalName:'test.png',mediaType:'image/png',sizeBytes:10,storageKey:'local-test',checksum:'a'.repeat(64),uploadedBy:worker._id,uploadedAt:new Date(),accessCategory:'BUSINESS',status:'ATTACHED'});
@@ -494,6 +540,18 @@ run('PO exposes hasOpenReceivingWork for draft inspections without changing its 
 });
 run('native transfer dispatch, independent receipt and putaway reconcile all movement legs',async()=>{
  const transfers=await import('../src/modules/transfers/transfer-write.service.js');
+ const differences=await import('../src/modules/transfers/transfer-differences.js');
+ const initialPoint=await m.StockHoldingPoint.findOne({locationId:storageLocation._id});
+ const initialBalance=initialPoint&&await m.InventoryBalance.findOne({holdingPointId:initialPoint._id,batchId:batch._id,qualityStatus:'GOOD',ownerType:'STORE'});
+ // Bootstrap stock only when running this scenario alone in the isolated test database.
+ if(!initialBalance||Number(initialBalance.quantityBase)<8){
+   const receipt=await postedReceipt();
+   const posting=await m.StockTransaction.findById(receipt.stockTransactionId);
+   const stock=await m.InventoryBalance.findById(posting.movements[0].toBalanceId);
+   const move=await createLocationMovement(worker,{idempotencyKey:key(),warehouseId:String(warehouse._id),reason:'BF04 isolated fixture',lines:[{sourceBalanceId:String(stock._id),sourceBalanceVersion:stock.version,toLocationId:String(storageLocation._id),enteredUnit:'PIECE',enteredQty:'8'}]});
+   const task=await m.TransferOrder.findById(move.id);
+   await confirmLocationMovement(worker,move.id,{idempotencyKey:key(),expectedVersion:task.version,lines:[{lineId:String(task.items[0]._id),actualQtyBase:'8'}]});
+ }
  const destination=await m.Warehouse.create({code:'DEST',name:'Destination',lengthMm:'10000',widthMm:'10000',clearHeightMm:'3000'});
  const staging=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'OUT',locationType:'STAGING',usableLengthMm:'5000',usableWidthMm:'5000'});
  const inbound=await m.WarehouseLocation.create({warehouseId:destination._id,code:'IN',locationType:'RECEIVING',usableLengthMm:'5000',usableWidthMm:'5000'});
@@ -506,7 +564,8 @@ run('native transfer dispatch, independent receipt and putaway reconcile all mov
  assert.ok(selections.warehouses.some(row=>String(row._id)===String(destination._id)));
  assert.ok(selections.warehouses.some(row=>String(row._id)===String(warehouse._id)));
  assert.deepEqual(selections.sourceWarehouseIds,[String(destination._id)]);
- await assert.rejects(reads.transferOptions(actor,String(warehouse._id)));
+ // Request creators may browse another warehouse's stock to raise a destination request.
+ assert.ok((await reads.transferOptions(actor,String(warehouse._id))).locations.length);
  const request=await transfers.createRequest(worker,{idempotencyKey:key(),sourceWarehouseId:String(warehouse._id),destinationWarehouseId:String(destination._id),reason:'Transfer test',lines:[{productId:String(product._id),enteredUnit:'PIECE',enteredQty:'8'}]});
  await transfers.reviewRequest(owner,request.id,{idempotencyKey:key(),expectedVersion:1,decision:'APPROVE',reason:'Approved test'});
  const req=await m.WarehouseTransferRequest.findById(request.id),point=await m.StockHoldingPoint.findOne({locationId:storageLocation._id}),balance=await m.InventoryBalance.findOne({holdingPointId:point._id,batchId:batch._id});
@@ -514,6 +573,8 @@ run('native transfer dispatch, independent receipt and putaway reconcile all mov
  const pick=await transfers.createRequirement(worker,dispatch.id,{idempotencyKey:key(),expectedVersion:1});
  await transfers.confirmTask(worker,pick.id,{idempotencyKey:key(),expectedVersion:1,recipientName:'Transporter'});
  let shipped=await m.TransferDispatch.findById(dispatch.id);assert.equal(shipped.handovers.length,1);
+ await assert.rejects(differences.proposeDifference(worker,dispatch.id,{idempotencyKey:key(),expectedVersion:shipped.version,reason:'Source cannot report',lines:[{dispatchLineId:String(shipped.items[0]._id),qtyBase:'4'}]}),error=>error.statusCode===403);
+ await assert.rejects(differences.proposeDifference(owner,dispatch.id,{idempotencyKey:key(),expectedVersion:shipped.version,reason:'Global view is not destination assignment',lines:[{dispatchLineId:String(shipped.items[0]._id),qtyBase:'4'}]}),error=>error.statusCode===403);
  const eligible = { receivable: 'true', page: 1, limit: 10, destinationWarehouseId: String(destination._id), status: ['POSTED', 'DRAFT'] };
  assert.deepEqual((await reads.listDispatches(actor, eligible)).items.map(row => row._id), [dispatch.id]);
  assert.equal((await reads.listDispatches(worker, eligible)).total, 0);
@@ -523,29 +584,52 @@ run('native transfer dispatch, independent receipt and putaway reconcile all mov
  const received=await transfers.receiveTransfer(actor,dispatch.id,{idempotencyKey:key(),expectedVersion:shipped.version,lines:[{dispatchLineId:String(shipped.items[0]._id),locationId:String(inbound._id),qtyBase:'8',qualityCode:'GOOD'}]});
  assert.equal((await reads.listDispatches(actor, eligible)).total, 0);
  const receivingDoc=await m.TransferReceipt.findById(received.id);
- const putting=await transfers.createRequirement(actor,received.id,{idempotencyKey:key(),expectedVersion:1,destinations:[{receiptLineId:String(receivingDoc.items[0]._id),locationId:String(target._id)}]});
- // Transfer putaway is readable through the purchase endpoint but confirmed/cancelled only by BF04.
- assert.equal((await putaway.getPutaway(actor,putting.id)).header.receiptId,received.id);
- await assert.rejects(putaway.cancelPutaway(actor,putting.id,{...input(),expectedVersion:1,reason:'Wrong module'}),e=>e.statusCode===404);
- await assert.rejects(putaway.confirmPutaway(actor,putting.id,{...input(),expectedVersion:1,lines:[{taskLineId:String(new mongoose.Types.ObjectId()),actualQtyBase:'1'}]}),e=>e.statusCode===404);
- await transfers.confirmTask(actor,putting.id,{idempotencyKey:key(),expectedVersion:1});
- const current=await m.WarehouseTransferRequest.findById(request.id);await transfers.closeRequest(actor,request.id,{idempotencyKey:key(),expectedVersion:current.version});
+ const autoRequirement=await m.InternalTransferRequirement.findOne({'header.sourceDocumentId':received.id});
+ const putting=await m.TransferOrder.findOne({'header.requirementId':autoRequirement._id});
+ assert.equal(putting.header.taskKind,'PUTAWAY');assert.equal(putting.items.length,0);
+ assert.equal((await m.WarehouseTransferRequest.findById(request.id)).workflowStatus,'APPROVED');
+ const sameTask=await transfers.createRequirement(actor,received.id,{idempotencyKey:key(),expectedVersion:1});
+ assert.equal(sameTask.id,String(putting._id));assert.equal(await m.InternalTransferRequirement.countDocuments({'header.sourceDocumentId':received.id}),1);
+ await assert.rejects(reads.getPutawayTask(worker,String(putting._id)));
+ const taskView=await reads.getPutawayTask(actor,String(putting._id));assert.equal(taskView.lines[0].toLocationId,null);
+ assert.equal(taskView.warehouseLabel,destination.name);assert.equal(taskView.lines[0].lotLabel,batch.manufacturerLot);assert.equal(taskView.lines[0].fromLocationLabel,inbound.code);
+ await assert.rejects(transfers.confirmTask(actor,String(putting._id),{idempotencyKey:key(),expectedVersion:1}),/vị trí đích/);
+ await assert.rejects(transfers.confirmTask(actor,String(putting._id),{idempotencyKey:key(),expectedVersion:1,destinations:[{receiptLineId:String(receivingDoc.items[0]._id),locationId:String(storageLocation._id)}]}));
+ assert.equal((await m.TransferOrder.findById(putting._id)).items.length,0);
+ const putInput={idempotencyKey:key(),expectedVersion:1,destinations:[{receiptLineId:String(receivingDoc.items[0]._id),locationId:String(target._id)}]};
+ await transfers.confirmTask(actor,String(putting._id),putInput);await transfers.confirmTask(actor,String(putting._id),putInput);
+ assert.equal(await m.StockTransaction.countDocuments({sourceId:putting._id}),1);
  assert.equal((await m.WarehouseTransferRequest.findById(request.id)).workflowStatus,'COMPLETED');assert.deepEqual((await reconcilePurchasing()).issues,[]);
  const reverseStaging=await m.WarehouseLocation.create({warehouseId:destination._id,code:'BACK-OUT',locationType:'STAGING',usableLengthMm:'5000',usableWidthMm:'5000'});
  const quarantine=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'BF04-Q',locationType:'QUARANTINE',usableLengthMm:'5000',usableWidthMm:'5000'});
+ // Approve before the reverse leg consumes target stock: approval checks free stock but does not reserve it.
+ const partial=await transfers.createRequest(actor,{idempotencyKey:key(),sourceWarehouseId:String(destination._id),destinationWarehouseId:String(warehouse._id),reason:'Partial completion remains explicit',lines:[{productId:String(product._id),enteredUnit:'PIECE',enteredQty:'8'}]});
+ await transfers.reviewRequest(owner,partial.id,{idempotencyKey:key(),expectedVersion:1,decision:'APPROVE',reason:'Approved partial fixture'});
  const reverseRequest=await transfers.createRequest(actor,{idempotencyKey:key(),sourceWarehouseId:String(destination._id),destinationWarehouseId:String(warehouse._id),reason:'Damaged receipt completion',lines:[{productId:String(product._id),enteredUnit:'PIECE',enteredQty:'4'}]});
  await transfers.reviewRequest(owner,reverseRequest.id,{idempotencyKey:key(),expectedVersion:1,decision:'APPROVE',reason:'Approved damaged path'});
  const reverseDoc=await m.WarehouseTransferRequest.findById(reverseRequest.id),targetPoint=await m.StockHoldingPoint.findOne({locationId:target._id}),targetBalance=await m.InventoryBalance.findOne({holdingPointId:targetPoint._id,batchId:batch._id});
  const reverseDispatch=await transfers.createDispatch(actor,reverseRequest.id,{idempotencyKey:key(),expectedVersion:reverseDoc.version,lines:[{requestLineId:String(reverseDoc.items[0]._id),sourceBalanceId:String(targetBalance._id),stagingLocationId:String(reverseStaging._id),qtyBase:'4'}]});
  const reversePick=await transfers.createRequirement(actor,reverseDispatch.id,{idempotencyKey:key(),expectedVersion:1});
  await transfers.confirmTask(actor,reversePick.id,{idempotencyKey:key(),expectedVersion:1,recipientName:'Return carrier'});
- const reverseShipped=await m.TransferDispatch.findById(reverseDispatch.id);
+ let reverseShipped=await m.TransferDispatch.findById(reverseDispatch.id);
+ const discrepancy=await differences.proposeDifference(worker,reverseDispatch.id,{idempotencyKey:key(),expectedVersion:reverseShipped.version,reason:'Destination reported missing before final inspection',lines:[{dispatchLineId:String(reverseShipped.items[0]._id),qtyBase:'4'}]});
+ reverseShipped=await m.TransferDispatch.findById(reverseDispatch.id);
  const damagedReceipt=await transfers.receiveTransfer(worker,reverseDispatch.id,{idempotencyKey:key(),expectedVersion:reverseShipped.version,lines:[{dispatchLineId:String(reverseShipped.items[0]._id),locationId:String(quarantine._id),qtyBase:'4',qualityCode:'DAMAGED',damageReason:'Damaged in test'}]});
- await assert.rejects(transfers.createRequirement(worker,damagedReceipt.id,{idempotencyKey:key(),expectedVersion:1,destinations:[]}),/không cần lệnh xếp hàng/);
  assert.equal(await m.InternalTransferRequirement.countDocuments({'header.sourceDocumentId':damagedReceipt.id}),0);
- const requestToClose=await m.WarehouseTransferRequest.findById(reverseRequest.id);
- await transfers.closeRequest(worker,reverseRequest.id,{idempotencyKey:key(),expectedVersion:requestToClose.version});
+ assert.equal((await m.WarehouseTransferRequest.findById(reverseRequest.id)).workflowStatus,'APPROVED');
+ await differences.reviewDifference(owner,discrepancy.id,{idempotencyKey:key(),expectedVersion:1,decision:'APPROVE',reason:'Receipt resolves the reported difference',receiptId:damagedReceipt.id});
  assert.equal((await m.WarehouseTransferRequest.findById(reverseRequest.id)).workflowStatus,'COMPLETED');
+ const partialReq=await m.WarehouseTransferRequest.findById(partial.id),remaining=await m.InventoryBalance.findOne({holdingPointId:(await m.StockHoldingPoint.findOne({locationId:target._id}))._id,batchId:batch._id});
+ const partDispatch=await transfers.createDispatch(actor,partial.id,{idempotencyKey:key(),expectedVersion:partialReq.version,lines:[{requestLineId:String(partialReq.items[0]._id),sourceBalanceId:String(remaining._id),stagingLocationId:String(reverseStaging._id),qtyBase:'4'}]});
+ const partPick=await transfers.createRequirement(actor,partDispatch.id,{idempotencyKey:key(),expectedVersion:1});
+ await transfers.confirmTask(actor,partPick.id,{idempotencyKey:key(),expectedVersion:1,recipientName:'Partial carrier'});
+ const partShipped=await m.TransferDispatch.findById(partDispatch.id);
+ const partReceipt=await transfers.receiveTransfer(worker,partDispatch.id,{idempotencyKey:key(),expectedVersion:partShipped.version,lines:[{dispatchLineId:String(partShipped.items[0]._id),locationId:String(receivingLocation._id),qtyBase:'4',qualityCode:'GOOD'}]});
+ const partRequirement=await m.InternalTransferRequirement.findOne({'header.sourceDocumentId':partReceipt.id}),partTask=await m.TransferOrder.findOne({'header.requirementId':partRequirement._id}),partReceived=await m.TransferReceipt.findById(partReceipt.id);
+ await transfers.confirmTask(worker,String(partTask._id),{idempotencyKey:key(),expectedVersion:1,destinations:[{receiptLineId:String(partReceived.items[0]._id),locationId:String(storageLocation._id)}]});
+ const beforePartialClose=await m.WarehouseTransferRequest.findById(partial.id);assert.equal(beforePartialClose.workflowStatus,'APPROVED');
+ const closed=await transfers.closePartialRequest(worker,partial.id,{idempotencyKey:key(),expectedVersion:beforePartialClose.version,reason:'Stop after one trip'});
+ assert.equal(closed.workflowStatus,'COMPLETED');assert.equal((await reads.getTransfer(worker,partial.id)).lineProgress[0].dispatchedQtyBase,'4');assert.equal((await m.WarehouseTransferRequest.findById(partial.id)).header.closureMode,'PARTIAL');
 });
 
 run('purchase and custody intake estimate occupied volume and retain measured overrides', async () => {
@@ -569,17 +653,23 @@ run('purchase and custody intake estimate occupied volume and retain measured ov
  }), 'LOOSE', '1234.567');
  await assert.deepEqual((await reconcilePurchasing()).issues, []);
 });
-async function draftPurchaseReceipt(condition) {
+async function draftPurchaseReceipt(condition, { location = receivingLocation, quantities = ['2'], custodyQty } = {}) {
   const requestInput={creationKey:key(),action:'SUBMIT',warehouseId:String(warehouse._id),neededOn:'2026-12-01',triggerReason:'Test',lines:[{productId:String(product._id),lotId:String(batch._id),enteredUnit:'BOX',enteredQty:'2',reasonNote:'Test'}]};
   await acknowledgeIndependentNeed(requestInput);const created=await rr.createReplenishment(worker,requestInput);let request=await m.ReplenishmentRequest.findById(created.id);
   await rr.reviewReplenishment(owner,created.id,{...input(),expectedVersion:request.version,decision:'APPROVE',reason:'Test',lines:request.items.map(i=>({lineId:String(i._id),approvedQtyBase:'8'}))});request=await m.ReplenishmentRequest.findById(created.id);
-  const order=await po.createPurchaseOrder(accountant,{creationKey:key(),warehouseId:String(warehouse._id),supplierId:String(supplier._id),expectedOn:'2026-12-01',currency:'VND',lines:[{rrLineId:String(request.items[0]._id),approvalId:String(request.header.latestDecisionId),enteredQty:'2',unitPurchasePrice:'1'}]});
+  const order=await po.createPurchaseOrder(accountant,{creationKey:key(),warehouseId:String(warehouse._id),supplierId:String(supplier._id),expectedOn:'2026-12-01',currency:'VND',lines:[{rrLineId:String(request.items[0]._id),approvalId:String(request.header.latestDecisionId),uomCode:'PIECE',enteredQty:'8',unitPurchasePrice:'1'}]});
   await po.confirmPurchaseOrder(accountant,order.id,{...input(),expectedVersion:1});let orderDoc=await m.PurchaseOrder.findById(order.id);
-  const inspection=await receiving.createInspection(worker,order.id,{creationKey:key(),expectedPoVersion:orderDoc.version,arrivedAt:new Date().toISOString(),lines:[{poLineId:String(orderDoc.items[0]._id),lotId:String(batch._id),enteredQty:'2',enteredUnit:'BOX',qualityCode:'GOOD',ownershipDecision:'ACCEPT',packagingCondition:condition}]});
+  const line = { poLineId: String(orderDoc.items[0]._id), lotId: String(batch._id), enteredUnit: 'BOX', qualityCode: 'GOOD', packagingCondition: condition };
+  const lines = quantities.map(enteredQty => ({ ...line, enteredQty, ownershipDecision: 'ACCEPT' }));
+  if (custodyQty) lines.push({ ...line, enteredQty: custodyQty, ownershipDecision: 'CUSTODY' });
+  const inspection=await receiving.createInspection(worker,order.id,{creationKey:key(),expectedPoVersion:orderDoc.version,arrivedAt:new Date().toISOString(),lines});
   const inspected=await m.GoodsInspection.findById(inspection.id);
-  const confirmed=await receiving.confirmInspection(worker,inspection.id,{...input(),expectedVersion:inspected.version,expectedPoVersion:orderDoc.version,destinations:[{inspectionItemId:String(inspected.items[0]._id),locationId:String(receivingLocation._id)}]});
+  const destinations = inspected.items.filter(row => row.details.ownershipDecision === 'ACCEPT')
+    .map(row => ({ inspectionItemId: String(row._id), locationId: String(location._id) }));
+  const confirmed=await receiving.confirmInspection(worker,inspection.id,{...input(),expectedVersion:inspected.version,expectedPoVersion:orderDoc.version,destinations});
   const receipt=await m.PurchaseReceipt.findById(confirmed.resultRefs.find(r=>r.documentType==='goods_receipts').documentId);
-  return {receipt,post:{...input(),expectedVersion:1,expectedPoVersion:(await m.PurchaseOrder.findById(order.id)).version}};
+  const custodyId = confirmed.resultRefs.find(ref => ref.documentType === 'custody_receipts')?.documentId;
+  return {receipt,custodyId,post:{...input(),expectedVersion:1,expectedPoVersion:(await m.PurchaseOrder.findById(order.id)).version}};
 }
 
 run('purchase intake rejects declared volume for SEALED and SEALED-only packaging for opened goods',async()=>{
@@ -635,7 +725,7 @@ run('replacing a confirmed inspection records corrected delivery details on the 
    enteredQty: '2', enteredUnit: 'BOX', qualityCode: 'GOOD', ownershipDecision: 'ACCEPT', packagingCondition: 'SEALED',
   }],
  };
- await assert.rejects(correction.replaceInspection(worker, inspection._id, correctionInput), /phiếu nhập phụ thuộc/);
+ await assert.rejects(correction.replaceInspection(worker, inspection._id, correctionInput), /Cần xử lý 1 chứng từ/);
  await receiving.cancelDraft(worker, receipt._id, 'GR_PURCHASE', { ...post, reason: correctionInput.reason });
  const order = await m.PurchaseOrder.findById(receipt.header.purchaseOrderId);
  const result = await correction.replaceInspection(worker, inspection._id, {
@@ -656,6 +746,71 @@ run('replacing a confirmed inspection records corrected delivery details on the 
  assert.deepEqual(originalArrival.header.toObject(), arrival.header.toObject());
 });
 
+run('inspection correction returns all blockers and succeeds after reversing purchase and cancelling custody', async t => {
+ const api = await receivingApi(t);
+ const { receipt, custodyId, post } = await draftPurchaseReceipt('SEALED', { quantities: ['1'], custodyQty: '1' });
+ await receiving.postReceipt(worker, receipt._id, post);
+ const posted = await m.PurchaseReceipt.findById(receipt._id);
+ const inspection = await m.GoodsInspection.findById(receipt.items[0].inspectionId);
+ const path = '/goods-inspections/' + encodeURIComponent(inspection._id);
+ const heldPath = '/custody-receipts/' + encodeURIComponent(custodyId);
+ const held = await m.CustodyReceipt.findById(custodyId);
+ let order = await m.PurchaseOrder.findById(receipt.header.purchaseOrderId);
+ const preflight = await api('GET', path + '/correction-preflight');
+ assert.equal(preflight.status, 200);
+ const { eligible, blockers, inspectionVersion } = preflight.body.data;
+ assert.equal(eligible, false);
+ assert.equal(inspectionVersion, inspection.version);
+ assert.deepEqual(blockers.map(row => [row.documentId, row.action, row.workflowStatus]), [
+  [String(receipt._id), 'REVERSE_RECEIPT', 'POSTED'], [custodyId, 'CANCEL_CUSTODY', 'DRAFT'],
+ ]);
+ assert.equal((await api('GET', path)).body.data.capabilities.correct, true);
+ assert.equal((await api('GET', heldPath)).body.data.capabilities.cancel, true);
+ assert.equal((await api('GET', path + '/correction-preflight', undefined, accountant)).status, 403);
+ const payload = { ...input(), expectedVersion: inspectionVersion, expectedPoVersion: order.version,
+  arrivedAt: new Date().toISOString(), reason: 'Sửa kết quả kiểm', lines: [{
+   poLineId: String(receipt.items[0].purchaseOrderItemId), lotId: String(batch._id), enteredQty: '1',
+   enteredUnit: 'BOX', qualityCode: 'GOOD', ownershipDecision: 'ACCEPT', packagingCondition: 'SEALED',
+  }] };
+ const blocked = await api('POST', path + '/corrections', payload);
+ assert.equal(blocked.status, 400);
+ assert.match(blocked.body.message, /Cần xử lý 2 chứng từ/);
+ assert.deepEqual(blocked.body.fieldErrors, blockers);
+ const cancel = { ...input(), expectedVersion: held.version, reason: 'Hủy giữ hộ nháp' };
+ const cancelled = await api('POST', heldPath + '/cancel', cancel);
+ assert.equal(cancelled.status, 200, JSON.stringify(cancelled.body));
+ assert.equal(cancelled.body.data.workflowStatus, 'CANCELLED');
+ assert.equal((await api('POST', heldPath + '/cancel', cancel)).body.data.replayed, true);
+ const cancelledDoc = await m.CustodyReceipt.findById(custodyId);
+ assert.equal(String(cancelledDoc.cancelledBy), String(worker._id));
+ assert.ok(cancelledDoc.cancelledAt);
+ assert.equal(cancelledDoc.cancelReason, cancel.reason);
+ assert.equal(await m.StockTransaction.countDocuments({ sourceId: custodyId }), 0);
+ assert.equal((await m.PurchaseOrder.findById(order._id)).version, order.version);
+ assert.equal((await m.GoodsInspection.findById(inspection._id)).version, inspectionVersion);
+ assert.equal((await api('GET', '/custody-receipts?status=CANCELLED')).body.data.items.some(row => row.id === custodyId), true);
+ await correction.reverseReceipt(worker, posted._id, {
+  ...input(), expectedVersion: posted.version, expectedPoVersion: order.version, reason: payload.reason,
+ });
+ order = await m.PurchaseOrder.findById(order._id);
+ assert.deepEqual((await api('GET', path + '/correction-preflight')).body.data, {
+  eligible: true, blockers: [], inspectionVersion,
+ });
+ const corrected = { ...payload, expectedPoVersion: order.version };
+ assert.match((await api('POST', path + '/corrections', { ...corrected, evidenceIds: [key()] })).body.message, /Bằng chứng không thuộc chứng từ/);
+ const result = await api('POST', path + '/corrections', corrected);
+ assert.equal(result.status, 200, JSON.stringify(result.body));
+ assert.equal(result.body.data.workflowStatus, 'DRAFT');
+ const replacement = '/goods-inspections/' + encodeURIComponent(result.body.data.id);
+ assert.match((await api('GET', replacement + '/correction-preflight')).body.data.reason, /Chỉ thay kết quả đã xác nhận/);
+ const replaced = (await api('GET', path + '/correction-preflight')).body.data;
+ assert.deepEqual(replaced.blockers.map(row => [row.documentId, row.action]), [[result.body.data.id, 'USE_REPLACEMENT']]);
+ const old = (await api('GET', path)).body.data;
+ assert.deepEqual(old.replacedBy, { _id: result.body.data.id, documentNo: result.body.data.id, workflowStatus: 'DRAFT' });
+ assert.equal(old.capabilities.correct, false);
+ assert.equal((await api('GET', replacement)).body.data.replacedBy, null);
+});
+
 import * as custody from '../src/modules/po-receiving/purchase-custody.service.js';
 run('damaged purchase intake starts supplier return from posted custody without a defect report',async()=>{
  const service = await import('../src/modules/return-workflows/native.service.js');
@@ -670,6 +825,9 @@ run('damaged purchase intake starts supplier return from posted custody without 
  const operation = () => ({ idempotencyKey: key() });
  const created = await service.createSupplierReturn(worker, { ...operation(), warehouseId: String(warehouse._id), supplierId: String(supplier._id), note: 'Damaged on arrival', lines: [{ originLineId: String(line._id), balanceId: line.custodyBalanceId, qtyBase: quantity }] });
  let request = await m.SupplierReturn.findById(created.id);
+ const blocked = await correction.reversalPreflight(worker, held._id, 'CUSTODY_RECEIPT');
+ assert.equal(blocked.eligible, false);
+ assert.equal(blocked.reason, `Có chứng từ phụ thuộc trong supplier_returns: ${request.documentNo} (${request.workflowStatus})`);
  assert.equal(request.items[0].details.ownerType, 'SUPPLIER');
  assert.equal((await getDocument(worker, held._id, 'CUSTODY_RECEIPT')).items[0].returnAvailableQty, '0');
  const ev = await m.Attachment.create({ ownerDocumentType: 'supplier_returns', ownerDocumentId: request._id, purpose: 'TEST', originalName: 'test.png', mediaType: 'image/png', sizeBytes: 10, storageKey: 'local-test', checksum: 'a'.repeat(64), uploadedBy: accountant._id, uploadedAt: new Date(), accessCategory: 'BUSINESS', status: 'ATTACHED' });
@@ -711,6 +869,124 @@ run('custody acceptance, ownership reversal and return preserve physical stock a
  held=await m.CustodyReceipt.findById(held._id);const ret=await custody.decideCustody(accountant,held._id,{...input(),expectedVersion:held.version,decision:'RETURN',reason:'Return agreed',evidenceIds:[String(evidence._id)],lines:[{custodyItemId:String(item._id),qtyBase:'8'}]});held=await m.CustodyReceipt.findById(held._id);
  const release=await custody.createCustodyResolution(worker,held._id,{...input(),expectedVersion:held.version,decisionId:ret.decisionId,lines:[{custodyItemId:String(item._id),qtyBase:'8'}]},'RETURN');await custody.postCustodyRelease(worker,release.id,{...input(),expectedVersion:1,recipientName:'Supplier'});assert.equal(String((await m.InventoryBalance.findById(balance._id)).quantityBase),'0');
 });
+
+run('custody reversal follows reinspection and partial ownership reversal without changing the PO', async t => {
+ const api = await receivingApi(t);
+ const custodyLocation = await m.WarehouseLocation.create({
+  warehouseId: warehouse._id, code: 'CUSTODY-REVERSE', locationType: 'CUSTODY', usableLengthMm: '5000', usableWidthMm: '5000',
+ });
+ const unrelated = await postedReceipt('SEALED', true, 'GOOD', { custodyLocation });
+ const unrelatedPosting = await m.StockTransaction.findById(unrelated.stockTransactionId);
+ let held = await postedReceipt('SEALED', true, 'GOOD', { custodyLocation });
+ const custodyItemId = String(held.items[0]._id);
+ const originalInspectionId = held.items[0].sources[0].documentId;
+ const inspectionPath = '/goods-inspections/' + encodeURIComponent(originalInspectionId);
+ const heldPath = '/custody-receipts/' + encodeURIComponent(held._id);
+ const reversePath = heldPath + '/reverse';
+ const preflightPath = heldPath + '/reversal-preflight';
+ const original = await m.StockTransaction.findById(held.stockTransactionId);
+ const balanceId = original.movements[0].toBalanceId;
+ assert.equal(String(balanceId), String(unrelatedPosting.movements[0].toBalanceId));
+ const evidence = await m.Attachment.create({
+  ownerDocumentType: 'custody_receipts', ownerDocumentId: held._id, purpose: 'TEST', originalName: 'test.png',
+  mediaType: 'image/png', sizeBytes: 10, storageKey: key(), checksum: 'a'.repeat(64),
+  uploadedBy: worker._id, uploadedAt: new Date(), accessCategory: 'BUSINESS', status: 'ATTACHED',
+ });
+ assert.equal((await api('GET', heldPath)).body.data.capabilities.reversePreflight, true);
+ assert.equal((await api('GET', preflightPath, undefined, accountant)).status, 403);
+ const review = { ...input(), expectedVersion: held.version, reason: 'Kiểm lại',
+  lines: [{ custodyItemId, qtyBase: '4', qualityCode: 'GOOD' }] };
+ assert.equal((await api('POST', heldPath + '/reinspections', review)).status, 400);
+ const reinspection = await api('POST', heldPath + '/reinspections', { ...review, evidenceIds: [String(evidence._id)] });
+ assert.equal(reinspection.status, 200, JSON.stringify(reinspection.body));
+ held = await m.CustodyReceipt.findById(held._id);
+ assert.equal((await api('GET', preflightPath)).body.data.eligible, true);
+ const decisionBody = { ...input(), expectedVersion: held.version, decision: 'ACCEPT', reason: 'Nhận một phần',
+  lines: [{ custodyItemId, qtyBase: '4', reinspectionId: reinspection.body.data.id }] };
+ assert.equal((await api('POST', heldPath + '/resolution-decisions', decisionBody, accountant)).status, 400);
+ const decision = await custody.decideCustody(accountant, held._id, { ...decisionBody, evidenceIds: [String(evidence._id)] });
+ held = await m.CustodyReceipt.findById(held._id);
+ const inspection = await m.GoodsInspection.findById(originalInspectionId);
+ const arrival = await m.GoodsArrival.findById(inspection.header.arrivalId);
+ let order = await m.PurchaseOrder.findById(arrival.header.purchaseOrderId);
+ const lines = [{ custodyItemId, qtyBase: '4', destinationLocationId: String(receivingLocation._id) }];
+ const child = await custody.createCustodyResolution(worker, held._id, {
+  ...input(), expectedVersion: held.version, expectedPoVersion: order.version, decisionId: decision.decisionId, lines,
+ }, 'ACCEPT');
+ const receipt = await m.PurchaseReceipt.findById(child.id);
+ assert.equal(receipt.items[0].inspectionId, reinspection.body.data.id);
+ assert.notEqual(receipt.items[0].inspectionId, originalInspectionId);
+ assert.match((await api('GET', preflightPath)).body.data.reason, /Hủy phiếu nhập/);
+ order = await m.PurchaseOrder.findById(order._id);
+ const posted = await receiving.postReceipt(worker, receipt._id, { ...input(), expectedVersion: receipt.version, expectedPoVersion: order.version });
+ const unrelatedPortion = unrelatedPosting.movements[0].packagingPortionIds[0];
+ assert.equal(String((await m.InventoryBalance.findById(balanceId)).packagingPortions.id(unrelatedPortion).quantityBase), '8');
+ held = await m.CustodyReceipt.findById(held._id);
+ assert.match((await api('GET', preflightPath)).body.data.reason, new RegExp(`Đảo phiếu nhập ${receipt.documentNo} trước`));
+ const premature = await api('POST', reversePath, { ...input(), expectedVersion: held.version, reason: 'Đảo giữ hộ' });
+ assert.equal(premature.status, 400);
+ assert.match(premature.body.message, /Đảo phiếu nhập/);
+ const blockers = (await api('GET', inspectionPath + '/correction-preflight')).body.data.blockers;
+ assert.deepEqual(blockers.map(row => [row.documentId, row.action]), [
+  [receipt._id, 'REVERSE_RECEIPT'], [held._id, 'REVERSE_CUSTODY'],
+ ]);
+ order = await m.PurchaseOrder.findById(order._id);
+ await correction.reverseReceipt(worker, receipt._id, { ...input(), expectedVersion: posted.version, expectedPoVersion: order.version, reason: 'Trả về giữ hộ' });
+ const restored = await m.InventoryBalance.findById(balanceId);
+ assert.equal(String(restored.quantityBase), '16');
+ assert.equal(restored.packagingPortions.length, 3);
+ assert.equal((await api('GET', preflightPath)).body.data.eligible, true);
+ const oldDecision = await custody.decideCustody(accountant, held._id, {
+  ...decisionBody, ...input(), expectedVersion: held.version, evidenceIds: [String(evidence._id)],
+ });
+ held = await m.CustodyReceipt.findById(held._id);
+ order = await m.PurchaseOrder.findById(order._id);
+ const reverse = { ...input(), expectedVersion: held.version, reason: 'Đảo giữ hộ' };
+ assert.equal((await api('POST', reversePath, { ...reverse, expectedPoVersion: order.version })).status, 400);
+ assert.match((await api('POST', reversePath, { ...reverse, evidenceIds: [key()] })).body.message, /Bằng chứng không thuộc chứng từ/);
+ const result = await api('POST', reversePath, reverse);
+ assert.equal(result.status, 200, JSON.stringify(result.body));
+ const replay = await api('POST', reversePath, reverse);
+ assert.equal(replay.body.data.replayed, true);
+ assert.equal(replay.body.data.id, result.body.data.id);
+ const reversal = await m.StockReversal.findById(result.body.data.id);
+ assert.equal(reversal.workflowStatus, 'POSTED');
+ assert.equal(reversal.header.sourceDocument.documentType, 'custody_receipts');
+ assert.equal(reversal.header.sourceDocument.documentId, held._id);
+ assert.equal(await m.StockTransaction.countDocuments({ reversedTransactionId: original._id }), 1);
+ const remaining = await m.InventoryBalance.findById(balanceId);
+ assert.equal(String(remaining.quantityBase), '8');
+ assert.deepEqual(remaining.packagingPortions.map(row => String(row._id)), [String(unrelatedPortion)]);
+ assert.equal((await m.PurchaseOrder.findById(order._id)).version, order.version);
+ const finalHeld = await m.CustodyReceipt.findById(held._id);
+ assert.equal(finalHeld.workflowStatus, 'REVERSED');
+ const detail = (await api('GET', heldPath)).body.data;
+ assert.equal(detail.capabilities.reversePreflight, false);
+ assert.equal(detail.items[0].returnAvailableQty, '0');
+ assert.equal((await api('GET', '/custody-receipts?status=REVERSED')).body.data.items.some(row => row.id === held._id), true);
+ assert.deepEqual((await api('GET', inspectionPath + '/correction-preflight')).body.data.blockers, []);
+ await assert.rejects(custody.createCustodyResolution(worker, held._id, {
+  ...input(), expectedVersion: finalHeld.version, expectedPoVersion: order.version, decisionId: oldDecision.decisionId, lines,
+ }, 'ACCEPT'), /Cần phiếu giữ hộ NCC đã post/);
+});
+
+run('custody reversal blocks when a relocation used its original portions', async () => {
+ const held = await postedReceipt('SEALED', true);
+ const posting = await m.StockTransaction.findById(held.stockTransactionId);
+ const source = await m.InventoryBalance.findById(posting.movements[0].toBalanceId);
+ const task = await createLocationMovement(worker, {
+  idempotencyKey: key(), warehouseId: String(warehouse._id), reason: 'Move held cartons',
+  lines: [{ sourceBalanceId: String(source._id), sourceBalanceVersion: source.version,
+   enteredUnit: 'PIECE', enteredQty: '4', toLocationId: String(storageLocation._id) }],
+ });
+ const doc = await m.TransferOrder.findById(task.id);
+ await confirmLocationMovement(worker, doc._id, { idempotencyKey: key(), expectedVersion: doc.version,
+  lines: [{ lineId: String(doc.items[0]._id), actualQtyBase: '4' }] });
+ const preflight = await correction.reversalPreflight(worker, held._id, 'CUSTODY_RECEIPT');
+ assert.equal(preflight.eligible, false);
+ assert.match(preflight.reason, /đã bị chuyển, xuất hoặc mở thùng/);
+});
+
 run('RR replay enforces current warehouse scope and payload hash',async()=>{
  const body={creationKey:key(),action:'SAVE_DRAFT',warehouseId:String(warehouse._id),neededOn:'2026-12-01',triggerReason:'Scope',lines:[{productId:String(product._id),enteredUnit:'PIECE',enteredQty:'2',reasonNote:'scope'}]};await acknowledgeIndependentNeed(body);const created=await rr.createReplenishment(worker,body);
  await m.User.updateOne({_id:worker._id},{$set:{warehouseIds:[]}});try{await assert.rejects(rr.createReplenishment(worker,body));}finally{await m.User.updateOne({_id:worker._id},{$set:{warehouseIds:worker.warehouseIds}});}assert.equal((await rr.createReplenishment(worker,body)).id,created.id);await assert.rejects(rr.createReplenishment(worker,{...body,triggerReason:'changed'}));
@@ -719,6 +995,19 @@ run('RR replay enforces current warehouse scope and payload hash',async()=>{
 import jwt from 'jsonwebtoken';
 import app from '../src/app.js';
 import { getPurchaseOrder, listPurchaseOrders } from '../src/modules/purchase-orders/purchase-order.service.js';
+
+async function receivingApi(t) {
+ const server = app.listen(0, '127.0.0.1');
+ await new Promise(resolve => server.once('listening', resolve));
+ t.after(() => new Promise(resolve => server.close(resolve)));
+ const base = `http://127.0.0.1:${server.address().port}/api`;
+ return async (method, path, body, user = worker) => {
+  const token = jwt.sign({ userId: String(user._id) }, process.env.JWT_SECRET || 'wmsd_default_super_secret_jwt_key_2026');
+  const response = await fetch(base + path, { method, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
+   ...(body && { body: JSON.stringify(body) }) });
+  return { status: response.status, body: await response.json() };
+ };
+}
 
 run('PO keeps one line per RR line; area-unit lines round up to whole pieces', async () => {
  const requestBody = {
@@ -730,6 +1019,7 @@ run('PO keeps one line per RR line; area-unit lines round up to whole pieces', a
  const createdRequest = await rr.createReplenishment(worker, requestBody);
  const request = await m.ReplenishmentRequest.findById(createdRequest.id);
  assert.equal(request.items[0].qtyBase.toString(), '278');
+ assert.equal(request.items[0].enteredQty.toString(), '100.08');
  const rrLineId = String(request.items[0]._id);
  const approval = await rr.reviewReplenishment(owner, createdRequest.id, {
    ...input(), expectedVersion: request.version, decision: 'APPROVE', reason: 'Approved',
@@ -743,15 +1033,75 @@ run('PO keeps one line per RR line; area-unit lines round up to whole pieces', a
  // 100.09 m2 rounds up to 279 pieces > 278 approved.
  await assert.rejects(po.createPurchaseOrder(accountant, { ...form, creationKey: key(),
    lines: [{ ...source, enteredQty: '100.09' }] }), /vượt nguồn được duyệt/);
+ await assert.rejects(po.createPurchaseOrder(accountant, { ...form, creationKey: key(),
+   lines: [{ ...source, enteredQty: '101' }] }), /vượt nguồn được duyệt/);
  const created = await po.createPurchaseOrder(accountant, { ...form, creationKey: key(),
-   lines: [{ ...source, enteredQty: '100.08', note: 'Lô NCC báo giao' }] });
+   lines: [{ ...source, enteredQty: '100', note: 'Lô NCC báo giao' }] });
  const detail = await getPurchaseOrder(accountant, created.id);
  assert.deepEqual(detail.items.map(item => [item.enteredQty, item.qtyBase, item.lineAmount, item.note]),
    [['100.08', '278', '100080', 'Lô NCC báo giao']]);
+ assert.equal(detail.totalAmount, '100080');
  const confirmed = await po.confirmPurchaseOrder(accountant, created.id, { ...input(), expectedVersion: created.version });
  assert.equal(confirmed.workflowStatus, 'OPEN');
 });
 
+
+run('PO rounds up in the chosen unit and preserves it through edit, confirmation and reconciliation', async () => {
+ const box = await m.Uom.create({ code: 'PO_BOX', name: 'Hộp', isCarton: true });
+ const pack = await m.Uom.create({ code: 'PO_PACK', name: 'Gói', isCarton: false });
+ await productService.createConversion(owner, String(product._id), {
+   uomId: String(box._id), basePerUnit: '3', verificationReference: 'Supplier box fixture',
+ });
+ await productService.createConversion(owner, String(product._id), {
+   uomId: String(pack._id), basePerUnit: '3', verificationReference: 'Supplier pack fixture',
+ });
+ const requestBody = {
+   creationKey: key(), action: 'SUBMIT', warehouseId: String(warehouse._id), neededOn: '2026-12-01',
+   triggerReason: 'Supplier box ordering',
+   lines: [{ productId: String(product._id), enteredUnit: 'PIECE', enteredQty: '10', reasonNote: 'Fixture' }],
+ };
+ await acknowledgeIndependentNeed(requestBody);
+ const createdRequest = await rr.createReplenishment(worker, requestBody);
+ const request = await m.ReplenishmentRequest.findById(createdRequest.id);
+ const rrLineId = String(request.items[0]._id);
+ const approval = await rr.reviewReplenishment(owner, createdRequest.id, {
+   ...input(), expectedVersion: request.version, decision: 'APPROVE', reason: 'Approved',
+   lines: [{ lineId: rrLineId, approvedQtyBase: '10' }],
+ });
+ const form = { warehouseId: String(warehouse._id), supplierId: String(supplier._id), currency: 'VND' };
+ const line = { rrLineId, approvalId: approval.decisionId, uomCode: box.code, unitPurchasePrice: '1000' };
+ const create = (enteredQty, uomCode = box.code) => po.createPurchaseOrder(accountant, {
+   ...form, creationKey: key(), lines: [{ ...line, enteredQty, uomCode }],
+ });
+ await assert.rejects(create('5'), /vượt nguồn được duyệt/);
+ await assert.rejects(create('3.666667'), /Số thùng phải là số nguyên/);
+ await assert.rejects(create('1.5', 'PIECE'), /Số lượng theo đơn vị gốc phải là số nguyên/);
+ await assert.rejects(create('2.5'), /Số thùng phải là số nguyên/);
+ await assert.rejects(create('4', pack.code), /vượt nguồn được duyệt/);
+ await assert.rejects(create('4', 'UNAVAILABLE'), /không tồn tại/);
+ await assert.rejects(create('4', 'ROLL'), /Thiếu quy đổi/);
+ const created = await create('4');
+ const draft = await getPurchaseOrder(accountant, created.id);
+ assert.equal(draft.draftEdit.lines[0].enteredUomCode, box.code);
+ assert.deepEqual(draft.items.map(item => [item.enteredQty, item.baseUnitsPerUnit, item.qtyBase, item.lineAmount]),
+   [['4', '3', '12', '4000']]);
+ await assert.rejects(po.updatePurchaseOrder(accountant, created.id, {
+   ...form, ...input(), expectedVersion: created.version,
+   lines: [{ ...line, id: draft.items[0]._id, enteredQty: '1.5' }],
+ }), /Số thùng phải là số nguyên/);
+ const updated = await po.updatePurchaseOrder(accountant, created.id, {
+   ...form, ...input(), expectedVersion: created.version,
+   // Omitting uomCode on edit must keep the saved box unit, not reread 4 as 4 pieces.
+   lines: [{ ...line, uomCode: undefined, id: draft.items[0]._id, enteredQty: '4', unitPurchasePrice: '1200' }],
+ });
+ const saved = await getPurchaseOrder(accountant, created.id);
+ assert.equal(saved.draftEdit.lines[0].enteredUomCode, box.code);
+ assert.equal(saved.items[0].qtyBase, '12');
+ assert.equal(saved.items[0].lineAmount, '4800');
+ const opened = await po.confirmPurchaseOrder(accountant, created.id, { ...input(), expectedVersion: updated.version });
+ assert.equal(opened.workflowStatus, 'OPEN');
+ assert.equal((await reconcilePurchasing()).issues.some(issue => issue.poId === created.id), false);
+});
 
 run('HTTP PO lifecycle supports draft edits, expected-date changes, receiving history and closure', async () => {
  const requestBody = {
@@ -940,6 +1290,183 @@ run('HTTP PO lifecycle supports draft edits, expected-date changes, receiving hi
  }
 });
 
+async function postAdditionalPurchaseReceipt(poId, enteredQty) {
+ const order = await m.PurchaseOrder.findById(poId);
+ const inspection = await receiving.createInspection(worker, poId, {
+  creationKey: key(), expectedPoVersion: order.version, arrivedAt: new Date().toISOString(),
+  lines: [{ poLineId: String(order.items[0]._id), lotId: String(batch._id), enteredUnit: 'PIECE', enteredQty,
+   qualityCode: 'GOOD', ownershipDecision: 'ACCEPT', packagingCondition: 'LOOSE' }],
+ });
+ const inspected = await m.GoodsInspection.findById(inspection.id);
+ const confirmed = await receiving.confirmInspection(worker, inspection.id, {
+  ...input(), expectedVersion: inspected.version, expectedPoVersion: order.version,
+  destinations: [{ inspectionItemId: String(inspected.items[0]._id), locationId: String(receivingLocation._id) }],
+ });
+ const receiptId = confirmed.resultRefs.find(ref => ref.documentType === 'goods_receipts').documentId;
+ const draft = await m.PurchaseReceipt.findById(receiptId);
+ await receiving.postReceipt(worker, receiptId, {
+  ...input(), expectedVersion: draft.version, expectedPoVersion: (await m.PurchaseOrder.findById(poId)).version,
+ });
+ return m.PurchaseReceipt.findById(receiptId);
+}
+
+async function reversePurchaseReceipt(api, receipt, expectedPoVersion) {
+ const reversed = await api('POST', '/goods-receipts/purchase/' + encodeURIComponent(receipt._id) + '/reverse', {
+  ...input(), expectedVersion: receipt.version, expectedPoVersion, reason: 'Ghi nhầm phiếu',
+ });
+ assert.equal(reversed.status, 200, JSON.stringify(reversed.body));
+}
+
+run('PO reopen to OPEN preserves the short closure and recloses after re-receiving', async t => {
+ const api = await receivingApi(t);
+ const receipt = await postedReceipt('LOOSE', false, 'GOOD', { qtyBase: '4' });
+ const id = String(receipt.header.purchaseOrderId);
+ const path = '/purchase-orders/' + encodeURIComponent(id);
+ const detail = async () => {
+  const response = await api('GET', path, undefined, accountant);
+  assert.equal(response.status, 200, response.body.message);
+  return response.body.data;
+ };
+ const reopen = (expectedVersion, user = accountant) => api('POST', path + '/reopen', {
+  ...input(), expectedVersion, reason: 'Receive the corrected delivery',
+ }, user);
+ const partial = await detail();
+ assert.equal(partial.workflowStatus, 'PARTIAL');
+ assert.equal(partial.reopenable, false);
+ const wrongStatus = await reopen(partial.version);
+ assert.equal(wrongStatus.status, 400);
+ assert.equal(wrongStatus.body.message, 'PO không ở trạng thái đã đóng');
+
+ const closureReason = 'Supplier will not deliver the other four pieces';
+ const closed = await api('POST', path + '/close-remainder', {
+  ...input(), expectedVersion: partial.version, reason: closureReason,
+  lines: [{ poLineId: partial.items[0]._id, qtyBase: '4' }],
+ }, accountant);
+ assert.equal(closed.status, 200, closed.body.message);
+ assert.equal(closed.body.data.workflowStatus, 'CLOSED');
+ const settled = await detail();
+ assert.ok(settled.header.closedAt);
+ assert.equal(settled.reopenable, false);
+ const noOutstanding = await reopen(settled.version);
+ assert.equal(noOutstanding.status, 400);
+ assert.equal(noOutstanding.body.message, 'PO không có lượng chưa nhận để mở lại');
+
+ await reversePurchaseReceipt(api, receipt, settled.version);
+ const reversed = await detail();
+ assert.equal(reversed.workflowStatus, 'CLOSED');
+ assert.equal(reversed.reopenable, true);
+ assert.equal(reversed.quantities[0].outstandingQtyBase, '4');
+ assert.equal((await reopen(reversed.version, owner)).status, 403);
+ assert.equal((await reopen(settled.version)).status, 409);
+
+ const payload = { ...input(), expectedVersion: reversed.version, reason: 'Receive the corrected delivery' };
+ assert.equal((await api('POST', path + '/reopen', { ...payload, unexpected: true }, accountant)).status, 400);
+ const opened = await api('POST', path + '/reopen', payload, accountant);
+ assert.equal(opened.status, 200, opened.body.message);
+ assert.equal(opened.body.data.workflowStatus, 'OPEN');
+ assert.equal(opened.body.data.version, reversed.version + 1);
+ assert.equal(opened.body.data.replayed, false);
+ const reopened = await detail();
+ assert.equal(reopened.workflowStatus, 'OPEN');
+ assert.equal(reopened.reopenable, false);
+ assert.equal(reopened.items[0].cancelledRemainderQtyBase, '4');
+ assert.equal(reopened.header.closureReason, closureReason);
+ assert.ok(!Object.hasOwn(reopened.header, 'closedAt'));
+
+ const replay = await api('POST', path + '/reopen', payload, accountant);
+ assert.equal(replay.status, 200, replay.body.message);
+ assert.deepEqual(replay.body.data, { ...opened.body.data, replayed: true });
+ const audits = await m.AuditLog.find({ subjectId: id, action: 'REOPEN_PURCHASE_ORDER' }).lean();
+ assert.equal(audits.length, 1);
+ assert.equal(audits[0].reason, payload.reason);
+ const { field, before, after } = audits[0].changes[0];
+ assert.deepEqual({ field, before, after }, { field: 'workflowStatus', before: 'CLOSED', after: 'OPEN' });
+ const cancel = await api('POST', path + '/cancel', {
+  ...input(), expectedVersion: reopened.version, reason: 'Cancel after reopen',
+ }, accountant);
+ assert.equal(cancel.status, 400);
+ assert.equal(cancel.body.message, 'PO đã chốt thiếu một phần');
+
+ const replacement = await postAdditionalPurchaseReceipt(id, '4');
+ const reclosed = await detail();
+ assert.equal(reclosed.workflowStatus, 'CLOSED');
+ assert.ok(reclosed.header.closedAt);
+ assert.equal(reclosed.quantities[0].outstandingQtyBase, '0');
+ assert.equal(reclosed.reopenable, false);
+ await reversePurchaseReceipt(api, replacement, reclosed.version);
+ const reversedAgain = await detail();
+ assert.equal(reversedAgain.workflowStatus, 'CLOSED');
+ assert.equal(reversedAgain.reopenable, true);
+});
+
+run('concurrent PO reopen to PARTIAL commits once and preserves purchasing quantities', async t => {
+ const api = await receivingApi(t);
+ const first = await postedReceipt('LOOSE', false, 'GOOD', { qtyBase: '2' });
+ const id = String(first.header.purchaseOrderId);
+ const path = '/purchase-orders/' + encodeURIComponent(id);
+ const lineId = String(first.items[0].purchaseOrderItemId);
+ const second = await postAdditionalPurchaseReceipt(id, '3');
+ const close = (expectedVersion, qtyBase) => api('POST', path + '/close-remainder', {
+  ...input(), expectedVersion, reason: 'Close outstanding pieces', lines: [{ poLineId: lineId, qtyBase }],
+ }, accountant);
+ const partial = await m.PurchaseOrder.findById(id);
+ const closed = await close(partial.version, '3');
+ assert.equal(closed.status, 200, closed.body.message);
+ assert.equal(closed.body.data.workflowStatus, 'CLOSED');
+ await reversePurchaseReceipt(api, second, closed.body.data.version);
+
+ const assertPurchasesReport = async status => {
+  const report = await operationalReport(accountant, { group: 'purchases', warehouseId: String(warehouse._id) });
+  const row = report.rows.find(row => row.id === id);
+  assert.equal(row?.status, status);
+  const { qtyBase, receivedQtyBase, outstandingQtyBase } = row.items[0];
+  assert.deepEqual({ qtyBase, receivedQtyBase, outstandingQtyBase }, { qtyBase: '8', receivedQtyBase: '2', outstandingQtyBase: '3' });
+ };
+ const reversed = await m.PurchaseOrder.findById(id);
+ assert.equal(reversed.workflowStatus, 'CLOSED');
+ await assertPurchasesReport('CLOSED');
+ const reopen = () => api('POST', path + '/reopen', {
+  ...input(), expectedVersion: reversed.version, reason: 'Receive three replacement pieces',
+ }, accountant);
+ const results = await Promise.all([reopen(), reopen()]);
+ const successes = results.filter(result => result.status === 200);
+ assert.equal(successes.length, 1, JSON.stringify(results));
+ assert.ok([400, 409].includes(results.find(result => result.status !== 200).status), JSON.stringify(results));
+ assert.equal(successes[0].body.data.workflowStatus, 'PARTIAL');
+ assert.equal(await m.AuditLog.countDocuments({ subjectId: id, action: 'REOPEN_PURCHASE_ORDER' }), 1);
+ const reopened = await m.PurchaseOrder.findById(id);
+ assert.equal(reopened.workflowStatus, 'PARTIAL');
+ assert.equal(String(reopened.items[0].cancelledRemainderQtyBase), '3');
+ await assertPurchasesReport('PARTIAL');
+ assert.deepEqual((await reconcilePurchasing()).issues, []);
+
+ const reclosed = await close(reopened.version, '3');
+ assert.equal(reclosed.status, 200, reclosed.body.message);
+ assert.equal(reclosed.body.data.workflowStatus, 'CLOSED');
+ const order = await m.PurchaseOrder.findById(id);
+ assert.equal(String(order.items[0].cancelledRemainderQtyBase), '6');
+ assert.ok(order.header.closedAt);
+});
+
+run('posting the balance after a partial short closure closes the PO', async () => {
+ const first = await postedReceipt('LOOSE', false, 'GOOD', { qtyBase: '4' });
+ const id = String(first.header.purchaseOrderId);
+ const partial = await m.PurchaseOrder.findById(id);
+ assert.equal(partial.workflowStatus, 'PARTIAL');
+ const shortened = await po.closeRemainder(accountant, id, {
+  ...input(), expectedVersion: partial.version, reason: 'Supplier reduced the final delivery',
+  lines: [{ poLineId: String(partial.items[0]._id), qtyBase: '1' }],
+ });
+ assert.equal(shortened.workflowStatus, 'PARTIAL');
+ await postAdditionalPurchaseReceipt(id, '3');
+ const closed = await getPurchaseOrder(accountant, id);
+ assert.equal(closed.workflowStatus, 'CLOSED');
+ assert.ok(closed.header.closedAt);
+ assert.equal(closed.quantities[0].receivedQtyBase, '7');
+ assert.equal(closed.quantities[0].cancelledQtyBase, '1');
+ assert.equal(closed.quantities[0].outstandingQtyBase, '0');
+});
+
 run('cancelling a PO frees its RR for a new PO and the RR list joins only live POs', async () => {
  const { listReplenishments, getReplenishment } = await import('../src/modules/replenishments/replenishment.service.js');
  const body = { creationKey: key(), action: 'SUBMIT', warehouseId: String(warehouse._id), neededOn: '2026-12-01', triggerReason: 'Cancel PO',
@@ -971,6 +1498,10 @@ run('cancelling a PO frees its RR for a new PO and the RR list joins only live P
  assert.equal(await listed(true), undefined);
  assert.deepEqual((await listed(false)).purchaseOrders, []);
  assert.deepEqual((await getReplenishment(owner, created.id)).purchaseOrders.map(row => row.workflowStatus), ['CANCELLED']);
+ const report = await operationalReport(accountant, { group: 'purchases', warehouseId: String(warehouse._id) });
+ const cancelledRow = report.rows.find(row => row.id === first.id);
+ assert.equal(cancelledRow?.status, 'CANCELLED');
+ assert.equal(cancelledRow.items[0].outstandingQtyBase, '0');
 
  // Issued but untouched: still cancellable, and the RR accepts another PO.
  const second = await po.createPurchaseOrder(accountant, orderBody());

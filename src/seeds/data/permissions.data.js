@@ -41,8 +41,8 @@ export const PERMISSION_CATALOGUE = [
 
   // ---------- FE-01: Bổ sung hàng, mua hàng, nhập kho (BF-01) ----------
   { code: 'replenishment_request:evaluate', description: 'Xem cảnh báo và đánh giá lại nhu cầu bổ sung theo nguồn/kho', uc: ['UC-03', 'UC-103'], roles: [OWNER, WAREHOUSE, SALES] },
-  { code: 'notification:read', description: 'Xem thông báo của chính mình trong phạm vi nguồn/kho hiện hành', uc: ['UC-03', 'UC-47', 'UC-48', 'UC-93', 'UC-103'], roles: [OWNER, WAREHOUSE, SALES] },
-  { code: 'notification:mark_read', description: 'Đánh dấu đã đọc thông báo của chính mình', uc: ['UC-03', 'UC-47', 'UC-48', 'UC-93', 'UC-103'], roles: [OWNER, WAREHOUSE, SALES] },
+  { code: 'notification:read', description: 'Xem thông báo của chính mình trong phạm vi nguồn/kho hiện hành', uc: ['UC-03', 'UC-47', 'UC-48', 'UC-93', 'UC-103'], roles: [OWNER, WAREHOUSE, SALES, ACCOUNTANT] },
+  { code: 'notification:mark_read', description: 'Đánh dấu đã đọc thông báo của chính mình', uc: ['UC-03', 'UC-47', 'UC-48', 'UC-93', 'UC-103'], roles: [OWNER, WAREHOUSE, SALES, ACCOUNTANT] },
   { code: 'replenishment_request:read', description: 'Xem danh sách/chi tiết yêu cầu bổ sung hàng (RR)', uc: ['UC-01', 'UC-02'], roles: BUSINESS_ROLES },
   { code: 'replenishment_request:create', description: 'Tạo yêu cầu bổ sung hàng', uc: ['UC-03', 'UC-05'], roles: [WAREHOUSE, SALES] },
   { code: 'replenishment_request:update', description: 'Sửa/gửi lại RR nháp của mình', uc: ['UC-04', 'UC-05'], roles: [WAREHOUSE, SALES] },
@@ -54,16 +54,12 @@ export const PERMISSION_CATALOGUE = [
 
   { code: 'goods_receipt_inspection:read', description: 'Xem phiếu nhập/kiểm nhận', uc: ['UC-14', 'UC-15'], roles: [OWNER, ACCOUNTANT, WAREHOUSE] },
   { code: 'goods_receipt_inspection:create', description: 'Tạo phiếu nhập từ PO tại kho được giao', uc: ['UC-16'], roles: [WAREHOUSE] },
-  { code: 'goods_receipt_inspection:update', description: 'Ghi kết quả kiểm nhận', uc: ['UC-37'], roles: [WAREHOUSE] },
+  { code: 'goods_receipt_inspection:update', description: 'Ghi và sửa kết quả kiểm nhận, hủy phiếu nháp nhận mua và giữ hộ NCC', uc: ['UC-37'], roles: [WAREHOUSE] },
   { code: 'goods_receipt_inspection:post', description: 'Post nhập kho (GR) sau kiểm nhận', uc: ['UC-37'], roles: [WAREHOUSE] },
   { code: 'stock_reversal:approve', description: 'Duyệt độc lập và ghi đảo giao dịch tồn', uc: ['UC-37'], roles: [OWNER] },
-  { code: 'goods_receipt_inspection:reverse', description: 'Warehouse đảo phiếu nhập ghi nhầm, có chứng cứ và kiểm phụ thuộc', uc: ['UC-37'], roles: [WAREHOUSE] },
+  { code: 'goods_receipt_inspection:reverse', description: 'Đảo phiếu nhập mua và giữ hộ NCC đã ghi sổ', uc: ['UC-37'], roles: [WAREHOUSE] },
   { code: 'purchase_order:approve_exception', description: 'Duyệt chốt thiếu PO đúng phiên bản', uc: ['UC-13'], roles: [OWNER] },
-  { code: 'putaway_task:cancel', description: 'Hủy phần chưa cất của task nhận mua', uc: ['UC-45', 'UC-46'], roles: [WAREHOUSE] },
 
-  { code: 'putaway_task:read', description: 'Xem nhiệm vụ cất hàng', uc: ['UC-32', 'UC-33'], roles: [OWNER, ACCOUNTANT, WAREHOUSE] },
-  { code: 'putaway_task:create', description: 'Tạo nhiệm vụ cất hàng', uc: ['UC-32'], roles: [WAREHOUSE] },
-  { code: 'putaway_task:confirm', description: 'Xác nhận cất hàng thực tế', uc: ['UC-33'], roles: [WAREHOUSE] },
 
   // ---------- FE-02: Dữ liệu chủ ----------
   { code: 'product:read', description: 'Xem sản phẩm', uc: ['UC-17', 'UC-18'], roles: BUSINESS_ROLES },
@@ -72,7 +68,7 @@ export const PERMISSION_CATALOGUE = [
 
   { code: 'product_lot:read', description: 'Xem lô hàng', uc: ['UC-24', 'UC-25'], roles: [OWNER, WAREHOUSE] },
   { code: 'product_lot:create', description: 'Tạo lô hàng', uc: ['UC-26'], roles: [OWNER, WAREHOUSE] },
-  { code: 'product_lot:update', description: 'Cập nhật lô hàng (Warehouse chỉ được tạo)', uc: ['UC-27'], roles: [OWNER] },
+  { code: 'product_lot:update', description: 'Cập nhật lô hàng', uc: ['UC-27'], roles: [OWNER, WAREHOUSE] },
 
   { code: 'supplier:read', description: 'Xem nhà cung cấp', uc: ['UC-28', 'UC-29'], roles: [OWNER, ACCOUNTANT] },
   { code: 'supplier:create', description: 'Tạo nhà cung cấp', uc: ['UC-30'], roles: [ACCOUNTANT] },
@@ -107,6 +103,13 @@ export const PERMISSION_CATALOGUE = [
   { code: 'sales_order:read', description: 'Xem SO sao chép (theo phạm vi)', uc: ['UC-45', 'UC-46'], roles: BUSINESS_ROLES },
   { code: 'sales_order:create', description: 'Tạo SO sao chép từ nguồn ngoài đã xác minh', uc: ['UC-47'], roles: [SALES] },
   { code: 'sales_order:update', description: 'Sửa/hủy phần SO chưa xuất', uc: ['UC-48'], roles: [SALES] },
+  { code: 'sales_order:cancel', description: 'Hủy SO và lịch giao chưa xuất kho', uc: ['UC-48'], roles: [SALES] },
+  { code: 'delivery_schedule:read', description: 'Xem lịch giao (kho xem theo kho được giao)', uc: ['UC-48'], roles: BUSINESS_ROLES },
+  { code: 'delivery_order:read', description: 'Xem DO và báo cáo vấn đề', uc: ['UC-48'], roles: BUSINESS_ROLES },
+  { code: 'delivery_order:create', description: 'Tạo DO từ lần giao', uc: ['UC-48'], roles: [WAREHOUSE] },
+  { code: 'delivery_order:confirm_issue', description: 'Xác nhận hàng ra khỏi kho', uc: ['UC-48'], roles: [WAREHOUSE] },
+  { code: 'delivery_order:confirm_handover', description: 'Xác nhận nhân viên vận chuyển đã lấy hàng', uc: ['UC-48'], roles: [WAREHOUSE] },
+  { code: 'delivery_order:report_issue', description: 'Báo cáo vấn đề và chọn vị trí lấy bù', uc: ['UC-48'], roles: [WAREHOUSE] },
 
   { code: 'issue_request:read', description: 'Xem yêu cầu xuất kho liên kết (WIR)', uc: ['UC-109'], roles: BUSINESS_ROLES },
   { code: 'issue_request:create', description: 'Tạo WIR / nhu cầu ròng tái mở', uc: ['UC-109'], roles: [SALES] },
@@ -164,17 +167,17 @@ export const PERMISSION_CATALOGUE = [
   { code: 'supplier_return:close', description: 'Đối chiếu và đóng phần kho SR (không cần Owner)', uc: ['UC-83'], roles: [ACCOUNTANT] },
 
   // ---------- FE-08: Kiểm kê, điều chỉnh (BF-05) ----------
-  { code: 'stocktake:read', description: 'Xem phiên kiểm kê', uc: ['UC-84', 'UC-85'], roles: [OWNER, WAREHOUSE] },
-  { code: 'stocktake:create', description: 'Lập kế hoạch phiên kiểm kê', uc: ['UC-86'], roles: [OWNER] },
+  { code: 'stocktake:read', description: 'Xem kế hoạch và phiếu kiểm kê', uc: ['UC-84', 'UC-85'], roles: [OWNER, WAREHOUSE] },
+  { code: 'stocktake:create', description: 'Lập kế hoạch kiểm kê định kỳ và phiếu kiểm kê, tạo phiếu từ kế hoạch, yêu cầu đếm lại (Owner)', uc: ['UC-86'], roles: [OWNER] },
   { code: 'stocktake:update', description: 'Đếm/đếm lại và ghi kết quả trong phạm vi khóa', uc: ['UC-87'], roles: [WAREHOUSE] },
   { code: 'stocktake:reconcile', description: 'Đối chiếu kết quả kiểm kê', uc: ['UC-88'], roles: [WAREHOUSE] },
   { code: 'stocktake:export', description: 'Xuất/in phiếu đếm', uc: ['UC-105'], roles: [OWNER, WAREHOUSE] },
 
   { code: 'stock_adjustment:read', description: 'Xem đề xuất điều chỉnh tồn', uc: ['UC-89', 'UC-90'], roles: [OWNER, WAREHOUSE] },
-  { code: 'stock_adjustment:create', description: 'Đề xuất điều chỉnh B1 (delta/RECLASS/vị trí)', uc: ['UC-91'], roles: [WAREHOUSE] },
-  { code: 'stock_adjustment:update', description: 'Sửa đề xuất / xác nhận đã thực hiện', uc: ['UC-91'], roles: [WAREHOUSE] },
-  { code: 'stock_adjustment:approve', description: 'Duyệt/trả lại phương án B1 (không phải người lập)', uc: ['UC-92'], roles: [OWNER] },
-  { code: 'stock_adjustment:post', description: 'Post batch B1 đã duyệt và mở khóa phạm vi', uc: ['UC-93'], roles: [OWNER] },
+  { code: 'stock_adjustment:create', description: '[Ngừng dùng từ 22/11/2026] Đề xuất phương án điều chỉnh B1 — quy trình phương án đã bị thay bằng duyệt chênh lệch', uc: ['UC-91'], roles: [WAREHOUSE] },
+  { code: 'stock_adjustment:update', description: '[Ngừng dùng từ 22/11/2026] Sửa đề xuất / xác nhận đã thực hiện phương án B1', uc: ['UC-91'], roles: [WAREHOUSE] },
+  { code: 'stock_adjustment:approve', description: '[Ngừng dùng từ 22/11/2026] Duyệt/trả lại phương án B1', uc: ['UC-92'], roles: [OWNER] },
+  { code: 'stock_adjustment:post', description: 'Duyệt và xóa chênh lệch kiểm kê (Clear Difference, UC-93): ghi tồn về số đã đếm và mở khóa phạm vi khi xử lý hết dòng', uc: ['UC-93'], roles: [OWNER] },
 
   // ---------- FE-09: Báo cáo, truy vết, tham chiếu ngoài, quản trị ----------
   { code: 'report:read', description: 'Xem báo cáo vận hành (theo nhóm báo cáo)', uc: ['UC-99'], roles: [OWNER, ACCOUNTANT, WAREHOUSE] },
@@ -189,6 +192,14 @@ export const PERMISSION_CATALOGUE = [
   { code: 'access_control:create', description: 'Gán vai trò/kho cho tài khoản', uc: ['UC-98'], roles: [ADMIN] },
   { code: 'access_control:update', description: 'Cập nhật quyền của vai trò', uc: ['UC-98'], roles: [ADMIN] },
   { code: 'warehouse_layout_function:update', description: 'Thêm/sửa/xóa chức năng khu vực Kho 3D', uc: [], roles: [ADMIN] },
+  // System administration and owner overview (user decision 23/11/2026).
+  { code: 'dashboard:read', description: 'Xem bảng điều hành của Chủ cửa hàng (việc chờ duyệt, cảnh báo tồn, biến động nhập xuất)', uc: [], roles: [OWNER] },
+  { code: 'sales_policy:read', description: 'Xem chính sách bán hàng và ngưỡng kho', uc: [], roles: [OWNER] },
+  { code: 'sales_policy:update', description: 'Cập nhật chính sách bán hàng và ngưỡng kho', uc: [], roles: [OWNER] },
+  { code: 'audit_log:read', description: 'Xem nhật ký hệ thống (mọi thao tác đã ghi audit)', uc: [], roles: [ADMIN, OWNER] },
+  { code: 'api_catalogue:read', description: 'Xem danh mục API của hệ thống', uc: [], roles: [ADMIN] },
+  { code: 'api_catalogue:update', description: 'Đồng bộ, thêm và sửa danh mục API', uc: [], roles: [ADMIN] },
+  { code: 'system_monitor:read', description: 'Xem tình trạng server và nhật ký lỗi; đánh dấu lỗi đã xử lý', uc: [], roles: [ADMIN] },
 ];
 
 export const PERMISSION_CODES = PERMISSION_CATALOGUE.map((p) => p.code);

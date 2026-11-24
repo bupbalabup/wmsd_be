@@ -2,7 +2,7 @@ import { databaseId } from '../../models/document-identity.js';
 import mongoose from 'mongoose';
 import * as s from './native.shared.js';
 import { currentRole } from '../../shared/utils/userRole.js';
-import { freeQuantity } from '../../shared/utils/stock.js';
+import { freeQuantity, stocktakeLockedLocations } from '../../shared/utils/stock.js';
 import { parent } from './native.read.js';
 
 const { m, exact, same, serialize, requirePermission, requireWarehouseAccess, hasPermission } = s;
@@ -134,7 +134,8 @@ export async function lookup(user, query) {
     Model = m.Stocktake;
     let locationId;
     if(query.balanceId){const context=await s.sourceContext(query.balanceId);if(!context.location)throw s.validationError('Tồn nguồn không nằm trong kho');requireWarehouseAccess(user,context.location.warehouseId);locationId=context.location._id;}
-    stages = [{ $match: { ...scope(user, query), workflowStatus: { $nin: ['CLOSED', 'POSTED'] } } },join(m.StocktakeLocationLock,'_id','locks','stocktakeId'),{$match:{locks:{$elemMatch:{status:'LOCKED',...(locationId&&{locationId})}}}}, { $project: { documentNo: 1, warehouseId: '$header.warehouseId', workflowStatus: 1 } }];
+    const closed = ['CLOSED', 'POSTED'];
+    stages = [{ $match: { ...scope(user, query), workflowStatus: { $nin: closed } } },join(m.StocktakeLocationLock,'_id','locks','stocktakeId'),{$match:{locks:{$elemMatch:{status:'LOCKED',...(locationId&&{locationId})}}}}, { $project: { documentNo: 1, warehouseId: '$header.warehouseId', workflowStatus: 1 } }];
   } else if (query.kind === 'holds') {
     Model = m.DefectReport;
     stages = [{ $match: scope(user, query) }, { $unwind: '$holds' }, { $match: { 'holds.status': 'ACTIVE', 'holds.stocktakeId': { $exists: false } } }, { $unwind: '$holds.allocations' },
@@ -147,9 +148,13 @@ export async function lookup(user, query) {
       { $project: { documentNo: 1, documentKind: 1, warehouseId: '$header.warehouseId', version: 1, workflowStatus: 1 } }];
   }
   const result = await page(Model, stages, query, query.kind === 'balances' ? ['code', 'name', 'productCode', 'locationCode'] : ['code', 'name', 'documentNo']);
-  if (query.kind === 'balances') for (const row of result.items) {
-    const balance = await m.InventoryBalance.findById(row._id), free = await freeQuantity(balance);
-    row.availableQty = free.gt(0) ? free.toFixed() : '0';
+  if (query.kind === 'balances') {
+    const frozen = await stocktakeLockedLocations(result.items.map(row => row.locationId));
+    for (const row of result.items) {
+      row.lockedByStocktake = frozen.has(String(row.locationId));
+      const balance = await m.InventoryBalance.findById(row._id), free = await freeQuantity(balance);
+      row.availableQty = !row.lockedByStocktake && free.gt(0) ? free.toFixed() : '0';
+    }
   }
   return serialize(result);
 }

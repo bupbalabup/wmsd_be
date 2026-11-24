@@ -24,6 +24,7 @@ async function resolveLocationRefs(scope, locationId) {
 
 export async function listResolutionPlans(user, query) {
   requirePermission(user, READ);
+  // Read-only history: resolution plans were retired on 22 Nov 2026 but plans of older sessions stay readable.
   const scope = buildResolutionScope(user, query);
   const empty = { items: [], total: 0, page: query.page, limit: query.limit, lookups: { warehouses: [], users: [] } };
   let locationRefs = null;
@@ -108,7 +109,7 @@ export async function getResolutionPlan(user, planId) {
       id: String(item._id), lineNo: item.lineNo, productId: item.productId, lotId: item.lotId ?? null,
       productNameSnapshot: item.productNameSnapshot, baseUnitSnapshot: item.baseUnitSnapshot, qtyBase: item.qtyBase,
       executedQtyBase: done.toFixed(),
-      details: pick(details, ['actionKind', 'deltaQty', 'countId', 'fromBalanceId', 'toBalanceId', 'holdId']),
+      details: pick(details, ['actionKind', 'deltaQty', 'countId', 'fromBalanceId', 'toBalanceId', 'holdId', 'reasonCode', 'reasonNote']),
       snapshotId: snapshot ? String(snapshot._id) : null,
       fromSnapshotId: snapshotByBalance.get(String(details.fromBalanceId))?._id ?? null,
       toSnapshotId: snapshotByBalance.get(String(details.toBalanceId))?._id ?? null,
@@ -138,7 +139,7 @@ export async function getResolutionPlan(user, planId) {
     .map(row => ({ id: String(row._id), documentNo: row.documentNo, planVersion: row.header.planVersion, workflowStatus: row.workflowStatus }))
     .sort((a, b) => a.planVersion - b.planVersion);
   const header = stocktake.header;
-  return {
+  const result = {
     plan: {
       id: String(plan._id), documentNo: plan.documentNo, workflowStatus: plan.workflowStatus, version: plan.version,
       planVersion: plan.header.planVersion, scopeVersion: plan.header.scopeVersion, previousPlanId: plan.header.previousPlanId ?? null,
@@ -172,4 +173,5 @@ export async function getResolutionPlan(user, planId) {
       users: users.map(userLabel),
     },
   };
+  return result;
 }

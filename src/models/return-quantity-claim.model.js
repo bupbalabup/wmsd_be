@@ -28,16 +28,16 @@ export function createReturnQuantityClaimSchema() {
     options("return_quantity_claims"),
   );
   rules(claims, function () {
-    const resolved = this.events.filter((event) =>
-      ["RECEIVED", "RELEASED"].includes(event.kind),
-    );
-    if (
-      this.claimedQtyBase &&
-      resolved
-        .reduce((sum, event) => sum.plus(String(event.quantityBase)), exact(0))
-        .gt(String(this.claimedQtyBase))
-    ) {
-      this.invalidate("events", "Resolved quantities exceed the claim");
+    if (this.claimedQtyBase == null) return;
+    let received = exact('0'), released = exact('0'), reacquired = exact('0');
+    for (const event of this.events) {
+      if (event.kind === 'RECEIVED') received = received.plus(String(event.quantityBase));
+      if (event.kind === 'RELEASED') released = released.plus(String(event.quantityBase));
+      if (event.kind === 'REACQUIRED') reacquired = reacquired.plus(String(event.quantityBase));
+      if (reacquired.gt(released) || received.plus(released).minus(reacquired).gt(String(this.claimedQtyBase))) {
+        this.invalidate('events', 'Claim events must stay within the original quantity and released allowance');
+        break;
+      }
     }
   });
   return claims;

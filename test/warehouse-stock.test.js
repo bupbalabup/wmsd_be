@@ -14,6 +14,7 @@ test('location input has real positive dimensions, compatible pickability and ma
  assert.equal(editBody.safeParse(body).success,false);
  assert.equal(editBody.safeParse({...body,expectedVersion:1}).success,true);
  assert.equal(editBody.safeParse({...body,usableLengthMm:2000,usableWidthMm:2000,isActive:false,expectedVersion:1}).success,true);
+ assert.equal(editBody.safeParse({isActive:false,expectedVersion:1,idempotencyKey:'toggle-test'}).success,true);
 });
 test('transfer differences require actual line quantities and explicit review decisions',()=>{
  const body={idempotencyKey:'difference',expectedVersion:1,reason:'Chưa nhận',lines:[{dispatchLineId:'a'.repeat(24),qtyBase:'4'}]};

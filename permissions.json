@@ -122,39 +122,6 @@
     ]
   },
   {
-    "code": "putaway_task:read",
-    "description": "Xem nhiệm vụ cất hàng",
-    "uc": [
-      "UC-32",
-      "UC-33"
-    ],
-    "roles": [
-      "OWNER",
-      "ACCOUNTANT",
-      "WAREHOUSE"
-    ]
-  },
-  {
-    "code": "putaway_task:create",
-    "description": "Tạo nhiệm vụ cất hàng",
-    "uc": [
-      "UC-32"
-    ],
-    "roles": [
-      "WAREHOUSE"
-    ]
-  },
-  {
-    "code": "putaway_task:confirm",
-    "description": "Xác nhận cất hàng thực tế",
-    "uc": [
-      "UC-33"
-    ],
-    "roles": [
-      "WAREHOUSE"
-    ]
-  },
-  {
     "code": "product:read",
     "description": "Xem sản phẩm",
     "uc": [
@@ -482,6 +449,82 @@
     ],
     "roles": [
       "SALES"
+    ]
+  },
+  {
+    "code": "sales_order:cancel",
+    "description": "Hủy SO và lịch giao chưa xuất kho",
+    "uc": [
+      "UC-48"
+    ],
+    "roles": [
+      "SALES"
+    ]
+  },
+  {
+    "code": "delivery_schedule:read",
+    "description": "Xem lịch giao (kho xem theo kho được giao)",
+    "uc": [
+      "UC-48"
+    ],
+    "roles": [
+      "OWNER",
+      "ACCOUNTANT",
+      "WAREHOUSE",
+      "SALES"
+    ]
+  },
+  {
+    "code": "delivery_order:read",
+    "description": "Xem DO và báo cáo vấn đề",
+    "uc": [
+      "UC-48"
+    ],
+    "roles": [
+      "OWNER",
+      "ACCOUNTANT",
+      "WAREHOUSE",
+      "SALES"
+    ]
+  },
+  {
+    "code": "delivery_order:create",
+    "description": "Tạo DO từ lần giao",
+    "uc": [
+      "UC-48"
+    ],
+    "roles": [
+      "WAREHOUSE"
+    ]
+  },
+  {
+    "code": "delivery_order:confirm_issue",
+    "description": "Xác nhận hàng ra khỏi kho",
+    "uc": [
+      "UC-48"
+    ],
+    "roles": [
+      "WAREHOUSE"
+    ]
+  },
+  {
+    "code": "delivery_order:confirm_handover",
+    "description": "Xác nhận nhân viên vận chuyển đã lấy hàng",
+    "uc": [
+      "UC-48"
+    ],
+    "roles": [
+      "WAREHOUSE"
+    ]
+  },
+  {
+    "code": "delivery_order:report_issue",
+    "description": "Báo cáo vấn đề và chọn vị trí lấy bù",
+    "uc": [
+      "UC-48"
+    ],
+    "roles": [
+      "WAREHOUSE"
     ]
   },
   {
@@ -871,7 +914,7 @@
   },
   {
     "code": "stocktake:read",
-    "description": "Xem phiên kiểm kê",
+    "description": "Xem kế hoạch và phiếu kiểm kê",
     "uc": [
       "UC-84",
       "UC-85"
@@ -883,7 +926,7 @@
   },
   {
     "code": "stocktake:create",
-    "description": "Lập kế hoạch phiên kiểm kê",
+    "description": "Lập kế hoạch kiểm kê định kỳ và phiếu kiểm kê, tạo phiếu từ kế hoạch, yêu cầu đếm lại (Owner)",
     "uc": [
       "UC-86"
     ],
@@ -936,7 +979,7 @@
   },
   {
     "code": "stock_adjustment:create",
-    "description": "Đề xuất điều chỉnh B1 (delta/RECLASS/vị trí)",
+    "description": "[Ngừng dùng từ 22/11/2026] Đề xuất phương án điều chỉnh B1 — quy trình phương án đã bị thay bằng duyệt chênh lệch",
     "uc": [
       "UC-91"
     ],
@@ -946,7 +989,7 @@
   },
   {
     "code": "stock_adjustment:update",
-    "description": "Sửa đề xuất / xác nhận đã thực hiện",
+    "description": "[Ngừng dùng từ 22/11/2026] Sửa đề xuất / xác nhận đã thực hiện phương án B1",
     "uc": [
       "UC-91"
     ],
@@ -956,7 +999,7 @@
   },
   {
     "code": "stock_adjustment:approve",
-    "description": "Duyệt/trả lại phương án B1 (không phải người lập)",
+    "description": "[Ngừng dùng từ 22/11/2026] Duyệt/trả lại phương án B1",
     "uc": [
       "UC-92"
     ],
@@ -966,7 +1009,7 @@
   },
   {
     "code": "stock_adjustment:post",
-    "description": "Post batch B1 đã duyệt và mở khóa phạm vi",
+    "description": "Duyệt và xóa chênh lệch kiểm kê (Clear Difference, UC-93): ghi tồn về số đã đếm và mở khóa phạm vi khi xử lý hết dòng",
     "uc": [
       "UC-93"
     ],

@@ -16,6 +16,7 @@ PurchaseReceipt và CustodyRelease có custodyDecisionId → ApprovalHistory. GR
 - Sản phẩm native dùng manufacturerCode/categoryId/baseUnit/heightMm và metadata mới. Không nhận baseUomId, conversionId, thicknessMm hoặc nominalSize ghi vào.
 - Form tạo sản phẩm dùng `GET /api/products/options` với quyền `product:read`. Danh mục đang hoạt động hiển thị theo tên và bắt buộc chọn. Khi gửi `POST /api/products`, FE dùng `categories[].id` cho `categoryId` và `uoms[].code` cho `baseUnit`. BE kiểm lại trạng thái của cả hai danh mục khi tạo.
 - NCC dùng contactName/status/taxCode/notes, expectedUpdatedAt. names yêu cầu supplier:read và chỉ trả ACTIVE.
+- `POST /api/suppliers`: nếu MongoDB báo lỗi `11000` cho unique key `code`, API trả HTTP `409`, `code: "ERR-CORE-409-002"`, `message: "Mã nhà cung cấp đã tồn tại"` và `fieldErrors: [{ path: "body.code", message: "Mã nhà cung cấp đã tồn tại" }]`. FE hiển thị lỗi dưới ô mã NCC và giữ dữ liệu form. Unique index vẫn chặn tạo đồng thời cùng mã; lỗi DB khác tiếp tục theo xử lý hiện có. Xem [service](../../../src/modules/suppliers/supplier.service.js) và [test](../../../test/supplier-create.test.js).
 - `GET /api/purchase-orders/supplier-options` dùng `purchase_order:read` để lấy bộ lọc NCC cho danh sách PO. Query `warehouseId` là tùy chọn và dùng cùng scope với danh sách PO. Response `data: [{ id, code, name }]` lấy từ snapshot trên PO, gộp theo ID NCC và lấy snapshot mới nhất trong phạm vi. Kết quả gồm NCC lịch sử có snapshot đầy đủ. Form tạo/sửa PO tiếp tục dùng danh sách NCC đang hoạt động từ API danh mục.
 - RR → PO là một–một, unique index bảo vệ cả hai lệnh đồng thời. PO có giá, currency và tổng decimal; Owner/Accountant xem giá, các vai trò khác bị redaction. Confirm kiểm lại quyết định duyệt, lượng, sản phẩm và NCC.
 - Quyết định 11/11/2026 cho phép sửa nội dung PO ở trạng thái nháp. Khi `OPEN` hoặc `PARTIAL`, Accountant có thể đổi ngày dự kiến chung cho phần chưa nhận. Khi ngừng chờ phần đó, dùng quy trình đóng. Xem [hợp đồng PO hiện hành](NATIVE_MODEL_RUNTIME.md#mua-và-nhập).
@@ -24,6 +25,8 @@ PurchaseReceipt và CustodyRelease có custodyDecisionId → ApprovalHistory. GR
 ### Giữ hộ
 
 Các POST dưới /api/custody-receipts/:id đều có expectedVersion,operationKey.
+
+Hợp đồng hiện hành bổ sung hủy phiếu giữ hộ NCC `DRAFT` và đảo phiếu `POSTED`. Xem [quyền và payload](GOODS_RECEIPTS.md#hủy-nháp-và-đảo-phiếu).
 
 | Đường dẫn | Body bổ sung | Quyền |
 |---|---|---|
@@ -40,9 +43,9 @@ GR từ giữ hộ trừ SUPPLIER và cộng STORE trong một transaction, gi�
 
 ### Đảo nhập
 
-POST /api/purchase-receipts/:id/reverse: expectedVersion,expectedPoVersion,operationKey,reason,evidenceIds; Warehouse có reverse và post trong kho thực hiện nguyên tử, tạo StockReversal POSTED. Không tạo PENDING_APPROVAL mới. Endpoint review chỉ còn hồ sơ lịch sử; endpoint post cũ từ chối dùng cho API mua mới.
+`POST /api/goods-receipts/purchase/:id/reverse` nhận `expectedVersion`, `expectedPoVersion`, `operationKey`, `reason` và `evidenceIds?`. Warehouse cần cả quyền đảo và ghi nhận tại kho. Lệnh tạo `StockReversal POSTED` trong cùng transaction.
 
-Đảo nhập trực tiếp giảm STORE ra ngoài; đảo nhập từ giữ hộ chuyển STORE về balance SUPPLIER gốc. Hoàn hạn mức PO đúng một lần; unique reversedTransactionId và operation key chặn ghi lặp. Chặn khi có putaway, giữ hàng, giao dịch hoặc kiểm kê phụ thuộc. Trường approvalDecision giữ cho hồ sơ lịch sử.
+Đảo nhập trực tiếp giảm `STORE`. Đảo nhập từ giữ hộ chuyển `STORE` về số dư `SUPPLIER` gốc. Unique index trên `reversedTransactionId` và khóa thao tác bảo vệ hạn mức PO khỏi ghi lặp. Điều kiện hiện hành kiểm phần đóng gói của phiếu, lượng khả dụng và chứng từ phụ thuộc. Trường `approvalDecision` giữ cho hồ sơ lịch sử. [Điều kiện chi tiết và API](GOODS_RECEIPTS.md#hủy-nháp-và-đảo-phiếu).
 
 ## Mapping FE đợt sau
 

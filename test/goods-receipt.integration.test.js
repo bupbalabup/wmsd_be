@@ -106,7 +106,7 @@ test('five receipt APIs, per-kind rights and OTHER correction flow', { skip: !en
   let receipt = await m.OtherGoodsReceipt.findById(created.body.data.id);
   assert.equal(receipt.documentKind, 'OTHER');
   const editPath = '/goods-receipts/other/' + encodeURIComponent(receipt._id);
-  const draft = { expectedVersion: 1, operationKey: key(), reason: 'Lý do cập nhật', note: 'Ghi chú mới', originalReceiptId: null, lines: createBody.lines };
+  const draft = { expectedVersion: 1, operationKey: key(), reason: 'Lý do cập nhật', note: 'Ghi chú mới', lines: createBody.lines };
   const edited = await api('PUT', editPath, worker, draft);
   assert.equal(edited.status, 200, JSON.stringify(edited.body));
   assert.equal(edited.body.data.version, 2);
@@ -142,6 +142,22 @@ test('five receipt APIs, per-kind rights and OTHER correction flow', { skip: !en
   const transaction = await m.StockTransaction.findById(receipt.stockTransactionId);
   const targetId = transaction.movements[0].toBalanceId;
   assert.equal(String((await m.InventoryBalance.findById(targetId)).quantityBase), '4');
+  const createdSibling = await api('POST', '/goods-receipts/other', worker, { ...createBody, operationKey: key() });
+  assert.equal(createdSibling.status, 200, JSON.stringify(createdSibling.body));
+  const sibling = await m.OtherGoodsReceipt.findById(createdSibling.body.data.id);
+  const siblingPath = '/goods-receipts/other/' + encodeURIComponent(sibling._id);
+  const siblingProof = await m.Attachment.create({
+    ownerDocumentType: 'goods_receipts', ownerDocumentId: sibling._id, purpose: 'TEST_EVIDENCE',
+    originalName: 'proof.png', mediaType: 'image/png', sizeBytes: 100, storageKey: 'isolated-test/' + key(),
+    checksum: 'a'.repeat(64), uploadedBy: worker._id, uploadedAt: new Date(), accessCategory: 'BUSINESS', status: 'ATTACHED',
+  });
+  sibling.evidenceIds.addToSet(siblingProof._id);
+  await sibling.save();
+  assert.equal((await api('POST', siblingPath + '/submit', worker, { expectedVersion: 1, operationKey: key() })).status, 200);
+  assert.equal((await api('POST', siblingPath + '/approve', owner,
+    { expectedVersion: 2, operationKey: key(), decision: 'APPROVE', reason: 'Duyệt' })).status, 200);
+  assert.equal((await api('POST', siblingPath + '/post', worker, { expectedVersion: 3, operationKey: key() })).status, 200);
+  assert.equal(String((await m.InventoryBalance.findById(targetId)).quantityBase), '8');
   const dependencyId = id();
   await m.TransferOrder.collection.insertOne({ _id: dependencyId, workflowStatus: 'OPEN',
     sources: [{ subjectCollection: 'goods_receipts', documentId: receipt._id }] });
@@ -149,33 +165,28 @@ test('five receipt APIs, per-kind rights and OTHER correction flow', { skip: !en
   assert.equal(blocked.body.data.eligible, false);
   assert.match(blocked.body.data.reason, /chứng từ phụ thuộc/);
   await m.TransferOrder.collection.deleteOne({ _id: dependencyId });
-  const reversed = await api('POST', `/goods-receipts/other/${receipt._id}/reverse`, worker,
-    { expectedVersion: 5, operationKey: key(), reason: 'Ghi nhầm', evidenceIds: [String(attachment._id)] });
+  const payload = { expectedVersion: 5, operationKey: key(), reason: 'Ghi nhầm' };
+  const invalidEvidence = await api('POST', `/goods-receipts/other/${receipt._id}/reverse`, worker,
+    { ...payload, evidenceIds: [String(siblingProof._id)] });
+  assert.equal(invalidEvidence.status, 400);
+  assert.match(invalidEvidence.body.message, /Bằng chứng không thuộc chứng từ/);
+  const reversed = await api('POST', `/goods-receipts/other/${receipt._id}/reverse`, worker, payload);
   assert.equal(reversed.status, 200, JSON.stringify(reversed.body));
-  assert.equal(String((await m.InventoryBalance.findById(targetId)).quantityBase), '0');
+  const remaining = await m.InventoryBalance.findById(targetId);
+  assert.equal(String(remaining.quantityBase), '4');
+  assert.ok(remaining.packagingPortions.every(row => !transaction.movements[0].packagingPortionIds.map(String).includes(String(row._id))));
   assert.equal((await m.OtherGoodsReceipt.findById(receipt._id)).workflowStatus, 'REVERSED');
-  const replacement = await api('POST', '/goods-receipts/other', worker,
-    { operationKey: key(), warehouseId: String(warehouse._id), originalReceiptId: String(receipt._id), reason: 'Thay phiếu', note: 'Sửa diễn giải' });
-  assert.equal(replacement.status, 200, JSON.stringify(replacement.body));
-  let replacementDoc = await m.OtherGoodsReceipt.findById(replacement.body.data.id);
-  const proof2 = await m.Attachment.create({ ownerDocumentType: 'goods_receipts', ownerDocumentId: replacementDoc._id,
-    purpose: 'TEST_EVIDENCE', originalName: 'proof.png', mediaType: 'image/png', sizeBytes: 100,
-    storageKey: 'isolated-test/' + key(), checksum: 'b'.repeat(64), uploadedBy: worker._id, uploadedAt: new Date(),
-    accessCategory: 'BUSINESS', status: 'ATTACHED' });
-  replacementDoc.evidenceIds.addToSet(proof2._id); await replacementDoc.save();
-  const replacementSubmit = await api('POST', `/goods-receipts/other/${replacementDoc._id}/submit`, worker,
-    { expectedVersion: 1, operationKey: key() });
-  assert.equal(replacementSubmit.status, 200, JSON.stringify(replacementSubmit.body));
-  replacementDoc = await m.OtherGoodsReceipt.findById(replacementDoc._id);
-  assert.equal(replacementDoc.workflowStatus, 'APPROVED');
-  assert.equal((await api('POST', `/goods-receipts/other/${replacementDoc._id}/post`, worker,
-    { expectedVersion: 2, operationKey: key() })).status, 200);
-  const replacedReverse = await api('POST', `/goods-receipts/other/${replacementDoc._id}/reverse`, worker,
-    { expectedVersion: 3, operationKey: key(), reason: 'Điều chỉnh lượng', evidenceIds: [String(proof2._id)] });
-  assert.equal(replacedReverse.status, 200, JSON.stringify(replacedReverse.body));
+  const postedSibling = await m.OtherGoodsReceipt.findById(sibling._id);
+  // Emulate a legacy ledger movement without recorded portion IDs.
+  await m.StockTransaction.collection.updateOne({ _id: postedSibling.stockTransactionId },
+    { $unset: { 'movements.0.packagingPortionIds': '' } });
+  assert.equal((await api('POST', siblingPath + '/reverse', worker, { ...payload, expectedVersion: 4, operationKey: key() })).status, 200);
+  assert.equal(String((await m.InventoryBalance.findById(targetId)).quantityBase), '0');
+  const { lines: _lines, ...withoutLines } = createBody;
+  assert.equal((await api('POST', '/goods-receipts/other', worker, { ...withoutLines, operationKey: key() })).status, 400);
+  // After a reversal, the corrected quantity goes through a fresh draft and a new owner approval.
   const changed = await api('POST', '/goods-receipts/other', worker,
-    { ...createBody, operationKey: key(), originalReceiptId: String(replacementDoc._id),
-      lines: [{ ...createBody.lines[0], enteredQty: '9' }] });
+    { ...createBody, operationKey: key(), lines: [{ ...createBody.lines[0], enteredQty: '9' }] });
   assert.equal(changed.status, 200, JSON.stringify(changed.body));
   let changedDoc = await m.OtherGoodsReceipt.findById(changed.body.data.id);
   const proof3 = await m.Attachment.create({ ownerDocumentType: 'goods_receipts', ownerDocumentId: changedDoc._id,

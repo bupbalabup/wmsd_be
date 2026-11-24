@@ -44,7 +44,8 @@ export async function traceRecords(user, id, query) {
     }
   } else if (query.section === 'movements') {
     result = await paginate(m.StockTransaction, [{ $match: { sourceId: { $in: ids } } }, { $unwind: '$movements' }, { $match: { 'movements.sourceLineId': { $in: itemIds } } },
-      { $project: { _id: { $concat: [{ $toString: '$_id' }, ':', { $toString: '$movements.lineNo' }] }, occurredAt: 1, quantityBase: '$movements.quantityBase', fromBefore: '$movements.fromBefore', fromAfter: '$movements.fromAfter', toBefore: '$movements.toBefore', toAfter: '$movements.toAfter' } }], query);
+      { $project: { _id: { $concat: [{ $toString: '$_id' }, ':', { $toString: '$movements.lineNo' }] }, occurredAt: 1, quantityBase: '$movements.quantityBase', fromBefore: '$movements.fromBefore', fromAfter: '$movements.fromAfter', toBefore: '$movements.toBefore', toAfter: '$movements.toAfter', fromBalanceId: '$movements.fromBalanceId', toBalanceId: '$movements.toBalanceId' } }], query);
+    result.items = result.items.map(row => { const { fromBalanceId, toBalanceId, ...rest } = row; return rest; });
   } else if (query.section === 'reservations') {
     result = await paginate(m.StockReservation, [{ $match: { 'demandRef.documentId': { $in: ids }, 'demandRef.itemId': { $in: itemIds } } }, { $project: { reservedQty: 1, consumedQty: 1, releasedQty: 1, movedQty: 1, createdAt: 1 } }], query);
   } else if (query.section === 'evidence') {

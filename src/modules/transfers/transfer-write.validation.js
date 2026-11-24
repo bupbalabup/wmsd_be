@@ -7,20 +7,38 @@ const key = z.string().trim().min(1).max(48).regex(/^[\w.-]+$/);
 const version = z.number().int().min(1);
 const reason = z.string().trim().min(1).max(2000);
 const unique = (field) => (rows) => new Set(rows.map((r) => r[field])).size === rows.length;
+const requestLine = z.object({
+  productId: oid, enteredUnit: z.string().trim().min(1).max(60), lotId: oid.optional(), enteredQty: qty,
+  sourceLocations: z.array(z.object({ sourceBalanceId: oid, qtyBase: qty }).strict())
+    .max(100).refine(unique('sourceBalanceId')).optional(),
+}).strict().refine((line) => !line.sourceLocations?.length || !!line.lotId, { message: 'Chọn lô trước khi phân bổ vị trí nguồn' });
 export const createRequestBody = z.object({ idempotencyKey: key, sourceWarehouseId: oid, destinationWarehouseId: oid,
   reason, neededOn: z.iso.datetime({ offset: true }).optional(),
-  lines: z.array(z.object({ productId: oid, enteredUnit: z.string().trim().min(1).max(60), lotId: oid.optional(), enteredQty: qty }).strict()).min(1).max(100).refine(unique('productId')),
+  lines: z.array(requestLine).min(1).max(100).refine(unique('productId')),
 }).strict().refine((v) => v.sourceWarehouseId !== v.destinationWarehouseId);
-export const reviewBody = z.object({ idempotencyKey: key, expectedVersion: version, decision: z.enum(['APPROVE', 'REJECT', 'REVISE']), reason }).strict();
+const approvedQty = z.string().regex(/^\d{1,14}(\.\d{1,6})?$/).transform((v) => exact(v).toFixed());
+// `reason` stays required for REJECT/REVISE; for APPROVE it may be omitted. `lines` optionally lowers the approved quantity per request line (0 drops the line).
+export const reviewBody = z.object({ idempotencyKey: key, expectedVersion: version, decision: z.enum(['APPROVE', 'REJECT', 'REVISE']), reason: reason.optional(),
+  lines: z.array(z.object({ lineId: oid, approvedQtyBase: approvedQty }).strict()).max(100).refine(unique('lineId')).optional(),
+}).strict().refine((v) => v.decision === 'APPROVE' || !!v.reason, { message: 'Nhập lý do', path: ['reason'] })
+  .refine((v) => v.decision === 'APPROVE' || !v.lines, { message: 'Chỉ chỉnh lượng khi duyệt', path: ['lines'] });
 export const dispatchBody = z.object({ idempotencyKey: key, expectedVersion: version,
+  // Required when a request line without a fixed lot would be supplied from several lots (tone/size may differ).
+  acceptMixedLots: z.boolean().optional(),
   lines: z.array(z.object({ requestLineId: oid, sourceBalanceId: oid, stagingLocationId: oid, qtyBase: qty }).strict()).min(1).max(100),
 }).strict();
 export const requirementBody = z.object({ idempotencyKey: key, expectedVersion: version,
-  // A receipt containing only damaged goods has no putaway destinations, but it
-  // still needs a completed ITR/TO pair so the request can close.
+  // PICK only: the warehouse staff member who will pick and hand over (defaults to the creator).
+  assigneeId: oid.optional(),
+  // Omit destinations to open/reuse a waiting PUTAWAY task for a historical receipt.
   destinations: z.array(z.object({ receiptLineId: oid, locationId: oid }).strict()).max(100).refine(unique('receiptLineId')).optional(),
 }).strict();
 export const commandBody = z.object({ idempotencyKey: key, expectedVersion: version, recipientName:z.string().trim().min(1).max(160).optional(), vehiclePlate:z.string().trim().min(1).max(20).optional() }).strict();
+export const taskConfirmBody=commandBody.extend({
+  driverName:z.string().trim().min(1).max(160).optional(),driverPhone:z.string().trim().min(1).max(30).optional(),note:z.string().trim().min(1).max(500).optional(),
+  // PICK only: quantity really picked per task line when it is lower than planned; needs shortReason.
+  pickedLines:z.array(z.object({taskLineId:oid,pickedQtyBase:z.string().regex(/^\d{1,14}(\.\d{1,6})?$/)}).strict()).max(100).refine(unique('taskLineId')).optional(),
+  shortReason:z.string().trim().min(1).max(500).optional(),destinations:z.array(z.object({receiptLineId:oid,locationId:oid}).strict()).min(1).max(100).refine(unique('receiptLineId')).optional()});
 export const receiptBody = z.object({ idempotencyKey: key, expectedVersion: version,
   lines: z.array(z.object({ dispatchLineId: oid, locationId: oid, qtyBase: qty,
     qualityCode: z.enum(['GOOD', 'DAMAGED']), damageReason: z.string().trim().min(1).max(1000).optional(),

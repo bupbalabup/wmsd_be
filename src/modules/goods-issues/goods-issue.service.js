@@ -9,7 +9,7 @@ import { requirePermission, requireWarehouseAccess, hasPermission, isOwner } fro
 import { currentRole } from '../../shared/utils/userRole.js';
 import { validationError, notFoundError, forbiddenError } from '../../shared/utils/ApiError.js';
 import { escapeRegex } from '../../shared/utils/domain.js';
-import { guardLocations, sourceContext, locationAt, beginStock, remainingReservation, freeQuantity } from '../../shared/utils/stock.js';
+import { guardLocations, sourceContext, locationAt, beginStock, remainingReservation, freeQuantity, stocktakeLockedLocations } from '../../shared/utils/stock.js';
 import { takeStock } from '../return-workflows/native.shared.js';
 import { orderSource, redactPrices, effectiveQuantities } from '../sales-orders/sales-read.service.js';
 import { toBaseQuantity } from '../../shared/utils/conversions.js';
@@ -420,10 +420,13 @@ export async function getIssue(user, id) {
       const sourcePoints = await m.StockHoldingPoint.find({ type: 'LOCATION', locationId: { $in: storage.map(l => l._id) } }).session(session);
       const batches = await m.ProductBatch.find({ productId: { $in: issue.items.map(i => i.productId) }, identificationStatus: 'VERIFIED' }).session(session);
       const stock = await m.InventoryBalance.find({ holdingPointId: { $in: sourcePoints.map(p => p._id) }, batchId: { $in: batches.map(b => b._id) }, ownerType: 'STORE', qualityStatus: 'GOOD' }).session(session);
+      const frozen = await stocktakeLockedLocations(storage.map(l => l._id), session);
       for (const balance of stock) {
+        const point = sourcePoints.find(p => same(p._id, balance.holdingPointId));
+        if (frozen.has(String(point.locationId))) continue; // locked by a stocktake: nothing selectable
         const available = await freeQuantity(balance, session);
         if (!available.gt(0)) continue;
-        const batch = batches.find(b => same(b._id, balance.batchId)), point = sourcePoints.find(p => same(p._id, balance.holdingPointId));
+        const batch = batches.find(b => same(b._id, balance.batchId));
         stockSources.push({ id: String(balance._id), productId: String(batch.productId), lotLabel: batch.manufacturerLot, location: storage.find(l => same(l._id, point.locationId)).code, availableQtyBase: available.toFixed() });
       }
     }
@@ -456,10 +459,16 @@ export async function issueOptions(user, query) {
     const context = await deliverySource(user, query.deliveryOrderId, session, true), { delivery } = context;
     const reservations = await reservationsFor(delivery._id, session);
     const lines = [];
+    const open = [];
     for (const reservation of reservations.filter(r => remainingReservation(r).gt(0))) {
       const item = delivery.items.id(reservation.executionRef.itemId);
       if (!item) continue;
-      const ctx = await sourceContext(reservation.balanceId, session);
+      open.push({ reservation, item, ctx: await sourceContext(reservation.balanceId, session) });
+    }
+    // One lock query for every source location instead of one per reservation.
+    const locked = await stocktakeLockedLocations(open.map(row => row.ctx.location?._id).filter(Boolean), session);
+    for (const { reservation, item, ctx } of open) {
+      if (ctx.location && locked.has(String(ctx.location._id))) continue; // locked by a stocktake: not selectable
       lines.push({ reservationId: String(reservation._id), productName: item.productNameSnapshot, lotLabel: ctx.batch.manufacturerLot,
         sourceLocation: ctx.location?.code, baseUnit: item.baseUnitSnapshot, remainingQtyBase: remainingReservation(reservation).toFixed() });
     }

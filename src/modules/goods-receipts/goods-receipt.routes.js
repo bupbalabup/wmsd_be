@@ -9,13 +9,15 @@ import { requirePermission, requireWarehouseAccess, isOwner, hasPermission } fro
 import { currentRole } from '../../shared/utils/userRole.js';
 import { notFoundError } from '../../shared/utils/ApiError.js';
 import { dto } from '../../shared/utils/persistence.js';
-import { GoodsReceipt, Warehouse, WarehouseLocation, ProductBatch, Supplier, TransferDispatch, StockTransaction, InventoryBalance, StockHoldingPoint, PurchaseReceipt, CustomerReturnReceipt, FailedDeliveryReceipt, TransferReceipt, OtherGoodsReceipt, CustomerReturn, WarehouseTransferRequest, SalesGoodsIssue, SalesOrder } from '../../models/runtime.js';
-import { receiptRouter as purchaseRouter, empty, schema, pagination, ver, key, qty, reason, evidenceIds, handle } from '../po-receiving/po-receiving.routes.js';
+import { GoodsReceipt, Warehouse, Supplier, TransferDispatch, StockTransaction, InventoryBalance, StockHoldingPoint, PurchaseReceipt, CustomerReturnReceipt, FailedDeliveryReceipt, TransferReceipt, OtherGoodsReceipt, CustomerReturn, WarehouseTransferRequest, SalesGoodsIssue, SalesOrder } from '../../models/runtime.js';
+import { receiptRouter as purchaseRouter, empty, schema, pagination, ver, key, qty, reason, optionalEvidenceIds, handle } from '../po-receiving/po-receiving.routes.js';
 import { GOODS_RECEIPT_KINDS } from '../../models/goods-receipt.model.js';
 import { databaseId } from '../../models/document-identity.js';
 import { exact } from '../../models/model-utils.js';
 import { validDateRange, escapeRegex } from '../../shared/utils/movement-list.js';
+import { enrichLineItems } from '../../shared/utils/document-items.js';
 import { getDocument } from '../po-receiving/purchase-read.service.js';
+import { transferDispatchScope } from '../transfers/transfer-read.service.js';
 import * as other from './other-receipt.service.js';
 
 const definitions = [
@@ -27,6 +29,13 @@ const definitions = [
 ];
 
 const query = z.object({ ...pagination, warehouseId: z.string().regex(/^[a-f\d]{24}$/i).optional(), status: z.string().max(40).optional() }).strict();
+const salesReceiptFields = 'documentNo documentKind workflowStatus version createdAt';
+const salesTransferReceipt = ({ _id, documentNo, documentKind, workflowStatus, version, createdAt }, transferRequestId) =>
+  dto({ _id, documentNo, documentKind, workflowStatus, version, createdAt, header: transferRequestId ? { transferRequestId } : {} });
+const salesTransferFilter = async user => ({
+  'header.dispatchId': { $in: await TransferDispatch.find(await transferDispatchScope(user)).distinct('_id') },
+});
+
 const response = (receipt, user) => {
   const value = dto(receipt);
   if (receipt.documentKind === 'OTHER') {
@@ -54,12 +63,16 @@ for (const [path, , Model, permission] of definitions) {
       requirePermission(req.user, permission);
       const { page, limit, warehouseId, status } = req.validated.query;
       if (warehouseId) requireWarehouseAccess(req.user, warehouseId);
+      const sales = currentRole(req.user)?.code === 'SALES';
       const filter = { 'header.warehouseId': warehouseId ?? { $in: req.user.warehouseIds ?? [] }, ...(status && { workflowStatus: status }) };
       if (isOwner(req.user) && !warehouseId) delete filter['header.warehouseId'];
+      if (sales) Object.assign(filter, await salesTransferFilter(req.user));
+      const list = Model.find(filter).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit);
       const [rows, total] = await Promise.all([
-        Model.find(filter).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit),
+        sales ? list.select(salesReceiptFields).lean() : list,
         Model.countDocuments(filter),
       ]);
+      if (sales) return formatApiResponse(res, { data: { items: rows.map(row => salesTransferReceipt(row)), total, page, limit } });
       const dispatches = await TransferDispatch.find({ _id: { $in: rows.map(row => row.header.dispatchId).filter(Boolean) } }).select('_id header.requestId').lean();
       const requests = await WarehouseTransferRequest.find({ _id: { $in: dispatches.map(row => row.header.requestId).filter(Boolean) } }).select('_id documentNo header').lean();
       const dispatchById = new Map(dispatches.map(row => [String(row._id), row]));
@@ -71,6 +84,7 @@ for (const [path, , Model, permission] of definitions) {
       });
       formatApiResponse(res, { data: { items, total, page, limit } });
     }));
+    scoped.get('/:id', validate(schema()), handle((user, { params }) => receiptDetail(user, Model, params.id, permission)));
     router.use('/transfer', scoped);
     continue;
   }
@@ -82,9 +96,9 @@ for (const [path, , Model, permission] of definitions) {
       qualityCode: z.enum(['GOOD', 'DAMAGED', 'PENDING', 'BLOCKED']) }).strict();
     const id = z.string().regex(/^[a-f\d]{24}$/i);
     scoped.post('/', validate(schema(z.object({ operationKey: key, warehouseId: id, reason,
-      originalReceiptId: documentIdentifier.optional(), note: z.string().max(2000).optional(), lines: z.array(line).min(1).max(100).optional() }).strict(), empty)), handle((u,v) => other.createOtherReceipt(u,v.body)));
+      note: z.string().max(2000).optional(), lines: z.array(line).min(1).max(100) }).strict(), empty)), handle((u,v) => other.createOtherReceipt(u,v.body)));
     scoped.put('/:id', validate(schema(z.object({ ...command, reason,
-      originalReceiptId: documentIdentifier.nullable().optional(), note: z.string().max(2000).optional(),
+      note: z.string().max(2000).optional(),
       lines: z.array(line).min(1).max(100) }).strict())), handle((u,v) => other.updateOtherReceipt(u,v.params.id,v.body)));
     scoped.post('/:id/submit', validate(schema(z.object(command).strict())), handle((u,v) => other.submitOtherReceipt(u,v.params.id,v.body)));
     scoped.post('/:id/approve', validate(schema(z.object({ ...command, decision: z.enum(['APPROVE','REJECT']), reason }).strict())), handle((u,v) => other.approveOtherReceipt(u,v.params.id,v.body)));
@@ -93,7 +107,7 @@ for (const [path, , Model, permission] of definitions) {
         sealedPackCount: z.number().int().nonnegative().optional(), measuredVolumeMm3: qty.optional(),
         extraOccupiedVolumeMm3: qty.optional(), packagingSnapshot: z.object({ packageUnit: z.string().min(1).max(60),
           baseUnitsPerPackage: qty, outerLengthMm: qty, outerWidthMm: qty, outerHeightMm: qty }).strict().optional() }).strict()).min(1).max(100) }).strict()).max(100).optional() }).strict())), handle((u,v) => other.postOtherReceipt(u,v.params.id,v.body)));
-    scoped.post('/:id/reverse', validate(schema(z.object({ ...command, reason, evidenceIds }).strict())), handle((u,v) => other.reverseOtherReceipt(u,v.params.id,v.body)));
+    scoped.post('/:id/reverse', validate(schema(z.object({ ...command, reason, evidenceIds: optionalEvidenceIds }).strict())), handle((u,v) => other.reverseOtherReceipt(u,v.params.id,v.body)));
     scoped.post('/:id/cancel', validate(schema(z.object({ ...command, reason }).strict())), handle((u,v) => other.cancelOtherReceipt(u,v.params.id,v.body)));
     scoped.get('/:id/reversal-preflight', validate(schema()), handle((u,v) => other.otherReversalPreflight(u,v.params.id)));
   }
@@ -107,20 +121,37 @@ for (const [path, , Model, permission] of definitions) {
       const sources = await CustomerReturn.find({ createdBy: req.user._id }).select('_id');
       filter['header.returnId'] = { $in: sources.map(row => row._id) };
     }
+    if (path === 'failed-delivery' && currentRole(req.user)?.code === 'SALES') {
+      const orders = await SalesOrder.find({ createdBy: req.user._id }).select('_id').lean();
+      const issues = await SalesGoodsIssue.find({ 'header.salesOrderId': { $in: orders.map(row => row._id) } }).select('_id').lean();
+      filter.$or = [{ 'header.goodsIssueId': { $exists: false } }, { 'header.goodsIssueId': { $in: issues.map(row => row._id) } }];
+    }
     const [rows, total] = await Promise.all([Model.find(filter).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit), Model.countDocuments(filter)]);
     formatApiResponse(res, { data: { items: rows.map(row => response(row, req.user)), total, page, limit } });
   }));
-  scoped.get('/:id', validate(schema()), catchAsync(async (req, res) => {
-    requirePermission(req.user, permission);
-    const receipt = await Model.findById(req.validated.params.id);
-    if (!receipt) throw notFoundError();
-    formatApiResponse(res, { data: await scopedDetail(req.user, receipt) });
-  }));
+  scoped.get('/:id', validate(schema()), handle((user, { params }) => receiptDetail(user, Model, params.id, permission)));
   router.use(`/${path}`, scoped);
+}
+
+async function receiptDetail(user, Model, id, permission) {
+  requirePermission(user, permission);
+  const query = Model.findById(id);
+  if (Model === TransferReceipt && currentRole(user)?.code === 'SALES')
+    query.select(`${salesReceiptFields} header.warehouseId header.dispatchId`).lean();
+  const receipt = await query;
+  if (!receipt) throw notFoundError();
+  return scopedDetail(user, receipt);
 }
 
 async function scopedDetail(user, receipt) {
   requireWarehouseAccess(user, receipt.header.warehouseId);
+  if (receipt.documentKind === 'TRANSFER' && currentRole(user)?.code === 'SALES') {
+    if (!receipt.header.dispatchId) throw notFoundError();
+    const dispatch = await TransferDispatch.findOne({ _id: receipt.header.dispatchId, ...await transferDispatchScope(user) })
+      .select('header.requestId').lean();
+    if (!dispatch) throw notFoundError();
+    return salesTransferReceipt(receipt, String(dispatch.header.requestId));
+  }
   if (receipt.documentKind === 'CUSTOMER_RETURN' && currentRole(user)?.code === 'SALES'
     && !await CustomerReturn.exists({ _id: receipt.header.returnId, createdBy: user._id })) throw notFoundError();
   if (receipt.documentKind === 'FAILED_DELIVERY' && receipt.header.goodsIssueId && currentRole(user)?.code === 'SALES') {
@@ -147,15 +178,7 @@ async function scopedDetail(user, receipt) {
       if (balance) item.qualityCode = balance.qualityStatus;
     }
   }
-  const [locations, lots] = await Promise.all([
-    WarehouseLocation.find({ _id: { $in: value.items.map(item => item.destinationLocationId ?? item.details?.receivingLocationId).filter(Boolean) } }).select('code').lean(),
-    ProductBatch.find({ _id: { $in: value.items.map(item => item.lotId).filter(Boolean) } }).select('manufacturerLot').lean(),
-  ]);
-  for (const item of value.items) {
-    const locationId = item.destinationLocationId ?? item.details?.receivingLocationId;
-    item.destinationLocationCode = locations.find(location => String(location._id) === locationId)?.code;
-    item.lotLabelSnapshot ??= lots.find(lot => String(lot._id) === item.lotId)?.manufacturerLot;
-  }
+  await enrichLineItems(value.items);
   return value;
 }
 
@@ -190,6 +213,7 @@ router.get('/', validate(schema(empty, empty, unifiedQuery)), handle(async (user
       const issues = await SalesGoodsIssue.find({ 'header.salesOrderId': { $in: orders } }).distinct('_id');
       scope.$or = [{ 'header.goodsIssueId': { $exists: false } }, { 'header.goodsIssueId': { $in: issues } }];
     }
+    if (value === 'TRANSFER' && role === 'SALES') Object.assign(scope, await salesTransferFilter(user));
     if (purchaseOrderId) scope['header.purchaseOrderId'] = databaseId(purchaseOrderId);
     clauses.push({ documentKind: value, ...scope });
   }
@@ -211,6 +235,7 @@ router.get('/', validate(schema(empty, empty, unifiedQuery)), handle(async (user
     Supplier.find({ _id: { $in: rows.map(row => row.header?.supplierId).filter(Boolean) } }).select('name').lean(),
   ]);
   const items = rows.map(({ items, header, ...receipt }) => {
+    if (receipt.documentKind === 'TRANSFER' && role === 'SALES') return salesTransferReceipt(receipt);
     const totals = new Map();
     for (const row of items ?? []) {
       const unit = row.baseUnitSnapshot || null;
@@ -228,9 +253,13 @@ router.get('/', validate(schema(empty, empty, unifiedQuery)), handle(async (user
 }));
 
 router.get('/:id', validate(schema()), handle(async (user, { params }) => {
-  const receipt = await GoodsReceipt.findById(params.id).lean();
+  const sales = currentRole(user)?.code === 'SALES';
+  const lookup = GoodsReceipt.findById(params.id);
+  if (sales) lookup.select('documentKind');
+  const receipt = await lookup.lean();
   const definition = definitions.find(([, kind]) => kind === receipt?.documentKind);
   if (!definition) throw notFoundError();
+  if (sales && receipt.documentKind !== 'PURCHASE') return receiptDetail(user, definition[2], params.id, definition[3]);
   requirePermission(user, definition[3]);
   if (receipt.documentKind === 'PURCHASE') return getDocument(user, params.id, 'GR_PURCHASE');
   return scopedDetail(user, receipt);
