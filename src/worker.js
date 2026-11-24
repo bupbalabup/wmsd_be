@@ -22,16 +22,22 @@ export class Backend extends DurableObject {
       throw error;
     }
     const { default: mongoose } = await import('mongoose');
-    this.connection ??= mongoose.connect(this.env.MONGODB_URI, {
-      maxPoolSize: 5,
-      minPoolSize: 0,
-      maxIdleTimeMS: 20000,
-      serverSelectionTimeoutMS: 5000,
-    }).catch(error => {
-      this.connection = undefined;
-      throw error;
+    if (this.connecting) return this.connecting;
+    if (mongoose.connection.readyState === mongoose.STATES.connected) return;
+
+    // A previously opened pool can become stale after the object has been idle.
+    this.connecting = (async () => {
+      if (mongoose.connection.getClient()) await mongoose.connection.close();
+      await mongoose.connect(this.env.MONGODB_URI, {
+        maxPoolSize: 5,
+        minPoolSize: 0,
+        maxIdleTimeMS: 20000,
+        serverSelectionTimeoutMS: 5000,
+      });
+    })().finally(() => {
+      this.connecting = undefined;
     });
-    return this.connection;
+    return this.connecting;
   }
 
   async fetch(request) {
