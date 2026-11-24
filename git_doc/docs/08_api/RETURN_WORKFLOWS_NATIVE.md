@@ -2,7 +2,7 @@
 
 User decision: customers are not managed as catalogue records. New sales orders require `customerName` (1–160 characters) and allow `customerPhone` (up to 30 characters); the delivery address remains on the order. Creating an order does not query or create a Customer. Sales options return an empty compatibility `customers` array.
 
-Customer-return creation uses a posted SALE Goods Issue line or a verified historical delivery; it does not require a Sales Order or a customer catalogue. The server uses customer details already present on the source, or requires `customerName` (1–160 characters) when the Goods Issue has no customer name. Each request is limited to one source document, with multiple lines and split parts allowed. Warehouse scope, creator scope, source quantity, existing claims, evidence, versions and idempotency remain enforced.
+Customer-return creation uses a posted SALE Goods Issue line or a verified historical delivery; it does not require a Sales Order or a customer catalogue. Sales may select a warehouse-created standalone SALE issue when it has an external reference and belongs to the selected warehouse; this path does not require a customer-receipt confirmation. The server uses customer details already present on the source, or requires `customerName` (1–160 characters) when the Goods Issue has no customer name. Each request is limited to one source document, with multiple lines and split parts allowed. Warehouse and eligible-source scope, source quantity, existing claims, evidence, versions and idempotency remain enforced.
 
 Historical verification requires customer name text and optional phone from the external document; verification/evidence remains mandatory. New historical sources with customer snapshots use the current inspection/acceptance/receipt flow without custody. Previously stored sources and custody ledgers retain their legacy behavior. Optional legacy customerId fields and the Customer collection remain readable; no records or collections are deleted or backfilled. Deploy FE and BE together; old clients sending customerId to new creation endpoints must update.
 
@@ -58,6 +58,10 @@ All routes below are under `/api`, require active authentication, and recheck th
 | Shared source options and evidence | GET `/return-workflows/options`; POST `/return-workflows/:id/evidence`; GET `/return-workflows/:id/evidence/:evidenceId` |
 
 The older 19-UC assignment is covered by these functions; split UCs are shown separately. Retired supplier Owner approval is not restored.
+
+## In-app notification handoff
+
+Supplier-return events notify the next actor after creation, agreement and dispatch. Recording the supplier's acknowledgement (`ACK_SR`) now notifies the original request creator that the supplier responded; closing a completed return (`CLOSE_SR`) sends that creator a final closure notice. Notifications use the existing durable business-event worker and per-recipient deduplication. The recipient must still have `notification:read`, permission to read the source record and access to its warehouse; the notification links to the supplier-return detail.
 
 ## Reassessment claim and packaging correction — 20 November 2026
 
@@ -136,6 +140,6 @@ Before a separate approved rollout, review current native indexes and affected h
 
 ## Verification
 
-Run `npm test`, `npm run test:returns`, `npm run docs:check`, and frontend `npm run build` plus the return-workflow tests. `test:returns` requires an isolated local replica set on `127.0.0.1:27028` named `wmsd_model_tests`. It creates a random `returns_test_<ObjectId>` database, checks that exact name before dropping only its own database, and never reads MONGODB_URI. It does not call Cloudinary. Current branch results and the known frontend full-suite failures are recorded in [verification evidence](RETURN_WORKFLOWS_VERIFICATION.md).
+Run `npm test`, `npm run test:returns`, `npm run docs:check`, and frontend `npm run build` plus the return-workflow tests. `test:returns` uses an isolated local replica set and a random `returns_test_<ObjectId>` database; it checks that exact name before dropping only its own database and never reads `MONGODB_URI`. It defaults to `127.0.0.1:27017` (`rs0`); set `RUN_HIEUDT_TESTS=1` to use `127.0.0.1:27018` (`hieudt-test`). It does not call Cloudinary. Current branch results and the known frontend full-suite failures are recorded in [verification evidence](RETURN_WORKFLOWS_VERIFICATION.md).
 
 The suite exercises native model/validation contracts; actual defect, CR/FD, SR and historical claim transactions; partial execution; replay; stale versions; concurrent caps; freeze rollback; wrong roles/scope; rejected custody handback; custom permissions; HTTP authentication/options/trace; and acknowledgement correction. Shared native purchase/receiving/reversal/transfer tests remain separate. These are local automated checks, not an Atlas rollout or a real-image browser acceptance claim. Record current run results and any pre-existing FE suite failures in the PR evidence.

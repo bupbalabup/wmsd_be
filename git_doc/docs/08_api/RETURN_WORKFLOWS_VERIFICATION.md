@@ -1,32 +1,36 @@
-# Trungph return workflow verification
+# WHMS Goods Issue and Returns verification
 
-Updated 7 November 2026. These results are from the native-model port of Trungph's three iterations, on `codex/uc-63-71-defects-returns` after merging the fetched `main` in each repository.
+Updated 25 November 2026. Verification is on the existing `trungph` frontend and backend branches after syncing `main`.
 
 ## Backend
 
 | Check | Result |
 |---|---|
-| `npm test` | 70 passed, 29 skipped, 0 failed (99 total). |
-| `npm run test:returns` | 23 passed, 0 skipped, 0 failed. Runs against an isolated local replica set and random test database. |
-| `RUN_NATIVE_API_TESTS=1 node --test test/native-api.integration.test.js` | 4 passed, 0 failed. |
-| `npm run docs:check` | Passed: 3 instruction files identical, 59 collections, 649 local links, change-log signals present. |
-| `git diff --check origin/main` | Passed for the branch's implementation changes. |
+| `npm test` | 301 passed, 139 skipped, 0 failed (440 total). |
+| `RUN_HIEUDT_TESTS=1 npm run test:returns` | 26 passed, 0 failed. Uses random `returns_test_<ObjectId>` database on the isolated `hieudt-test` replica set. |
+| `RUN_GOODS_ISSUE_TESTS=1 RUN_HIEUDT_TESTS=1 node --test test/direct-sales.integration.test.js` | 1 passed, 0 failed. Includes issue receipt, return-source eligibility, stock and notification checks. |
+| `npm run docs:check` | Passed: 3 instruction files identical, 62 collections, 1094 local links, change-log signals. |
 
-The return-specific run includes HTTP authentication and native DTO checks; defect execution and partial decisions; customer return claims, inspection, reassessment and custody; failed delivery source reopening; supplier-owned and store-owned handover; acknowledgement correction; historical evidence claims; replay, stale-version and quantity caps; freeze rollback; and whole-unit product rejection before claims or reservations.
+`npm run test:returns` defaults to `127.0.0.1:27017` (`rs0`), which was not listening in this environment; the same suite passed with `RUN_HIEUDT_TESTS=1` on `127.0.0.1:27018` (`hieudt-test`). Both use unique isolated test databases and never read `MONGODB_URI`.
 
 ## Frontend
 
 | Check | Result |
 |---|---|
-| `npm run build` | Passed (`tsc --noEmit` and Vite production build). |
-| Focused workflow and permission tests | 26 passed across 5 files. |
-| `npm test` | 352 passed, 25 failed (377 total, 9 failing files). |
+| `pnpm exec vitest run src/features/goods-issues src/features/return-workflows` | 59 passed across 8 files. |
+| Focused ESLint for Goods Issue and return workflows | Passed. |
+| `pnpm typecheck` | Passed. |
+| `pnpm build` | Passed. |
+| `pnpm test` | 759 passed, 9 failed across 5 files (768 total). |
 
-The full frontend suite is not green. A clean `main` baseline run also failed: 325 passed and 27 failed (352 total, 13 failing files). Current failures still include unrelated product-access, inventory, purchase-order and supplier-page suites; the focused return-workflow/mapping/permission test set passes. Keep the PR draft for review and triage the broader suite failures before treating the branch as merge-ready.
+The full-suite failures are four Create Account tests, one profile email OTP timeout, one replenishment table test, one receipt-create test, and two transfer-flow tests. None is in the Customer Return, Supplier Return, or notification path.
 
-## Scope limits
+## Browser smoke and local fixture
 
-- No Atlas write, reseed, migration, index creation or connection change was performed.
-- No real browser upload against Cloudinary was exercised by these automated checks.
-- Existing records with missing warehouse scope and ambiguous multi-balance holds fail closed; this implementation does not guess or backfill them.
-- Broader D07/D08 decisions for new sales-order verification remain open. The user-approved Accountant-with-evidence rule applies only to historical delivery source verification for customer returns.
+Sales signed in, selected a Warehouse-created standalone SALE Goods Issue, and created a one-piece Customer Return. Warehouse opened it and saw the inspection action and a deduplicated `CREATE_CR` notice in the notification bell. The request is `ĐTK-K-GACH-01-261125-000001` and remains `OPEN` in the isolated `wmsd_trung_rehearsal_20261125` database. Accountant opened `ĐTNCC-K-GACH-01-261125-000001` at `AGREEMENT_PENDING`; the agreement action was visible and the close action stayed hidden. Browser checks reported no page errors.
+
+The browser smoke did not submit inspection evidence. The end-to-end backend tests cover inspection, Sales decision, receipt, lot/stock effects, duplicate prevention and supplier-return notifications using isolated synthetic attachments; no real Cloudinary upload was run.
+
+## Atlas and scope limits
+
+Atlas `wmsd_database` was queried read-only for relevant collection counts and embedded customer receipt confirmations. No Atlas documents, indexes, permissions, or stock were written. Demo fixture creation and workflow tests used isolated local databases only.

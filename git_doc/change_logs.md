@@ -1,3 +1,11 @@
+## 25/11/2026 — Let Sales return goods from a Warehouse-issued standalone sale
+
+Sales can create a customer-return request from a posted standalone SALE Goods Issue created by Warehouse when it has an external reference and is in the selected warehouse. This source path uses the posted issue quantity and outstanding return claims; it does not require a Sales Order or a customer-receipt confirmation. Other source, warehouse and quantity checks remain enforced. A focused integration test reproduces the Warehouse-created source and verifies Sales can select it and create the request in an isolated database.
+
+## 25/11/2026 — Notify the requester about supplier acknowledgement and closure
+
+`ACK_SR` now notifies the original supplier-return requester after the Accountant records the supplier response; `CLOSE_SR` sends a final notice when the return completes. The existing worker enforces source-read and warehouse scope and deduplicates each event per recipient. Regression coverage verifies both notices in the isolated supplier lifecycle without changing stock behavior. No schema, index, permission or shared-database change.
+
 ## 25/11/2026 — Sales order and delivery schedule
 
 New sales orders keep customer name and phone, external-source evidence and pricing. Creation writes the order, predicted deliveries and FIFO reservations together. Existing direct sales and legacy permissions remain available for historical workflows. See [Sales delivery schedule](docs/08_api/SALES_DELIVERY_SCHEDULE.md).
