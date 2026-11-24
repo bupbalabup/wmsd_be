@@ -6,11 +6,12 @@ import { registerReviewedModels } from '../src/models/index.js';
 
 test('each current collection has its own model file and each embedded file declares one schema',async()=>{
   const root=new URL('../src/models/',import.meta.url);
+  const schemaCounts={'goods-receipt.model.js':4,'delivery-order-issue-report.schema.js':2};
   const collections=[];
   for(const directory of [root]) {
     for(const file of (await readdir(directory)).filter(file=>/\.(model|schema)\.js$/.test(file))) {
       const code=await readFile(new URL(file,directory),'utf8');
-      assert.equal([...code.matchAll(/new Schema\(/g)].length,file==='goods-receipt.model.js'?4:1,file);
+      assert.equal([...code.matchAll(/new Schema\(/g)].length,schemaCounts[file]??1,file);
       if(file.endsWith('.model.js'))collections.push(code.match(/\/\/ Collection: (\w+)/)?.[1]);
     }
   }
