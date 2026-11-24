@@ -108,7 +108,7 @@ Tồn đầu từ file ghi hàng tốt của cửa hàng vào `TONDAU-NHAN`, khu
 - Xác nhận tồn phải nguyên tử với balance, transaction, movement, chứng từ, hạn mức/giữ hàng, audit và outbox. Cùng request key/payload trả lại kết quả cũ, key khác nội dung phải báo xung đột.
 - Kiểm active user, permission hiện tại, warehouseIds, nguồn, creator/approver/receiver, trạng thái, revision, freeze, số lượng còn lại và sức chứa ngay khi ghi. UI không thay kiểm quyền BE.
 - Khoá tài khoản qua lệnh đổi trạng thái phải nhập lý do. Xem quy tắc lưu lý do và ghi nhật ký trong [hợp đồng trạng thái tài khoản](docs/08_api/USER_ACCESS_STATUS.md).
-- Yêu cầu đặt lại mật khẩu qua email đang chờ triển khai. Người dùng tự yêu cầu OTP ở màn đăng nhập (UC-131) hoặc Administrator yêu cầu OTP từ chi tiết tài khoản (UC-132). Hệ thống gửi mã đến email đã đăng ký và chủ tài khoản dùng mã để tự đặt mật khẩu mới. Luồng, quyền và ngoại lệ nằm trong [Report 3](docs/01_bao_cao/WMSD_Report3_Fix.docx.txt).
+- Người dùng tự đặt lại mật khẩu qua email đã được triển khai (UC-145, trước đây UC-131; từ 23/11/2026): yêu cầu OTP ở màn đăng nhập (`POST /api/auth/forgot-password/otp`), nhập mã và mật khẩu mới (`POST /api/auth/forgot-password/reset`). Administrator yêu cầu OTP từ chi tiết tài khoản (UC-160, trước đây UC-132) vẫn đang chờ triển khai. Luồng, quyền và ngoại lệ nằm trong [Report 3](docs/01_bao_cao/WMSD_Report3_Fix.docx.txt).
 - Chứng từ đã ghi tồn, snapshot, kết quả đếm và lịch sử duyệt giữ dấu vết. Sửa sai dùng phiếu đảo/điều chỉnh có nguồn và kiểm phụ thuộc.
 - Tệp/bằng chứng theo quyền phiếu và kho. Không lộ giá mua, giá bán hoặc chứng cứ nội bộ qua DTO, export hay audit ngoài quyền.
 - Email/notification qua outbox sau commit. Lỗi gửi thư chỉ thử gửi lại.

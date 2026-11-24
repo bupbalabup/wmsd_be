@@ -20,7 +20,7 @@ Lệnh ghi chứng từ kiểm quyền hiện tại, kho, trạng thái, nguồn
 
 ## Tài khoản, danh mục
 
-User có một roleId và warehouseIds; email/phone/fullName được lưu trực tiếp. GET /users/options trả vai trò hoạt động và kho hoạt động. GET /roles/permissions trả danh mục để chọn quyền; tạo role không tạo permission mới. Vai trò tùy chỉnh được xét theo quyền thay vì chỉ tên vai trò. Giá mua vẫn chỉ dành Owner/Accountant theo quyết định đã duyệt.
+User có một roleId và warehouseIds; email/phone/fullName được lưu trực tiếp. GET /users/options trả vai trò hoạt động và kho hoạt động. GET /roles/permissions trả danh mục để chọn quyền; tạo role (`POST /roles`, `access_control:create`) không tạo permission mới, và mã role trùng trả 409 `ERR-CORE-409-002` "Mã vai trò đã tồn tại" (từ 24/11/2026; trước đó lộ lỗi E11000 dưới dạng 500). Tạo vai trò và `PUT /roles/:code/permissions` ghi audit `CREATE_ROLE` / `UPDATE_ROLE_PERMISSIONS`. Vai trò tùy chỉnh được xét theo quyền thay vì chỉ tên vai trò. Giá mua vẫn chỉ dành Owner/Accountant theo quyết định đã duyệt.
 
 Middleware nạp role và permission hiện hành từ DB cho mỗi request. Route khai báo mã quyền thao tác, ví dụ `GET /api/roles` dùng `access_control:read` mặc định của Admin. Service kiểm thêm kho, người lập, nguồn và trạng thái theo nghiệp vụ. Thiếu quyền thao tác trả `ERR-CORE-403-001`; các endpoint có kiểm kho trực tiếp trả `ERR-CORE-403-002` khi ngoài phân công.
 

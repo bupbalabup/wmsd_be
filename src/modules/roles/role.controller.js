@@ -11,6 +11,7 @@ export const updateRolePermissions = catchAsync(async (req, res) => {
   const result = await roleService.updateRolePermissions(
     req.params.code,
     req.body.permissionCodes,
+    req.user._id,
   );
   formatApiResponse(res, {
     message: "Cập nhật phân quyền thành công",
@@ -18,5 +19,5 @@ export const updateRolePermissions = catchAsync(async (req, res) => {
   });
 });
 
-export const createRole=catchAsync(async(req,res)=>formatApiResponse(res,{data:await roleService.createRole(req.validated.body)}));
+export const createRole=catchAsync(async(req,res)=>formatApiResponse(res,{data:await roleService.createRole(req.validated.body,req.user._id)}));
 export const listPermissions=catchAsync(async(_req,res)=>formatApiResponse(res,{data:await roleService.listPermissions()}));

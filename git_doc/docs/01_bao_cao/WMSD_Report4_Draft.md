@@ -2956,9 +2956,9 @@ sequenceDiagram
 
 **c. Email password recovery**
 
-Report 3 specifies two password recovery requirements pending implementation. In UC-131, the account holder requests an OTP from Sign In. In UC-132, the Administrator requests an OTP from the target account's details. WMSD sends the code to the account's registered email address. The account holder verifies the code and chooses the new password on the Sign In screen. The Administrator sees the send outcome only.
+Report 3 specifies two password recovery requirements. UC-145 (Reset Own Password by Email, formerly UC-131) is implemented: the account holder requests an OTP from Sign In (`POST /api/auth/forgot-password/otp`), WMSD sends a six-digit code to the registered email address and the account holder enters the code and the new password on the Sign In screen (`POST /api/auth/forgot-password/reset`). UC-160 (formerly UC-132), where the Administrator requests an OTP from the target account's details, is still pending implementation.
 
-The current Forgot Password dialog directs the user to support. The current account edit form still lets an authorized operator enter a new password via `PUT /api/users/:id`.
+The account update API no longer accepts a password; an email change goes through an OTP sent to the new address.
 
 #### 1.2 Authorization & RBAC Implementation
 

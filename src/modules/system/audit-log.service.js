@@ -12,7 +12,7 @@ export const ACTION_LABELS = {
   UPDATE_PROFILE: "Cập nhật hồ sơ", LOCK_USER: "Khoá tài khoản", UNLOCK_USER: "Mở khoá tài khoản",
   UPDATE_SALES_POLICY: "Cập nhật chính sách bán hàng", SYNC_API_CATALOGUE: "Đồng bộ danh mục API",
   CREATE_API_ENDPOINT: "Thêm API", UPDATE_API_ENDPOINT: "Sửa API", DELETE_API_ENDPOINT: "Xoá API",
-  RESOLVE_ERROR_LOG: "Đánh dấu lỗi đã xử lý",
+  RESOLVE_ERROR_LOG: "Đánh dấu lỗi đã xử lý", CREATE_ROLE: "Tạo vai trò", UPDATE_ROLE_PERMISSIONS: "Cập nhật quyền vai trò",
 };
 export const SUBJECT_LABELS = {
   users: "Tài khoản", roles: "Vai trò", app_settings: "Cài đặt", api_endpoints: "Danh mục API", error_logs: "Nhật ký lỗi",

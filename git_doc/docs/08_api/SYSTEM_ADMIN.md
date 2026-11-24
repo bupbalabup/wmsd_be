@@ -68,6 +68,7 @@ Chỉ đọc, quyền `audit_log:read`.
 - `GET /api/system/audit-logs?page&limit(≤100)&search&action&subjectType&actorId&result&from&to` → `{ items, total, page, limit }`, mới nhất trước. `search` khớp lý do/thao tác/loại đối tượng hoặc đúng mã đối tượng. Mỗi dòng có `actionLabel`, `subjectLabel` tiếng Việt khi biết, `changeCount`.
 - `GET /api/system/audit-logs/options` → danh sách thao tác, loại đối tượng, người thực hiện đã xuất hiện.
 - `GET /api/system/audit-logs/:id` → chi tiết gồm `changes[]` (trường, trước, sau).
+- Từ 24/11/2026 thao tác vai trò cũng ghi audit (đối tượng `roles`): `CREATE_ROLE` ("Tạo vai trò", `changes` = mã và danh sách quyền) và `UPDATE_ROLE_PERMISSIONS` ("Cập nhật quyền vai trò", `changes` = quyền trước/sau). Bản ghi viết sau khi lưu vai trò; nếu ghi audit lỗi thì API trả lỗi dù vai trò đã lưu, giống khoá/mở khoá tài khoản.
 
 ## Danh mục API
 
