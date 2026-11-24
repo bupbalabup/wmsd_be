@@ -57,7 +57,10 @@ async function sourceLookup(user, query) {
       join(m.WarehouseIssueRequest, 'delivery.header.issueRequestId', 'request'), join(m.SalesOrder, 'request.header.salesOrderId', 'sale'),
       join(m.SalesOrder, 'header.salesOrderId', 'directSale'),
       { $set: { customerId: { $ifNull: ['$header.customerId', first('sale.header.customerId')] }, customerName: { $ifNull: ['$header.customerName', first('directSale.header.customerName'), first('sale.header.customerName')] }, customerPhone: { $ifNull: ['$header.customerPhone', first('directSale.header.customerPhone'), first('sale.header.customerPhone')] }, salesCreatedBy: { $ifNull: [first('directSale.createdBy'), first('sale.createdBy'), '$createdBy'] } } });
-    if (hasPermission(user, 'customer_return:create') && !hasPermission(user, 'customer_return:inspect')) stages.push({ $match: { salesCreatedBy: oid(user._id) } });
+    if (hasPermission(user, 'customer_return:create') && !hasPermission(user, 'customer_return:inspect')) stages.push({ $match: { $or: [
+      { salesCreatedBy: oid(user._id) },
+      { documentKind: 'GI_SALE', 'header.issueKind': 'SALE', 'header.referenceNo': { $exists: true, $ne: '' }, 'header.salesOrderId': null, 'header.fulfillmentMode': null },
+    ] } });
     if (purpose === 'customer-returns') stages.push({ $unionWith: { coll: m.ExternalReference.collection.name, pipeline: [
       { $match: { ...scope(user, query, 'warehouseId'), referenceKind: 'HISTORICAL_DELIVERY', status: 'VERIFIED', 'evidenceIds.0': { $exists: true }, ...(query.documentId && { _id: oid(query.documentId) }) } },
       { $unwind: '$items' }, { $set: { documentNo: '$referenceNo', documentKind: 'HISTORICAL_DELIVERY', header: { warehouseId: '$warehouseId' }, 'items.qtyBase': '$items.eligibleQty', 'items.baseUnitSnapshot': '$items.baseUnitSnapshot', sourceKind: 'HISTORICAL' } },

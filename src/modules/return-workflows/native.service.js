@@ -69,11 +69,13 @@ async function returnSource(input,user,session){
   const {doc,item}=await s.itemById(m.ExternalReference,input.historicalExternalLineId,user,session);
   if(doc.referenceKind!=='HISTORICAL_DELIVERY'||doc.status!=='VERIFIED'||!doc.verifiedBy||!doc.verifiedAt||!doc.evidenceIds.length||!item.lotId||!item.baseUnitsPerUnit)throw validationError('Nguồn lịch sử chưa xác minh');
   const competing=await m.SalesOrder.exists({'header.externalReferenceId':doc._id}).session(session);if(competing)throw validationError('Nguồn đã có chuỗi WMS, dùng nguồn giao thực tế');
-  await s.lockSource(doc,item,session);return {doc,item:{...item.toObject(),qtyBase:String(item.eligibleQty),enteredQty:exact(item.eligibleQty).div(String(item.baseUnitsPerUnit)).toFixed(),productNameSnapshot:'Historical source'},customerId:doc.customerId,customerName:doc.customerName,customerPhone:doc.customerPhone,warehouseId:doc.warehouseId,allowance:exact(item.eligibleQty).minus(String(item.previouslyReturnedQty)),sourceKind:'EXTERNAL',intakeMode:doc.customerName?'DIRECT':'LEGACY'};
+  const legacyCustomer=!doc.customerName&&doc.customerId&&await m.Customer.findById(doc.customerId).select('name phone').session(session).lean();
+  await s.lockSource(doc,item,session);return {doc,item:{...item.toObject(),qtyBase:String(item.eligibleQty),enteredQty:exact(item.eligibleQty).div(String(item.baseUnitsPerUnit)).toFixed(),productNameSnapshot:'Historical source'},customerId:doc.customerId,customerName:doc.customerName||legacyCustomer?.name,customerPhone:doc.customerPhone||legacyCustomer?.phone,warehouseId:doc.warehouseId,allowance:exact(item.eligibleQty).minus(String(item.previouslyReturnedQty)),sourceKind:'EXTERNAL',intakeMode:doc.customerName?'DIRECT':'LEGACY'};
  }
- const c=await s.issueSource(input.salesIssueLineId,user,session),direct=c.doc.header.fulfillmentMode==='DIRECT';
+ const c=await s.issueSource(input.salesIssueLineId,user,session,{allowWarehouseCreatedStandalone:true}),direct=c.doc.header.fulfillmentMode==='DIRECT';
  if(c.standaloneSale)return {...c,customerName:c.doc.header.customerName,warehouseId:c.doc.header.warehouseId,allowance:s.standaloneSaleReturnAllowance(c.issued,await s.undeliveredReturnedQuantity(c.item._id,session),await s.claimTotal(c.item._id,'FD',session)),sourceKind:'GOODS_ISSUE',intakeMode:'DIRECT'};
- return {...c,customerId:c.so.header.customerId,customerName:c.so.header.customerName,customerPhone:c.so.header.customerPhone,warehouseId:c.doc.header.warehouseId,allowance:c.delivered,sourceKind:direct?'GOODS_ISSUE':'DELIVERY_CONFIRMATION',intakeMode:direct?'DIRECT':'LEGACY'};
+ const legacyCustomer=!c.so.header.customerName&&c.so.header.customerId&&await s.m.Customer.findById(c.so.header.customerId).select('name phone').session(session).lean();
+ return {...c,customerId:c.so.header.customerId,customerName:c.so.header.customerName||legacyCustomer?.name,customerPhone:c.so.header.customerPhone||legacyCustomer?.phone,warehouseId:c.doc.header.warehouseId,allowance:c.delivered,sourceKind:direct?'GOODS_ISSUE':'DELIVERY_CONFIRMATION',intakeMode:direct?'DIRECT':'LEGACY'};
 }
 export async function createCustomerReturn(user,input){return command(user,'CREATE_CR','customer_return:create',null,input,replay(m.CustomerReturn),async(session,actor,operationId)=>{
  requireWarehouseAccess(actor,input.warehouseId);

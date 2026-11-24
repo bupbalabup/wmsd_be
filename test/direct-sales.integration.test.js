@@ -166,10 +166,10 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
    if(!legacy)await assert.rejects(returns.inspectCustomerReturn(worker,rd._id,{...inspection,idempotencyKey:key(),expectedVersion:rd.version},true));
  }
  thirdIssue=await m.SalesGoodsIssue.findById(thirdIssue._id);
- thirdIssue.header.fulfillmentMode=undefined;thirdIssue.header.salesOrderId=undefined;thirdIssue.header.customerId=undefined;thirdIssue.header.issueKind='SALE';thirdIssue.header.referenceNo='LEGACY-MANUAL-SALE';thirdIssue.customerReceipts=[];thirdIssue.createdBy=seller._id;
+ thirdIssue.header.fulfillmentMode=undefined;thirdIssue.header.salesOrderId=undefined;thirdIssue.header.customerId=undefined;thirdIssue.header.issueKind='SALE';thirdIssue.header.referenceNo='LEGACY-MANUAL-SALE';thirdIssue.customerReceipts=[];thirdIssue.createdBy=worker._id;
  await thirdIssue.save();
  const standaloneSources=await lookup(seller,{kind:'sources',purpose:'customer-returns',warehouseId:String(warehouse._id),documentId:String(thirdIssue._id),page:1,limit:10});
- assert.equal(standaloneSources.items[0]?.availableQty,'4');
+ assert.equal(standaloneSources.items[0]?.availableQty,'4','Sales can use a warehouse-created standalone SALE issue as the return source');
  const standaloneReturn=await returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),customerName:'Goods issue customer',lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),qtyBase:'3',reason:'No Sales Order'}]});
  const standaloneDoc=await m.CustomerReturn.findById(standaloneReturn.id);
  assert.equal(standaloneDoc.header.customerName,'Goods issue customer');assert.equal(standaloneDoc.header.customerId,undefined);

@@ -104,7 +104,7 @@ export async function undeliveredReturnedQuantity(itemId,session) {
 export function standaloneSaleReturnAllowance(issued,undelivered,openFailedDelivery) {
  const available=exact(issued).minus(String(undelivered)).minus(String(openFailedDelivery));return available.gt(0)?available:exact('0');
 }
-export async function issueSource(itemId,user,session) {
+export async function issueSource(itemId,user,session,{allowWarehouseCreatedStandalone=false}={}) {
  const {doc,item}=await itemById(m.SalesGoodsIssue,itemId,user,session);
  if(doc.header.fulfillmentMode==='DIRECT'){
   const so=await m.SalesOrder.findById(doc.header.salesOrderId).session(session),soItem=so?.items.id(item.salesOrderItemId);
@@ -114,7 +114,7 @@ export async function issueSource(itemId,user,session) {
   return {doc,item,so,soItem,issued:await effectivePosted(doc,itemId,session),delivered:sum((doc.customerReceipts||[]).filter(r=>same(r.issueLineId,itemId)),'quantityBase')};
  }
  if(doc.documentKind==='GI_SALE'&&doc.header.issueKind==='SALE'&&doc.header.referenceNo&&!doc.header.salesOrderId){
-  if(user.roleId?.code==='SALES'&&!same(doc.createdBy,user._id))throw notFoundError();
+  if(user.roleId?.code==='SALES'&&!same(doc.createdBy,user._id)&&!(allowWarehouseCreatedStandalone&&hasPermission(user,'customer_return:create')))throw notFoundError();
   await lockSource(doc,item,session);
   return {doc,item,issued:await effectivePosted(doc,itemId,session),standaloneSale:true};
  }
