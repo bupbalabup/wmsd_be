@@ -1,3 +1,7 @@
+## 24/11/2026 — Mở lại kết nối MongoDB của Worker
+
+Kiểm tra trạng thái Mongoose trước API và tác vụ theo lịch. Tái sử dụng pool khi còn kết nối và chia sẻ lần mở lại khi pool bị ngắt. Hành vi 503 giữ nguyên khi kết nối thất bại. Xem [hướng dẫn Cloudflare](docs/09_phat_trien/CLOUDFLARE_WORKERS.md).
+
 ## 24 November 2026 — Warehouse Staff may update product lots
 
 User decision (24/11/2026): Warehouse Staff may update existing product lot information, not only create lots. Same guards as for the Store Owner: lot identity and carton specification cannot change once the lot has documents or stock.
