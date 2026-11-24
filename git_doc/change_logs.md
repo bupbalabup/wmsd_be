@@ -1,3 +1,7 @@
+## 25/11/2026 — Sales order and delivery schedule
+
+New sales orders keep customer name and phone, external-source evidence and pricing. Creation writes the order, predicted deliveries and FIFO reservations together. Existing direct sales and legacy permissions remain available for historical workflows. See [Sales delivery schedule](docs/08_api/SALES_DELIVERY_SCHEDULE.md).
+
 ## 24/11/2026 — Mở lại kết nối MongoDB của Worker
 
 Kiểm tra trạng thái Mongoose trước API và tác vụ theo lịch. Tái sử dụng pool khi còn kết nối và chia sẻ lần mở lại khi pool bị ngắt. Hành vi 503 giữ nguyên khi kết nối thất bại. Xem [hướng dẫn Cloudflare](docs/09_phat_trien/CLOUDFLARE_WORKERS.md).

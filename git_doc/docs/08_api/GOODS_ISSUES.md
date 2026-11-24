@@ -1,3 +1,5 @@
+New orders created after the 25 November 2026 delivery schedule release use [the scheduled flow](SALES_DELIVERY_SCHEDULE.md). The direct goods issue and return rules below cover orders created before the release.
+
 ## Customer details on documents — 17 November 2026
 
 User decision: customers are not managed as catalogue records. New sales orders require `customerName` (1–160 characters) and allow `customerPhone` (up to 30 characters); the delivery address remains on the order. Creating an order does not query or create a Customer. Sales options return an empty compatibility `customers` array.

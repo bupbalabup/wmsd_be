@@ -14,7 +14,7 @@ const groups = [
   ['C · Inventory & controls', '#FFF2CC', ['stock_holding_points', 'inventory_balances', 'stock_transactions', 'stock_movements', 'stock_reservations', 'supply_allocations', 'stock_holds', 'return_source_locks']],
   ['D · Purchasing & receiving', '#FCE4D6', ['replenishment_requests', 'purchase_orders', 'goods_arrivals', 'goods_inspections', 'goods_receipts']],
   ['E · Inter-warehouse transfer', '#EADCF8', ['warehouse_transfer_requests', 'transfer_dispatches', 'internal_transfer_requirements', 'transfer_orders']],
-  ['F · Sales, delivery & invoice', '#DDEBF7', ['sales_orders', 'warehouse_issue_requests', 'delivery_orders', 'sales_goods_issues', 'delivery_confirmations', 'sales_invoices', 'external_payment_confirmations']],
+  ['F · Sales, delivery & invoice', '#DDEBF7', ['sales_orders', 'delivery_schedules', 'warehouse_issue_requests', 'delivery_orders', 'sales_goods_issues', 'delivery_confirmations', 'sales_invoices', 'external_payment_confirmations']],
   ['G · Customer return & custody', '#F4E1F1', ['failed_deliveries', 'delivery_demand_reopenings', 'delivery_commitment_transfers', 'sales_order_cancellations', 'customer_returns', 'return_inspections', 'return_quantity_claims', 'custody_receipts', 'custody_releases']],
   ['H · Defect & supplier return', '#FDE9D9', ['defect_reports', 'defect_resolution_plans', 'stock_scrap_records', 'stock_quality_changes', 'stock_discrepancies', 'supplier_returns', 'supplier_return_issues', 'supplier_acknowledgements']],
   ['I · Stocktake, opening & reversal', '#E2F0D9', ['stocktakes', 'stocktake_snapshots', 'stocktake_counts', 'stocktake_location_locks', 'stocktake_resolution_plans', 'stocktake_plans', 'stock_adjustments', 'opening_stocks', 'stock_reversals']],

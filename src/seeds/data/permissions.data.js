@@ -103,6 +103,13 @@ export const PERMISSION_CATALOGUE = [
   { code: 'sales_order:read', description: 'Xem SO sao chép (theo phạm vi)', uc: ['UC-45', 'UC-46'], roles: BUSINESS_ROLES },
   { code: 'sales_order:create', description: 'Tạo SO sao chép từ nguồn ngoài đã xác minh', uc: ['UC-47'], roles: [SALES] },
   { code: 'sales_order:update', description: 'Sửa/hủy phần SO chưa xuất', uc: ['UC-48'], roles: [SALES] },
+  { code: 'sales_order:cancel', description: 'Hủy SO và lịch giao chưa xuất kho', uc: ['UC-48'], roles: [SALES] },
+  { code: 'delivery_schedule:read', description: 'Xem lịch giao (kho xem theo kho được giao)', uc: ['UC-48'], roles: BUSINESS_ROLES },
+  { code: 'delivery_order:read', description: 'Xem DO và báo cáo vấn đề', uc: ['UC-48'], roles: BUSINESS_ROLES },
+  { code: 'delivery_order:create', description: 'Tạo DO từ lần giao', uc: ['UC-48'], roles: [WAREHOUSE] },
+  { code: 'delivery_order:confirm_issue', description: 'Xác nhận hàng ra khỏi kho', uc: ['UC-48'], roles: [WAREHOUSE] },
+  { code: 'delivery_order:confirm_handover', description: 'Xác nhận nhân viên vận chuyển đã lấy hàng', uc: ['UC-48'], roles: [WAREHOUSE] },
+  { code: 'delivery_order:report_issue', description: 'Báo cáo vấn đề và chọn vị trí lấy bù', uc: ['UC-48'], roles: [WAREHOUSE] },
 
   { code: 'issue_request:read', description: 'Xem yêu cầu xuất kho liên kết (WIR)', uc: ['UC-109'], roles: BUSINESS_ROLES },
   { code: 'issue_request:create', description: 'Tạo WIR / nhu cầu ròng tái mở', uc: ['UC-109'], roles: [SALES] },

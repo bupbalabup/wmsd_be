@@ -1,6 +1,6 @@
 # Từ điển dữ liệu hiện hành — 12/11/2026
 
-61 collection. Dòng nhúng có ID ổn định; không phải collection độc lập. Mongoose ref là liên kết ứng dụng, không phải foreign key do MongoDB kiểm. Native return workflow additions and compatibility are documented in [RETURN_WORKFLOWS_NATIVE](../../08_api/RETURN_WORKFLOWS_NATIVE.md). DocumentIdentity = String mã phiếu mới hoặc ObjectId lịch sử; xem [quy tắc ID](../../08_api/DOCUMENT_IDENTITIES.md).
+62 collection. Dòng nhúng có ID ổn định; không phải collection độc lập. Mongoose ref là liên kết ứng dụng, không phải foreign key do MongoDB kiểm. Native return workflow additions and compatibility are documented in [RETURN_WORKFLOWS_NATIVE](../../08_api/RETURN_WORKFLOWS_NATIVE.md). DocumentIdentity = String mã phiếu mới hoặc ObjectId lịch sử; xem [quy tắc ID](../../08_api/DOCUMENT_IDENTITIES.md).
 
 ## uoms
 
@@ -3465,6 +3465,7 @@ Model: [delivery-order.model.js](../../../../src/models/delivery-order.model.js)
 | `sources[].documentId` | DocumentIdentity | true |  |
 | `header` | Embedded | true |  |
 | `header.warehouseId` | ObjectId | true | Warehouse |
+| `header.deliveryId` | ObjectId | false |  |
 | `header.plannedOn` | Date | true |  |
 | `header.recipientName` | String | false |  |
 | `header.recipientPhone` | String | false |  |
@@ -3472,9 +3473,40 @@ Model: [delivery-order.model.js](../../../../src/models/delivery-order.model.js)
 | `header.deliveryInstructions` | String | false |  |
 | `header.releasedBy` | ObjectId | false | User |
 | `header.releasedAt` | Date | false |  |
-| `header.issueRequestId` | DocumentIdentity | true |  |
+| `header.issuedBy` | ObjectId | false | User |
+| `header.issuedAt` | Date | false |  |
+| `header.handedOverBy` | ObjectId | false | User |
+| `header.handedOverAt` | Date | false |  |
+| `header.issueRequestId` | DocumentIdentity | false |  |
+| `header.salesOrderId` | DocumentIdentity | false | SalesOrder |
+| `header.scheduleId` | DocumentIdentity | false | DeliverySchedule |
 | `header.replacesDeliveryOrderId` | DocumentIdentity | false | DeliveryOrder |
+| `issueReports` | Array | false |  |
+| `issueReports[].lineId` | ObjectId | true |  |
+| `issueReports[].soLineId` | ObjectId | false |  |
+| `issueReports[].lotId` | ObjectId | false | ProductBatch |
+| `issueReports[].locationId` | ObjectId | false | WarehouseLocation |
+| `issueReports[].balanceId` | ObjectId | false | InventoryBalance |
+| `issueReports[].kind` | String | true |  |
+| `issueReports[].shortQtyBase` | Decimal128 | true |  |
+| `issueReports[].reason` | String | true |  |
+| `issueReports[].picks` | Array | false |  |
+| `issueReports[].picks[].balanceId` | ObjectId | true | InventoryBalance |
+| `issueReports[].picks[].locationId` | ObjectId | true | WarehouseLocation |
+| `issueReports[].picks[].qtyBase` | Decimal128 | true |  |
+| `issueReports[].picks[].reservationId` | ObjectId | false | StockReservation |
+| `issueReports[].picks[]._id` | ObjectId | false |  |
+| `issueReports[].shortfallQtyBase` | Decimal128 | true |  |
+| `issueReports[].status` | String | true |  |
+| `issueReports[].reportedBy` | ObjectId | true | User |
+| `issueReports[].reportedAt` | Date | true |  |
+| `issueReports[].closedBy` | ObjectId | false | User |
+| `issueReports[].closedAt` | Date | false |  |
+| `issueReports[].stockTransactionId` | ObjectId | false | StockTransaction |
+| `issueReports[]._id` | ObjectId | false |  |
+| `issueReports[].adjustmentId` | DocumentIdentity | false | StockAdjustment |
 | `updatedBy` | ObjectId | false | User |
+| `stockTransactionId` | ObjectId | false | StockTransaction |
 | `evidenceIds` | Array | false |  |
 | `cancelledBy` | ObjectId | false | User |
 | `cancelledAt` | Date | false |  |
@@ -3574,6 +3606,72 @@ Indexes:
     {
       "workflowStatus": 1,
       "createdAt": -1
+    },
+    {}
+  ]
+]
+```
+
+## delivery_schedules
+
+Model: [delivery-schedule.model.js](../../../../src/models/delivery-schedule.model.js).
+
+| Trường | Kiểu | Bắt buộc | Liên kết |
+|---|---|---|---|
+| `documentNo` | String | true |  |
+| `documentKind` | String | true |  |
+| `version` | Number | true |  |
+| `createdBy` | ObjectId | true | User |
+| `updatedBy` | ObjectId | false | User |
+| `deliveries` | Array | false |  |
+| `deliveries[].seq` | Number | true |  |
+| `deliveries[].plannedOn` | Date | true |  |
+| `deliveries[].warehouseId` | ObjectId | true | Warehouse |
+| `deliveries[].status` | String | true |  |
+| `deliveries[].lines` | Array | false |  |
+| `deliveries[].lines[].soLineId` | ObjectId | true |  |
+| `deliveries[].lines[].lotId` | ObjectId | true | ProductBatch |
+| `deliveries[].lines[].qtyBase` | Decimal128 | true |  |
+| `deliveries[].lines[].allocations` | Array | false |  |
+| `deliveries[].lines[].allocations[].balanceId` | ObjectId | true | InventoryBalance |
+| `deliveries[].lines[].allocations[].locationId` | ObjectId | true | WarehouseLocation |
+| `deliveries[].lines[].allocations[].qtyBase` | Decimal128 | true |  |
+| `deliveries[].lines[].allocations[].reservationId` | ObjectId | false | StockReservation |
+| `deliveries[].lines[].allocations[]._id` | ObjectId | false |  |
+| `deliveries[].lines[]._id` | ObjectId | false |  |
+| `deliveries[]._id` | ObjectId | false |  |
+| `deliveries[].doId` | DocumentIdentity | false | DeliveryOrder |
+| `createdAt` | Date | false |  |
+| `updatedAt` | Date | false |  |
+| `_id` | DocumentIdentity | false |  |
+| `salesOrderId` | DocumentIdentity | true | SalesOrder |
+
+Indexes:
+
+```json
+[
+  [
+    {
+      "documentNo": 1
+    },
+    {
+      "unique": true,
+      "_autoIndex": false
+    }
+  ],
+  [
+    {
+      "salesOrderId": 1
+    },
+    {
+      "unique": true
+    }
+  ],
+  [
+    {
+      "deliveries.warehouseId": 1,
+      "deliveries.plannedOn": 1,
+      "deliveries.status": 1
     },
     {}
   ]
@@ -4631,6 +4729,7 @@ Model: [stock-adjustment.model.js](../../../../src/models/stock-adjustment.model
 | `header.warehouseId` | ObjectId | false | Warehouse |
 | `header.stocktakeId` | DocumentIdentity | false | Stocktake |
 | `header.resolutionPlanId` | DocumentIdentity | false |  |
+| `header.deliveryOrderId` | DocumentIdentity | false | DeliveryOrder |
 | `updatedBy` | ObjectId | false | User |
 | `evidenceIds` | Array | false |  |
 | `cancelledBy` | ObjectId | false | User |

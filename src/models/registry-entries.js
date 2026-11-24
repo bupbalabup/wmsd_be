@@ -41,6 +41,7 @@ import { createSalesOrderSchema } from "./sales-order.model.js";
 import { createWarehouseIssueRequestSchema } from "./warehouse-issue-request.model.js";
 import { createDeliveryOrderSchema } from "./delivery-order.model.js";
 import { createSalesGoodsIssueSchema } from "./sales-goods-issue.model.js";
+import { createDeliveryScheduleSchema } from "./delivery-schedule.model.js";
 import { createDefectReportSchema } from "./defect-report.model.js";
 import { createStockScrapRecordSchema } from "./stock-scrap-record.model.js";
 import { createStocktakeSchema } from "./stocktake.model.js";
@@ -241,6 +242,11 @@ export function modelSchemaEntries() {
       name: "DeliveryOrder",
       collection: "delivery_orders",
       schema: createDeliveryOrderSchema(),
+    },
+    {
+      name: "DeliverySchedule",
+      collection: "delivery_schedules",
+      schema: createDeliveryScheduleSchema(),
     },
     {
       name: "SalesGoodsIssue",

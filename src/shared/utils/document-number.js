@@ -4,10 +4,10 @@ import { currentTransactionSession } from './transaction-context.js';
 
 export const documentTypes = Object.freeze({
  GI_OTHER:['PXK','Phiếu xuất khác'],
- SO:['ĐBH','Đơn bán hàng'],WIR:['YCX','Yêu cầu xuất kho'],OD:['LGH','Lệnh giao hàng'],GI:['PXB','Phiếu xuất bán'],PICK:['LSH','Lệnh soạn hàng'],TO:['LCV','Lệnh chuyển vị trí'],TR:['YCĐC','Yêu cầu điều chuyển'],TD:['PXĐC','Phiếu xuất điều chuyển'],ITR:['YCNB','Yêu cầu chuyển nội bộ'],MWTR:['PNĐC','Nhận điều chuyển'],DEF:['BCH','Báo cáo hàng hỏng'],ADJ:['ĐCKK','Điều chỉnh kiểm kê'],HO:['BBBG','Biên bản bàn giao'],
+ SO:['ĐBH','Đơn bán hàng'],DS:['LG','Lịch giao hàng'],WIR:['YCX','Yêu cầu xuất kho'],OD:['LGH','Lệnh giao hàng'],GI:['PXB','Phiếu xuất bán'],PICK:['LSH','Lệnh soạn hàng'],TO:['LCV','Lệnh chuyển vị trí'],TR:['YCĐC','Yêu cầu điều chuyển'],TD:['PXĐC','Phiếu xuất điều chuyển'],ITR:['YCNB','Yêu cầu chuyển nội bộ'],MWTR:['PNĐC','Nhận điều chuyển'],DEF:['BCH','Báo cáo hàng hỏng'],ADJ:['ĐCKK','Điều chỉnh kiểm kê'],HO:['BBBG','Biên bản bàn giao'],
  RR:['YCBS','Yêu cầu bổ sung'],PO:['ĐMH','Đơn mua hàng'],ARR:['HĐK','Hàng đến kho'],INS:['PKN','Phiếu kiểm nhận'],GR:['PNM','Phiếu nhập mua'],OTHER:['PNK','Phiếu nhập khác'],CR:['ĐTK','Đề nghị khách trả hàng'],CR_GR:['PNKT','Nhập khách trả'],FD:['GHTB','Giao hàng thất bại'],FD_GR:['PNGHTB','Nhập giao thất bại'],SR:['ĐTNCC','Đề nghị trả nhà cung cấp'],SR_GI:['PXNCC','Xuất trả nhà cung cấp'],ACK:['XNNCC','Xác nhận nhà cung cấp'],CRCV:['PNGH','Nhập giữ hộ'],CREL:['PXGH','Xuất giữ hộ'],REV:['PĐN','Phiếu đảo nhập'],SCRAP:['PHH','Phiếu hủy hàng'],QUALITY:['PĐCL','Đổi chất lượng'],DISC:['CLCK','Chênh lệch chuyển kho'],ST:['KK','Đợt kiểm kê'],ST_PLAN:['PAXLKK','Phương án kiểm kê'],ST_SCHEDULE:['KHKK','Kế hoạch kiểm kê'],DEF_PLAN:['PAXLHL','Phương án hàng lỗi'],OPENING:['TDK','Tồn đầu kỳ'],INVOICE:['HĐBH','Hóa đơn bán hàng'],CANCEL:['HỦYĐBH','Hủy đơn bán'],POD:['XNGH','Xác nhận giao hàng'],PAY:['XNTT','Xác nhận thanh toán']
 });
-export const modelDocumentTypes=Object.freeze({SalesOrder:'SO',WarehouseIssueRequest:'WIR',DeliveryOrder:'OD',SalesGoodsIssue:'GI',TransferOrder:'TO',WarehouseTransferRequest:'TR',TransferDispatch:'TD',InternalTransferRequirement:'ITR',TransferReceipt:'MWTR',DefectReport:'DEF',StockAdjustment:'ADJ',ReplenishmentRequest:'RR',PurchaseOrder:'PO',GoodsArrival:'ARR',GoodsInspection:'INS',PurchaseReceipt:'GR',OtherGoodsReceipt:'OTHER',GoodsReceipt:'OTHER',CustomerReturn:'CR',CustomerReturnReceipt:'CR_GR',FailedDelivery:'FD',FailedDeliveryReceipt:'FD_GR',SupplierReturn:'SR',SupplierReturnIssue:'SR_GI',CustodyReceipt:'CRCV',CustodyRelease:'CREL',StockReversal:'REV',StockScrapRecord:'SCRAP',StockQualityChange:'QUALITY',StockDiscrepancy:'DISC',Stocktake:'ST',StocktakePlan:'ST_SCHEDULE',OpeningStock:'OPENING',SalesInvoice:'INVOICE'});
+export const modelDocumentTypes=Object.freeze({SalesOrder:'SO',DeliverySchedule:'DS',WarehouseIssueRequest:'WIR',DeliveryOrder:'OD',SalesGoodsIssue:'GI',TransferOrder:'TO',WarehouseTransferRequest:'TR',TransferDispatch:'TD',InternalTransferRequirement:'ITR',TransferReceipt:'MWTR',DefectReport:'DEF',StockAdjustment:'ADJ',ReplenishmentRequest:'RR',PurchaseOrder:'PO',GoodsArrival:'ARR',GoodsInspection:'INS',PurchaseReceipt:'GR',OtherGoodsReceipt:'OTHER',GoodsReceipt:'OTHER',CustomerReturn:'CR',CustomerReturnReceipt:'CR_GR',FailedDelivery:'FD',FailedDeliveryReceipt:'FD_GR',SupplierReturn:'SR',SupplierReturnIssue:'SR_GI',CustodyReceipt:'CRCV',CustodyRelease:'CREL',StockReversal:'REV',StockScrapRecord:'SCRAP',StockQualityChange:'QUALITY',StockDiscrepancy:'DISC',Stocktake:'ST',StocktakePlan:'ST_SCHEDULE',OpeningStock:'OPENING',SalesInvoice:'INVOICE'});
 export function numberPeriod(now=new Date()) {
  const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Ho_Chi_Minh',year:'2-digit',month:'2-digit',day:'2-digit'}).formatToParts(now).map(v=>[v.type,v.value]));return p.year+p.month+p.day;
 }
@@ -32,7 +32,7 @@ export async function nextDocumentFields(Model,type,warehouseId,session=currentT
  if(!config)throw validationError('Loại phiếu chưa hỗ trợ cấp mã');
  const warehouse=warehouseId&&await Model.db.model('Warehouse').findById(warehouseId).session(session);
  if(warehouseId&&!warehouse)throw validationError('Không tìm thấy kho cấp mã');
- if(!warehouse&&!['SO','POD','PAY','CANCEL','INVOICE'].includes(type))throw validationError('Chứng từ phải có kho cấp mã');
+ if(!warehouse&&!['SO','DS','POD','PAY','CANCEL','INVOICE'].includes(type))throw validationError('Chứng từ phải có kho cấp mã');
  const unit=warehouse?warehouse.code:'KD';
  const period=numberPeriod(now),parts=numberParts(config[0],unit,period),prefix=parts.prefix,path=embeddedPath??(type==='HO'?'handovers':null);
  // Earlier versions used spaced separators and the original warehouse code.
@@ -73,4 +73,11 @@ export async function nextDocumentFields(Model,type,warehouseId,session=currentT
 export async function newBusinessDocument(Model,user,header,items=[],status='DRAFT',note,type) {
  const warehouseId=header.warehouseId??header.sourceWarehouseId??header.requestedWarehouseId??header.warehouseIds?.[0];
  return new Model({...await nextDocumentFields(Model,type??modelDocumentTypes[Model.modelName],warehouseId),workflowStatus:status,version:1,createdBy:user._id,occurredAt:new Date(),header,items,...(note!=null&&{note})});
+}
+
+// A delivery schedule shares the sequence number of its sales order (same unit and period).
+export function pairedDocumentFields(type,order) {
+ const config=documentTypes[type];if(!config)throw validationError('Loại phiếu chưa hỗ trợ cấp mã');
+ const id=formatDocumentNumber(config[0],order.maDonVi,order.kyDanhSo,order.soThuTu);
+ return {_id:id,documentNo:id,tenLoaiPhieu:config[1],maDonVi:order.maDonVi,kyDanhSo:order.kyDanhSo,soThuTu:order.soThuTu};
 }
