@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import * as m from '../../models/runtime.js';
-import { evidenceStorage, inspectFile } from '../po-receiving/purchase-evidence.service.js';
+import { evidenceStorage, inspectFile } from '../../shared/utils/evidence-storage.js';
 import { requirePermission, requireWarehouseAccess } from '../../shared/utils/access.js';
 import { ApiError, notFoundError, validationError } from '../../shared/utils/ApiError.js';
 import { newId, same } from '../../shared/utils/document-command.js';

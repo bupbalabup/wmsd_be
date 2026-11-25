@@ -6,7 +6,7 @@ import { dto, serialize } from '../../shared/utils/persistence.js';
 import { escapeRegex, calendarDateRange } from '../../shared/utils/domain.js';
 import { same } from '../../shared/utils/document-command.js';
 import { enrichLineItems } from '../../shared/utils/document-items.js';
-import { findPurchase } from '../po-receiving/purchase-core.js';
+import { findPurchase } from '../../shared/utils/purchase-core.js';
 import { redactPrices } from '../sales-orders/sales-read.service.js';
 export async function purchaseOrderQuantities(po,session){
   const receipts=await PurchaseReceipt.find({'header.purchaseOrderId':po._id,workflowStatus:{$in:['POSTED','DRAFT']}}).session(session).lean();

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { prepare } from '../src/modules/po-receiving/po-receiving.service.js';
+import { prepare } from '../src/modules/goods-inspections/goods-inspection.service.js';
 
 for (const qualityCode of ['DAMAGED', 'PENDING', 'BLOCKED']) {
   for (const ownershipDecision of ['ACCEPT', 'REJECT']) {

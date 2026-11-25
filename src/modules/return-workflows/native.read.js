@@ -2,7 +2,7 @@ import { quantityProgress } from './quantity-progress.js';
 import { redactPrices } from '../sales-orders/sales-read.service.js';
 import { createHash } from 'node:crypto';
 import * as s from './native.shared.js';
-import { inspectFile, evidenceStorage } from '../po-receiving/purchase-evidence.service.js';
+import { inspectFile, evidenceStorage } from '../../shared/utils/evidence-storage.js';
 import { currentRole } from '../../shared/utils/userRole.js';
 import { stocktakeLockedLocations } from '../../shared/utils/stock.js';
 const {m,serialize,scoped,hasPermission,requirePermission,requireWarehouseAccess,canAccessWarehouse,notFoundError,validationError,same,exact,newId,source,ref,command,saveVersion,checkVersion}=s;

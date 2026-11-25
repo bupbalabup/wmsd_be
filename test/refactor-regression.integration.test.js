@@ -207,7 +207,7 @@ test('A1/A3/PO-200/replay MongoDB integration checks', { skip: !mongoEnabled, ti
   const worker = await makeUser('WAREHOUSE');
 
   const { default: app } = await import('../src/app.js');
-  const { evidenceStorage } = await import('../src/modules/po-receiving/purchase-evidence.service.js');
+  const { evidenceStorage } = await import('../src/shared/utils/evidence-storage.js');
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => new Promise((resolve, reject) => server.close(err => (err ? reject(err) : resolve()))));

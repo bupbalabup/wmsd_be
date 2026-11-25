@@ -113,7 +113,7 @@ const primaryRefs = [
 
 // These links require a business rule or discriminator to identify the target.
 // The relationship table records the scope of each index or service rule.
-const purchase = 'src/modules/po-receiving/po-receiving.service.js';
+const purchase = 'src/modules/goods-inspections/goods-inspection.service.js';
 const transfer = 'src/modules/transfers/transfer-write.service.js';
 const returns = 'src/modules/return-workflows/native.service.js';
 const directSales = 'src/modules/goods-issues/direct-sales.service.js';

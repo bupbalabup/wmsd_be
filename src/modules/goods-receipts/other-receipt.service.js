@@ -27,9 +27,9 @@ import {
   receiveStock,
   verifyCapacity,
 } from "../../shared/utils/stock.js";
-import { transferCustodyStock } from "../po-receiving/purchase-custody.service.js";
-import { eligible } from "../po-receiving/purchase-correction.service.js";
-import { evidenceFor } from "../po-receiving/purchase-core.js";
+import { transferCustodyStock } from "../custody/custody-stock.js";
+import { eligible } from "../stock-reversals/stock-reversal.service.js";
+import { evidenceFor } from "../../shared/utils/purchase-core.js";
 
 const staff = (actor) => {
   if (currentRole(actor)?.code !== "WAREHOUSE") throw forbiddenError();

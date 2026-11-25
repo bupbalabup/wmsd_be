@@ -8,10 +8,15 @@ import * as m from '../src/models/runtime.js';
 import { PERMISSION_CATALOGUE, ROLE_PERMISSIONS } from '../src/seeds/data/permissions.data.js';
 import * as rr from '../src/modules/replenishments/replenishment.commands.js';
 import * as po from '../src/modules/purchase-orders/purchase-order.commands.js';
-import * as receiving from '../src/modules/po-receiving/po-receiving.service.js';
+import { purchaseOrderQuantities } from '../src/modules/purchase-orders/purchase-order.service.js';
+import { cancelDraft } from '../src/shared/utils/purchase-core.js';
+import * as receiving from '../src/modules/goods-inspections/goods-inspection.service.js';
+import * as purchaseReceipt from '../src/modules/goods-receipts/purchase-receipt.service.js';
+import * as custody from '../src/modules/custody/custody.service.js';
 import { getDocument, listDocuments, receivingQueue, receivingSummary } from '../src/modules/po-receiving/purchase-read.service.js';
 import { createLocationMovement, confirmLocationMovement } from '../src/modules/location-movements/location-movement.service.js';
-import * as correction from '../src/modules/po-receiving/purchase-correction.service.js';
+import * as correction from '../src/modules/goods-inspections/goods-inspection.correction.js';
+import * as reversals from '../src/modules/stock-reversals/stock-reversal.service.js';
 import * as productService from '../src/modules/products/product.service.js';
 import { createLot, getLot, getLotMovements, listLots, updateLot } from '../src/modules/lots/lot.service.js';
 import { backfillConversions } from '../src/migrations/conversions.js';
@@ -233,11 +238,11 @@ run('planned PO conversion and actual lot conversion remain separate through rec
  const confirmed = await confirm(inspection);
  const receiptId = confirmed.resultRefs.find(ref => ref.documentType === 'goods_receipts').documentId;
  orderDoc = await m.PurchaseOrder.findById(order.id);
- await receiving.postReceipt(worker, receiptId, { ...input(), expectedVersion: 1, expectedPoVersion: orderDoc.version });
+ await purchaseReceipt.postReceipt(worker, receiptId, { ...input(), expectedVersion: 1, expectedPoVersion: orderDoc.version });
  const receipt = await m.PurchaseReceipt.findById(receiptId);
  assert.equal(String(receipt.items[0].baseUnitsPerUnit), '8');
  assert.equal(String(receipt.items[0].qtyBase), '32');
- const [balance] = await receiving.commitments(await m.PurchaseOrder.findById(order.id));
+ const [balance] = await purchaseOrderQuantities(await m.PurchaseOrder.findById(order.id));
  assert.equal(balance.outstandingQtyBase, '8');
  assert.equal(String(orderDoc.items[0].baseUnitsPerUnit), '4');
  assert.equal(String(orderDoc.items[0].lotId), String(batch._id));
@@ -255,14 +260,14 @@ async function postedReceipt(packagingCondition='SEALED',custodyOnly=false,quali
  const inspection=await receiving.createInspection(worker,order.id,{creationKey:key(),expectedPoVersion:orderDoc.version,arrivedAt:new Date().toISOString(),deliveredBy:'Người giao A - 0901234567',deliveryReference:'PG-001',lines:[{poLineId:String(orderDoc.items[0]._id),lotId:String(batch._id),enteredQty:qtyBase??'2',enteredUnit:qtyBase?'PIECE':'BOX',qualityCode,ownershipDecision:custodyOnly?'CUSTODY':'ACCEPT',packagingCondition}]});
  let inspected=await m.GoodsInspection.findById(inspection.id);
  const confirmed=await receiving.confirmInspection(worker,inspection.id,{...input(),expectedVersion:inspected.version,expectedPoVersion:orderDoc.version,destinations:custodyOnly?[]:[{inspectionItemId:String(inspected.items[0]._id),locationId:String(location._id)}]});
- if(custodyOnly){const ref=confirmed.resultRefs.find(r=>r.documentType==='custody_receipts');const d=await m.CustodyReceipt.findById(ref.documentId);const loc=custodyLocation??await m.WarehouseLocation.create({warehouseId:warehouse._id,code:key(),locationType:'CUSTODY',usableLengthMm:'5000',usableWidthMm:'5000'});await receiving.postCustodyReceipt(worker,d._id,{...input(),expectedVersion:d.version,handedOverBy:'Supplier',destinations:[{lineId:String(d.items[0]._id),locationId:String(loc._id)}]});return m.CustodyReceipt.findById(d._id);}
+ if(custodyOnly){const ref=confirmed.resultRefs.find(r=>r.documentType==='custody_receipts');const d=await m.CustodyReceipt.findById(ref.documentId);const loc=custodyLocation??await m.WarehouseLocation.create({warehouseId:warehouse._id,code:key(),locationType:'CUSTODY',usableLengthMm:'5000',usableWidthMm:'5000'});await custody.postCustodyReceipt(worker,d._id,{...input(),expectedVersion:d.version,handedOverBy:'Supplier',destinations:[{lineId:String(d.items[0]._id),locationId:String(loc._id)}]});return m.CustodyReceipt.findById(d._id);}
  const receiptId=confirmed.resultRefs.find(r=>r.documentType==='goods_receipts').documentId;orderDoc=await m.PurchaseOrder.findById(order.id);
  const post={...input(),expectedVersion:1,expectedPoVersion:orderDoc.version};
  if(portion){
    const draft=await m.PurchaseReceipt.findById(receiptId);
    post.packaging=[{lineId:String(draft.items[0]._id),portions:[{quantityBase:qtyBase??'8',...portion}]}];
  }
- await receiving.postReceipt(worker,receiptId,post);await receiving.postReceipt(worker,receiptId,post);
+ await purchaseReceipt.postReceipt(worker,receiptId,post);await purchaseReceipt.postReceipt(worker,receiptId,post);
  const receipt=await m.PurchaseReceipt.findById(receiptId);assert.equal(await m.StockTransaction.countDocuments({sourceId:receipt._id}),1);return receipt;
 }
 run('product image URLs create, list, detail, update, audit and legacy defaults',async()=>{
@@ -338,7 +343,7 @@ run('posting a purchase receipt updates the PO and exposes its balance for reloc
    lines: [{ sourceBalanceId, sourceBalanceVersion: balance.version, enteredUnit: 'PIECE',
      enteredQty: '8', toLocationId: String(storageLocation._id) }],
  });
- assert.match((await correction.reversalPreflight(worker, receipt._id)).reason, /Đã lập lệnh/);
+ assert.match((await reversals.reversalPreflight(worker, receipt._id)).reason, /Đã lập lệnh/);
  const task = await m.TransferOrder.findById(created.id);
  assert.equal(task.header.taskKind, 'RELOCATE');
  await confirmLocationMovement(worker, created.id, { idempotencyKey: key(), expectedVersion: task.version,
@@ -347,7 +352,7 @@ run('posting a purchase receipt updates the PO and exposes its balance for reloc
  assert.equal(String(relocation.movements[0].fromBalanceId), sourceBalanceId);
  assert.equal(String(relocation.movements[0].quantityBase), '8');
  assert.equal(String((await m.InventoryBalance.findById(sourceBalanceId)).quantityBase), '0');
- assert.match((await correction.reversalPreflight(worker, receipt._id)).reason, /đã bị chuyển, xuất hoặc mở thùng tại vị trí IN/);
+ assert.match((await reversals.reversalPreflight(worker, receipt._id)).reason, /đã bị chuyển, xuất hoặc mở thùng tại vị trí IN/);
  assert.deepEqual((await reconcilePurchasing()).issues, []);
 });
 
@@ -452,7 +457,7 @@ run('BF03 whole-carton confirmation stays compatible and an idempotent retry pos
 run('Warehouse reversal restores PO headroom once without separate approval',async()=>{
  const receipt=await postedReceipt();const attachment=await m.Attachment.create({ownerDocumentType:'goods_receipts',ownerDocumentId:receipt._id,purpose:'TEST',originalName:'test.png',mediaType:'image/png',sizeBytes:10,storageKey:'local-test',checksum:'a'.repeat(64),uploadedBy:worker._id,uploadedAt:new Date(),accessCategory:'BUSINESS',status:'ATTACHED'});
  const order=await m.PurchaseOrder.findById(receipt.header.purchaseOrderId);const payload={...input(),expectedVersion:receipt.version,expectedPoVersion:order.version,reason:'Wrong entry',evidenceIds:[String(attachment._id)]};
- const reversal=await correction.reverseReceipt(worker,receipt._id,payload);await correction.reverseReceipt(worker,receipt._id,payload);
+ const reversal=await reversals.reverseReceipt(worker,receipt._id,payload);await reversals.reverseReceipt(worker,receipt._id,payload);
  assert.equal((await m.StockReversal.findById(reversal.id)).workflowStatus,'POSTED');assert.equal(await m.StockTransaction.countDocuments({reversedTransactionId:receipt.stockTransactionId}),1);assert.equal((await m.PurchaseReceipt.findById(receipt._id)).workflowStatus,'REVERSED');assert.deepEqual((await reconcilePurchasing()).issues,[]);
  const detail = await getDocument(worker, receipt._id, 'GR_PURCHASE');
  assert.equal(detail.capabilities.relocate, false);
@@ -465,7 +470,7 @@ run('purchase reversal deducts its own portions on a shared balance with reserva
   warehouseId: warehouse._id, code: 'IN-REVERSE', locationType: 'RECEIVING', usableLengthMm: '5000', usableWidthMm: '5000',
  });
  const { receipt, post } = await draftPurchaseReceipt('SEALED', { location, quantities: ['1', '1'] });
- await receiving.postReceipt(worker, receipt._id, post);
+ await purchaseReceipt.postReceipt(worker, receipt._id, post);
  const source = await m.PurchaseReceipt.findById(receipt._id);
  const unrelated = await postedReceipt('LOOSE', false, 'GOOD', { qtyBase: '4', location });
  const backup = await postedReceipt('SEALED', false, 'GOOD', { location });
@@ -482,19 +487,19 @@ run('purchase reversal deducts its own portions on a shared balance with reserva
   lines: [{ sourceBalanceId: balanceId, sourceBalanceVersion: shared.version, toLocationId: String(storageLocation._id),
    enteredUnit: 'PIECE', enteredQty: '4', packagingState: 'LOOSE' }],
  });
- assert.match((await correction.reversalPreflight(worker, source._id)).reason, /Đã lập lệnh/);
+ assert.match((await reversals.reversalPreflight(worker, source._id)).reason, /Đã lập lệnh/);
  const task = await m.TransferOrder.findById(relocation.id);
  await confirmLocationMovement(worker, relocation.id, { idempotencyKey: key(), expectedVersion: task.version,
   lines: [{ lineId: String(task.items[0]._id), actualQtyBase: '4' }] });
- assert.match((await correction.reversalPreflight(worker, unrelated._id)).reason, /đã bị chuyển, xuất hoặc mở thùng/);
- assert.equal((await correction.reversalPreflight(worker, source._id)).eligible, true);
+ assert.match((await reversals.reversalPreflight(worker, unrelated._id)).reason, /đã bị chuyển, xuất hoặc mở thùng/);
+ assert.equal((await reversals.reversalPreflight(worker, source._id)).eligible, true);
  const reservation = await m.StockReservation.create({
   demandRef: { documentType: 'sales_orders', documentId: key() },
   balanceId, reservedQty: '9', creationKey: key(), createdBy: worker._id,
  });
- assert.match((await correction.reversalPreflight(worker, source._id)).reason, /chỉ còn khả dụng 7/);
+ assert.match((await reversals.reversalPreflight(worker, source._id)).reason, /chỉ còn khả dụng 7/);
  await m.StockReservation.updateOne({ _id: reservation._id }, { $set: { releasedQty: '5' } });
- assert.equal((await correction.reversalPreflight(worker, source._id)).eligible, true);
+ assert.equal((await reversals.reversalPreflight(worker, source._id)).eligible, true);
  const order = await m.PurchaseOrder.findById(source.header.purchaseOrderId);
  const reversePath = '/goods-receipts/purchase/' + encodeURIComponent(source._id) + '/reverse';
  const payload = { ...input(), expectedVersion: source.version, expectedPoVersion: order.version, reason: 'Ghi nhầm phiếu' };
@@ -512,7 +517,7 @@ run('reversal reopens a COMPLETED PO but keeps a CLOSED PO terminal',async()=>{
   const receipt=await postedReceipt();const attachment=await m.Attachment.create({ownerDocumentType:'goods_receipts',ownerDocumentId:receipt._id,purpose:'TEST',originalName:'test.png',mediaType:'image/png',sizeBytes:10,storageKey:'local-test',checksum:'a'.repeat(64),uploadedBy:worker._id,uploadedAt:new Date(),accessCategory:'BUSINESS',status:'ATTACHED'});
   if(status)await m.PurchaseOrder.collection.updateOne({_id:receipt.header.purchaseOrderId},{$set:{workflowStatus:status}});
   const order=await m.PurchaseOrder.findById(receipt.header.purchaseOrderId);
-  await correction.reverseReceipt(worker,receipt._id,{...input(),expectedVersion:receipt.version,expectedPoVersion:order.version,reason:'Wrong entry',evidenceIds:[String(attachment._id)]});
+  await reversals.reverseReceipt(worker,receipt._id,{...input(),expectedVersion:receipt.version,expectedPoVersion:order.version,reason:'Wrong entry',evidenceIds:[String(attachment._id)]});
   return (await m.PurchaseOrder.findById(order._id)).workflowStatus;
  };
  assert.equal(await reverse(null),'OPEN');
@@ -675,10 +680,10 @@ async function draftPurchaseReceipt(condition, { location = receivingLocation, q
 run('purchase intake rejects declared volume for SEALED and SEALED-only packaging for opened goods',async()=>{
  const snapshot={packageUnit:'Thùng',baseUnitsPerPackage:'4',outerLengthMm:'620',outerWidthMm:'620',outerHeightMm:'50'};
  const sealed=await draftPurchaseReceipt('SEALED');
- await assert.rejects(receiving.postReceipt(worker,sealed.receipt._id,{...sealed.post,packaging:[{lineId:String(sealed.receipt.items[0]._id),portions:[{packagingState:'SEALED',sealedPackCount:2,quantityBase:'8',measuredVolumeMm3:'1',packagingSnapshot:snapshot}]}]}),/không khai thể tích/);
- await assert.rejects(receiving.postReceipt(worker,sealed.receipt._id,{...sealed.post,packaging:[{lineId:String(sealed.receipt.items[0]._id),portions:[{packagingState:'SEALED',sealedPackCount:2,quantityBase:'8',packagingSnapshot:snapshot}]},{lineId:String(sealed.receipt.items[0]._id),portions:[{packagingState:'OPEN',quantityBase:'8',measuredVolumeMm3:'1'}]}]}),/trùng/);
+ await assert.rejects(purchaseReceipt.postReceipt(worker,sealed.receipt._id,{...sealed.post,packaging:[{lineId:String(sealed.receipt.items[0]._id),portions:[{packagingState:'SEALED',sealedPackCount:2,quantityBase:'8',measuredVolumeMm3:'1',packagingSnapshot:snapshot}]}]}),/không khai thể tích/);
+ await assert.rejects(purchaseReceipt.postReceipt(worker,sealed.receipt._id,{...sealed.post,packaging:[{lineId:String(sealed.receipt.items[0]._id),portions:[{packagingState:'SEALED',sealedPackCount:2,quantityBase:'8',packagingSnapshot:snapshot}]},{lineId:String(sealed.receipt.items[0]._id),portions:[{packagingState:'OPEN',quantityBase:'8',measuredVolumeMm3:'1'}]}]}),/trùng/);
  const opened=await draftPurchaseReceipt('TORN');
- await assert.rejects(receiving.postReceipt(worker,opened.receipt._id,{...opened.post,packaging:[{lineId:String(opened.receipt.items[0]._id),portions:[{packagingState:'SEALED',sealedPackCount:2,quantityBase:'8',packagingSnapshot:snapshot}]}]}),/phải có phần hàng mở\/lẻ/);
+ await assert.rejects(purchaseReceipt.postReceipt(worker,opened.receipt._id,{...opened.post,packaging:[{lineId:String(opened.receipt.items[0]._id),portions:[{packagingState:'SEALED',sealedPackCount:2,quantityBase:'8',packagingSnapshot:snapshot}]}]}),/phải có phần hàng mở\/lẻ/);
  assert.equal(await m.StockTransaction.countDocuments({sourceId:{$in:[sealed.receipt._id,opened.receipt._id]}}),0);
 });
 
@@ -692,14 +697,14 @@ run('a draft purchase receipt rejects two destinations for the same line', async
  const change = { ...input(), expectedVersion: receipt.version, reason: 'Move to another receiving bay' };
  const original = { lineId, receivingLocationId: String(receivingLocation._id) };
  const replacement = { lineId, receivingLocationId: String(destination._id) };
- await assert.rejects(receiving.changeDestinations(worker, receipt._id, {
+ await assert.rejects(purchaseReceipt.changeDestinations(worker, receipt._id, {
   ...change, lines: [original, replacement],
  }), /Mỗi dòng chỉ chọn một vị trí/);
 
  const current = await m.PurchaseReceipt.findById(receipt._id);
  assert.equal(current.version, receipt.version);
  assert.equal(String(current.items.id(lineId).destinationLocationId), original.receivingLocationId);
- await receiving.changeDestinations(worker, receipt._id, { ...change, lines: [replacement] });
+ await purchaseReceipt.changeDestinations(worker, receipt._id, { ...change, lines: [replacement] });
  const updated = await m.PurchaseReceipt.findById(receipt._id);
  assert.equal(updated.version, receipt.version + 1);
  assert.equal(String(updated.items.id(lineId).destinationLocationId), replacement.receivingLocationId);
@@ -726,7 +731,7 @@ run('replacing a confirmed inspection records corrected delivery details on the 
   }],
  };
  await assert.rejects(correction.replaceInspection(worker, inspection._id, correctionInput), /Cần xử lý 1 chứng từ/);
- await receiving.cancelDraft(worker, receipt._id, 'GR_PURCHASE', { ...post, reason: correctionInput.reason });
+ await cancelDraft(worker, receipt._id, 'GR_PURCHASE', { ...post, reason: correctionInput.reason });
  const order = await m.PurchaseOrder.findById(receipt.header.purchaseOrderId);
  const result = await correction.replaceInspection(worker, inspection._id, {
   ...correctionInput, expectedPoVersion: order.version,
@@ -749,7 +754,7 @@ run('replacing a confirmed inspection records corrected delivery details on the 
 run('inspection correction returns all blockers and succeeds after reversing purchase and cancelling custody', async t => {
  const api = await receivingApi(t);
  const { receipt, custodyId, post } = await draftPurchaseReceipt('SEALED', { quantities: ['1'], custodyQty: '1' });
- await receiving.postReceipt(worker, receipt._id, post);
+ await purchaseReceipt.postReceipt(worker, receipt._id, post);
  const posted = await m.PurchaseReceipt.findById(receipt._id);
  const inspection = await m.GoodsInspection.findById(receipt.items[0].inspectionId);
  const path = '/goods-inspections/' + encodeURIComponent(inspection._id);
@@ -789,7 +794,7 @@ run('inspection correction returns all blockers and succeeds after reversing pur
  assert.equal((await m.PurchaseOrder.findById(order._id)).version, order.version);
  assert.equal((await m.GoodsInspection.findById(inspection._id)).version, inspectionVersion);
  assert.equal((await api('GET', '/custody-receipts?status=CANCELLED')).body.data.items.some(row => row.id === custodyId), true);
- await correction.reverseReceipt(worker, posted._id, {
+ await reversals.reverseReceipt(worker, posted._id, {
   ...input(), expectedVersion: posted.version, expectedPoVersion: order.version, reason: payload.reason,
  });
  order = await m.PurchaseOrder.findById(order._id);
@@ -811,7 +816,6 @@ run('inspection correction returns all blockers and succeeds after reversing pur
  assert.equal((await api('GET', replacement)).body.data.replacedBy, null);
 });
 
-import * as custody from '../src/modules/po-receiving/purchase-custody.service.js';
 run('damaged purchase intake starts supplier return from posted custody without a defect report',async()=>{
  const service = await import('../src/modules/return-workflows/native.service.js');
  const held = await postedReceipt('SEALED', true, 'DAMAGED');
@@ -825,7 +829,7 @@ run('damaged purchase intake starts supplier return from posted custody without 
  const operation = () => ({ idempotencyKey: key() });
  const created = await service.createSupplierReturn(worker, { ...operation(), warehouseId: String(warehouse._id), supplierId: String(supplier._id), note: 'Damaged on arrival', lines: [{ originLineId: String(line._id), balanceId: line.custodyBalanceId, qtyBase: quantity }] });
  let request = await m.SupplierReturn.findById(created.id);
- const blocked = await correction.reversalPreflight(worker, held._id, 'CUSTODY_RECEIPT');
+ const blocked = await reversals.reversalPreflight(worker, held._id, 'CUSTODY_RECEIPT');
  assert.equal(blocked.eligible, false);
  assert.equal(blocked.reason, `Có chứng từ phụ thuộc trong supplier_returns: ${request.documentNo} (${request.workflowStatus})`);
  assert.equal(request.items[0].details.ownerType, 'SUPPLIER');
@@ -862,10 +866,10 @@ run('custody acceptance, ownership reversal and return preserve physical stock a
  const decision=await custody.decideCustody(accountant,held._id,{...input(),expectedVersion:held.version,decision:'ACCEPT',reason:'Agreed',evidenceIds:[String(evidence._id)],lines:[{custodyItemId:String(item._id),qtyBase:'4'}]});held=await m.CustodyReceipt.findById(held._id);
  const inspection=await m.GoodsInspection.findById(held.items[0].sources[0].documentId);const arrival=await m.GoodsArrival.findById(inspection.header.arrivalId);let order=await m.PurchaseOrder.findById(arrival.header.purchaseOrderId);
  const created=await custody.createCustodyResolution(worker,held._id,{...input(),expectedVersion:held.version,expectedPoVersion:order.version,decisionId:decision.decisionId,lines:[{custodyItemId:String(item._id),qtyBase:'4',destinationLocationId:String(receivingLocation._id)}]},'ACCEPT');
- order=await m.PurchaseOrder.findById(order._id);const gr=await m.PurchaseReceipt.findById(created.id);const post={...input(),expectedVersion:gr.version,expectedPoVersion:order.version};await receiving.postReceipt(worker,gr._id,post);await receiving.postReceipt(worker,gr._id,post);
+ order=await m.PurchaseOrder.findById(order._id);const gr=await m.PurchaseReceipt.findById(created.id);const post={...input(),expectedVersion:gr.version,expectedPoVersion:order.version};await purchaseReceipt.postReceipt(worker,gr._id,post);await purchaseReceipt.postReceipt(worker,gr._id,post);
  const txn=await m.StockTransaction.findOne({sourceId:gr._id});assert.ok(txn.movements[0].fromBalanceId);const balance=await m.InventoryBalance.findById(txn.movements[0].fromBalanceId);assert.equal(String(balance.quantityBase),'4');
  const ev=await m.Attachment.create({ownerDocumentType:'goods_receipts',ownerDocumentId:gr._id,purpose:'TEST',originalName:'test.png',mediaType:'image/png',sizeBytes:10,storageKey:'local-test',checksum:'a'.repeat(64),uploadedBy:worker._id,uploadedAt:new Date(),accessCategory:'BUSINESS',status:'ATTACHED'});order=await m.PurchaseOrder.findById(order._id);
- await correction.reverseReceipt(worker,gr._id,{...input(),expectedVersion:2,expectedPoVersion:order.version,reason:'Correction',evidenceIds:[String(ev._id)]});assert.equal(String((await m.InventoryBalance.findById(balance._id)).quantityBase),'8');
+ await reversals.reverseReceipt(worker,gr._id,{...input(),expectedVersion:2,expectedPoVersion:order.version,reason:'Correction',evidenceIds:[String(ev._id)]});assert.equal(String((await m.InventoryBalance.findById(balance._id)).quantityBase),'8');
  held=await m.CustodyReceipt.findById(held._id);const ret=await custody.decideCustody(accountant,held._id,{...input(),expectedVersion:held.version,decision:'RETURN',reason:'Return agreed',evidenceIds:[String(evidence._id)],lines:[{custodyItemId:String(item._id),qtyBase:'8'}]});held=await m.CustodyReceipt.findById(held._id);
  const release=await custody.createCustodyResolution(worker,held._id,{...input(),expectedVersion:held.version,decisionId:ret.decisionId,lines:[{custodyItemId:String(item._id),qtyBase:'8'}]},'RETURN');await custody.postCustodyRelease(worker,release.id,{...input(),expectedVersion:1,recipientName:'Supplier'});assert.equal(String((await m.InventoryBalance.findById(balance._id)).quantityBase),'0');
 });
@@ -918,7 +922,7 @@ run('custody reversal follows reinspection and partial ownership reversal withou
  assert.notEqual(receipt.items[0].inspectionId, originalInspectionId);
  assert.match((await api('GET', preflightPath)).body.data.reason, /Hủy phiếu nhập/);
  order = await m.PurchaseOrder.findById(order._id);
- const posted = await receiving.postReceipt(worker, receipt._id, { ...input(), expectedVersion: receipt.version, expectedPoVersion: order.version });
+ const posted = await purchaseReceipt.postReceipt(worker, receipt._id, { ...input(), expectedVersion: receipt.version, expectedPoVersion: order.version });
  const unrelatedPortion = unrelatedPosting.movements[0].packagingPortionIds[0];
  assert.equal(String((await m.InventoryBalance.findById(balanceId)).packagingPortions.id(unrelatedPortion).quantityBase), '8');
  held = await m.CustodyReceipt.findById(held._id);
@@ -931,7 +935,7 @@ run('custody reversal follows reinspection and partial ownership reversal withou
   [receipt._id, 'REVERSE_RECEIPT'], [held._id, 'REVERSE_CUSTODY'],
  ]);
  order = await m.PurchaseOrder.findById(order._id);
- await correction.reverseReceipt(worker, receipt._id, { ...input(), expectedVersion: posted.version, expectedPoVersion: order.version, reason: 'Trả về giữ hộ' });
+ await reversals.reverseReceipt(worker, receipt._id, { ...input(), expectedVersion: posted.version, expectedPoVersion: order.version, reason: 'Trả về giữ hộ' });
  const restored = await m.InventoryBalance.findById(balanceId);
  assert.equal(String(restored.quantityBase), '16');
  assert.equal(restored.packagingPortions.length, 3);
@@ -982,7 +986,7 @@ run('custody reversal blocks when a relocation used its original portions', asyn
  const doc = await m.TransferOrder.findById(task.id);
  await confirmLocationMovement(worker, doc._id, { idempotencyKey: key(), expectedVersion: doc.version,
   lines: [{ lineId: String(doc.items[0]._id), actualQtyBase: '4' }] });
- const preflight = await correction.reversalPreflight(worker, held._id, 'CUSTODY_RECEIPT');
+ const preflight = await reversals.reversalPreflight(worker, held._id, 'CUSTODY_RECEIPT');
  assert.equal(preflight.eligible, false);
  assert.match(preflight.reason, /đã bị chuyển, xuất hoặc mở thùng/);
 });
@@ -1229,7 +1233,7 @@ run('HTTP PO lifecycle supports draft edits, expected-date changes, receiving hi
    assert.equal(blocked.body.message, 'PO đã có chứng từ nhận hàng liên kết');
    const beforePosting = await m.PurchaseOrder.findById(id);
    const draftReceipt = await m.PurchaseReceipt.findById(receiptId);
-   await receiving.postReceipt(worker, receiptId, {
+   await purchaseReceipt.postReceipt(worker, receiptId, {
      ...input(), expectedVersion: draftReceipt.version, expectedPoVersion: beforePosting.version,
      packaging: [{ lineId: String(draftReceipt.items[0]._id), portions: [{ packagingState: 'OPEN', quantityBase: '2', measuredVolumeMm3: '7688000' }] }],
    });
@@ -1304,7 +1308,7 @@ async function postAdditionalPurchaseReceipt(poId, enteredQty) {
  });
  const receiptId = confirmed.resultRefs.find(ref => ref.documentType === 'goods_receipts').documentId;
  const draft = await m.PurchaseReceipt.findById(receiptId);
- await receiving.postReceipt(worker, receiptId, {
+ await purchaseReceipt.postReceipt(worker, receiptId, {
   ...input(), expectedVersion: draft.version, expectedPoVersion: (await m.PurchaseOrder.findById(poId)).version,
  });
  return m.PurchaseReceipt.findById(receiptId);
@@ -1642,7 +1646,7 @@ run('custody reinspection, stale decisions, wrong roles and concurrent claims ar
  const create={...input(),expectedVersion:held.version,expectedPoVersion:order.version,decisionId:decision.decisionId,lines:[{custodyItemId:String(row._id),qtyBase:'4',destinationLocationId:String(receivingLocation._id)}]};
  const results=await Promise.allSettled([custody.createCustodyResolution(worker,held._id,create,'ACCEPT'),custody.createCustodyResolution(worker,held._id,{...create,operationKey:key()},'ACCEPT')]);assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal(results.filter(r=>r.status==='rejected').length,1);
  const gr=await m.PurchaseReceipt.findById(results.find(r=>r.status==='fulfilled').value.id);const before=await m.StockTransaction.countDocuments({sourceId:gr._id});const livePo=await m.PurchaseOrder.findById(order._id);
- await assert.rejects(receiving.postReceipt(worker,gr._id,{...input(),expectedVersion:gr.version,expectedPoVersion:livePo.version-1}));assert.equal(await m.StockTransaction.countDocuments({sourceId:gr._id}),before);
+ await assert.rejects(purchaseReceipt.postReceipt(worker,gr._id,{...input(),expectedVersion:gr.version,expectedPoVersion:livePo.version-1}));assert.equal(await m.StockTransaction.countDocuments({sourceId:gr._id}),before);
 });
 
 run('one RR cannot create concurrent POs and freeze rolls back receipt posting',async()=>{
@@ -1654,11 +1658,11 @@ run('one RR cannot create concurrent POs and freeze rolls back receipt posting',
  const order=orders.find(r=>r.status==='fulfilled').value;await po.confirmPurchaseOrder(accountant,order.id,{...input(),expectedVersion:1});let orderDoc=await m.PurchaseOrder.findById(order.id);
  // Cancelling a draft inspection also cancels the arrival created with it.
  const spare=await receiving.createInspection(worker,order.id,{creationKey:key(),expectedPoVersion:orderDoc.version,arrivedAt:new Date().toISOString(),lines:[{poLineId:String(orderDoc.items[0]._id),lotId:String(batch._id),enteredQty:'8',qualityCode:'GOOD',ownershipDecision:'ACCEPT',packagingCondition:'SEALED'}]});
- const spareDoc=await m.GoodsInspection.findById(spare.id);await receiving.cancelDraft(worker,spare.id,'INSPECTION',{...input(),expectedVersion:spareDoc.version,reason:'Nhập nhầm'});
+ const spareDoc=await m.GoodsInspection.findById(spare.id);await cancelDraft(worker,spare.id,'INSPECTION',{...input(),expectedVersion:spareDoc.version,reason:'Nhập nhầm'});
  const spareArrival=await m.GoodsArrival.findById(spareDoc.header.arrivalId);assert.deepEqual([spareArrival.workflowStatus,spareArrival.cancelReason],['CANCELLED','Nhập nhầm']);
  const check=await receiving.createInspection(worker,order.id,{creationKey:key(),expectedPoVersion:orderDoc.version,arrivedAt:new Date().toISOString(),lines:[{poLineId:String(orderDoc.items[0]._id),lotId:String(batch._id),enteredQty:'8',qualityCode:'GOOD',ownershipDecision:'ACCEPT',packagingCondition:'SEALED'}]});const inspection=await m.GoodsInspection.findById(check.id);const confirmation=await receiving.confirmInspection(worker,check.id,{...input(),expectedVersion:1,expectedPoVersion:orderDoc.version,destinations:[{inspectionItemId:String(inspection.items[0]._id),locationId:String(receivingLocation._id)}]});
  const receiptId=confirmation.resultRefs[0].documentId;orderDoc=await m.PurchaseOrder.findById(order.id);const lock=await m.StocktakeLocationLock.create({stocktakeId:new mongoose.Types.ObjectId(),locationId:receivingLocation._id,scopeVersion:1,lockedAt:new Date(),lockedBy:worker._id,status:'LOCKED',version:1});
- try{await assert.rejects(receiving.postReceipt(worker,receiptId,{...input(),expectedVersion:1,expectedPoVersion:orderDoc.version}),/khóa/);assert.equal(await m.StockTransaction.countDocuments({sourceId:receiptId}),0);assert.equal((await m.PurchaseReceipt.findById(receiptId)).workflowStatus,'DRAFT');}finally{await m.StocktakeLocationLock.deleteOne({_id:lock._id});}
+ try{await assert.rejects(purchaseReceipt.postReceipt(worker,receiptId,{...input(),expectedVersion:1,expectedPoVersion:orderDoc.version}),/khóa/);assert.equal(await m.StockTransaction.countDocuments({sourceId:receiptId}),0);assert.equal((await m.PurchaseReceipt.findById(receiptId)).workflowStatus,'DRAFT');}finally{await m.StocktakeLocationLock.deleteOne({_id:lock._id});}
 });
 run('BF03 additive seed supplies selectable stock and rerun never restores consumed quantity',async()=>{
  const {seedBF03}=await import('../scripts/seed-bf03.mjs');

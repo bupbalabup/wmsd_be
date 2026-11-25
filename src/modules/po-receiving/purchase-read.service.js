@@ -1,4 +1,4 @@
-import { GoodsArrival, GoodsInspection, PurchaseReceipt, CustodyReceipt, SupplierReturn, AuditLog, StockTransaction, Supplier, User, Warehouse, PurchaseOrder, InventoryBalance, StockHoldingPoint, WarehouseLocation } from '../../models/runtime.js';
+import { GoodsArrival, GoodsInspection, PurchaseReceipt, CustodyReceipt, SupplierReturn, AuditLog, StockTransaction, Supplier, User, Warehouse, PurchaseOrder, InventoryBalance, StockHoldingPoint, WarehouseLocation, OperationRecord } from '../../models/runtime.js';
 import { freeQuantity } from '../../shared/utils/stock.js';
 import { requirePermission, hasPermission, canAccessWarehouse } from '../../shared/utils/access.js';
 import { currentRole } from '../../shared/utils/userRole.js';
@@ -7,7 +7,7 @@ import { escapeRegex } from '../../shared/utils/domain.js';
 import { exact } from '../../models/model-utils.js';
 import { same } from '../../shared/utils/document-command.js';
 import { enrichLineItems } from '../../shared/utils/document-items.js';
-import { findPurchase, purchaseModels, purchaseOrderRef, purchaseWarehouseFilter as warehouseFilter } from './purchase-core.js';
+import { findPurchase, purchaseModels, purchaseOrderRef, purchaseWarehouseFilter as warehouseFilter } from '../../shared/utils/purchase-core.js';
 import { getPurchaseOrder } from '../purchase-orders/purchase-order.service.js';
 import { redactPrices } from '../sales-orders/sales-read.service.js';
 const financial=u=>['OWNER','ACCOUNTANT'].includes(currentRole(u)?.code);
@@ -278,5 +278,24 @@ export async function receivingHistory(user,id,query){
   requirePermission(user,'goods_receipt_inspection:read');const d=await findPurchase(id,user,null,{readOnly:true});const filter={subjectId:d._id,subjectType:d.constructor.collection.name};
   const [events,total]=await Promise.all([AuditLog.find(filter).sort({occurredAt:-1,_id:-1}).skip((query.page-1)*query.limit).limit(query.limit).lean(),AuditLog.countDocuments(filter)]);const actors=await User.find({_id:{$in:events.map(e=>e.actorId)}}).select('_id fullName').lean();
   const items=events.map(e=>({...dto(e),actorName:actors.find(u=>same(u._id,e.actorId))?.fullName??null}));return {items:financial(user)?items:redactPrices(items),total,page:query.page,limit:query.limit};
+}
+export async function receivingOperation(user, id, key) {
+  requirePermission(user, 'goods_receipt_inspection:read');
+  const po = await findPurchase(id, user, null, { kind: 'PO', readOnly: true });
+  const operations = await OperationRecord.find({
+    actorId: user._id,
+    requestKey: key,
+  }).lean();
+  for (const operation of operations) {
+    const subject = await findPurchase(operation.subjectId, user, null, { readOnly: true });
+    if (
+      same(subject._id, po._id) ||
+      same(subject.header.purchaseOrderId, po._id) ||
+      subject.sources?.some(link => same(link.documentId, po._id))
+    ) {
+      return serialize(operation);
+    }
+  }
+  return null;
 }
 
