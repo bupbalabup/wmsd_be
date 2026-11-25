@@ -25,6 +25,19 @@ const DOCUMENT_GROUPS = [
   { key: "defect_reports", label: "Hàng lỗi", model: "DefectReport", permission: "defect:read", path: "/defective-goods" },
 ];
 
+// Vietnamese labels are derived on read; documents store only the status code.
+const STATUS_LABELS = {
+  DRAFT: "Nháp", OPEN: "Đang mở", CREATED: "Đã tạo", SUBMITTED: "Chờ duyệt", PENDING_APPROVAL: "Chờ duyệt",
+  APPROVED: "Đã duyệt", ACCEPTED: "Đã chấp nhận", REJECTED: "Đã từ chối", REVISION_REQUIRED: "Cần chỉnh sửa",
+  RETURNED: "Trả lại bổ sung", RELEASED: "Đã giao kho", READY: "Sẵn sàng xuất", PARTIAL: "Đang thực hiện",
+  PICKED: "Đã soạn", ISSUED: "Đã xuất kho", HANDED_OVER: "Đã bàn giao vận chuyển", DISPATCHED: "Đã xuất trả",
+  DELIVERED: "Đã giao", CONFIRMED: "Đã xác nhận", POSTED: "Đã ghi sổ", REVERSED: "Đã đảo",
+  PLANNED: "Chờ kích hoạt", COUNTING: "Đang đếm", RECONCILING: "Chờ duyệt chênh lệch", IN_PROGRESS: "Đang thực hiện",
+  INSPECTED: "Đã kiểm tra", AGREEMENT_PENDING: "Chờ thỏa thuận NCC", ACKNOWLEDGED: "Đã ghi biên nhận",
+  RECORDED: "Đã ghi nhận", SUPERSEDED: "Đã được đính chính", RESOLVED: "Đã xử lý", ON_HOLD: "Tạm dừng",
+  COMPLETED: "Hoàn tất", CLOSED: "Đã đóng", CANCELLED: "Đã hủy",
+};
+
 const item = (id, title, subtitle, href) => ({ id: String(id), title, subtitle: subtitle || null, href });
 
 export async function quickSearch(user, { q, limit }) {
@@ -54,8 +67,8 @@ export async function quickSearch(user, { q, limit }) {
       .map((u) => item(u._id, u.fullName, u.username, `/accounts/${u._id}`)));
   for (const group of DOCUMENT_GROUPS) {
     add(group.key, group.label, group.permission, async () =>
-      (await m[group.model].find({ documentNo: pattern, ...scope }).sort({ createdAt: -1 }).limit(limit).select("documentNo workflowStatus trangThaiTiengViet createdAt").lean())
-        .map((d) => item(d._id, d.documentNo, d.trangThaiTiengViet || d.workflowStatus, `${group.path}/${encodeURIComponent(String(d._id))}`)));
+      (await m[group.model].find({ documentNo: pattern, ...scope }).sort({ createdAt: -1 }).limit(limit).select("documentNo workflowStatus createdAt").lean())
+        .map((d) => item(d._id, d.documentNo, STATUS_LABELS[d.workflowStatus] || d.workflowStatus, `${group.path}/${encodeURIComponent(String(d._id))}`)));
   }
 
   const groups = (await Promise.all(tasks)).filter((g) => g.items.length);

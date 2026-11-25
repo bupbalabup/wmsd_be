@@ -1,268 +1,56 @@
-import { documentIdentifier } from '../../shared/utils/document-id.validation.js';
 import { Router } from 'express';
-import { z } from 'zod';
 import { authenticate } from '../../middlewares/auth.js';
+import checkPermission from '../../middlewares/permission.js';
 import { validate } from '../../middlewares/validate.js';
-import { catchAsync } from '../../shared/utils/catchAsync.js';
-import { formatApiResponse } from '../../shared/utils/ApiResponse.js';
-import { requirePermission, requireWarehouseAccess, isOwner, hasPermission } from '../../shared/utils/access.js';
-import { currentRole } from '../../shared/utils/userRole.js';
-import { notFoundError } from '../../shared/utils/ApiError.js';
-import { dto } from '../../shared/utils/persistence.js';
-import { GoodsReceipt, Warehouse, Supplier, TransferDispatch, StockTransaction, InventoryBalance, StockHoldingPoint, PurchaseReceipt, CustomerReturnReceipt, FailedDeliveryReceipt, TransferReceipt, OtherGoodsReceipt, CustomerReturn, WarehouseTransferRequest, SalesGoodsIssue, SalesOrder } from '../../models/runtime.js';
-import { receiptRouter as purchaseRouter, empty, schema, pagination, ver, key, qty, reason, optionalEvidenceIds, handle } from '../po-receiving/po-receiving.routes.js';
-import { GOODS_RECEIPT_KINDS } from '../../models/goods-receipt.model.js';
-import { databaseId } from '../../models/document-identity.js';
-import { exact } from '../../models/model-utils.js';
-import { validDateRange, escapeRegex } from '../../shared/utils/movement-list.js';
-import { enrichLineItems } from '../../shared/utils/document-items.js';
-import { getDocument } from '../po-receiving/purchase-read.service.js';
-import { transferDispatchScope } from '../transfers/transfer.service.js';
-import * as other from './other-receipt.service.js';
+import { receiptRouter as purchaseRouter } from '../po-receiving/po-receiving.routes.js';
+import { RECEIPT_KINDS } from './goods-receipt.service.js';
+import * as controller from './goods-receipt.controller.js';
+import * as validation from './goods-receipt.validation.js';
 
-const definitions = [
-  ['purchase', 'PURCHASE', PurchaseReceipt, 'goods_receipt_inspection:read'],
-  ['customer-return', 'CUSTOMER_RETURN', CustomerReturnReceipt, 'customer_return:read'],
-  ['failed-delivery', 'FAILED_DELIVERY', FailedDeliveryReceipt, 'failed_delivery:read'],
-  ['transfer', 'TRANSFER', TransferReceipt, 'stock_transfer:read'],
-  ['other', 'OTHER', OtherGoodsReceipt, 'goods_receipt_other:read'],
-];
-
-const query = z.object({ ...pagination, warehouseId: z.string().regex(/^[a-f\d]{24}$/i).optional(), status: z.string().max(40).optional() }).strict();
-const salesReceiptFields = 'documentNo documentKind workflowStatus version createdAt';
-const salesTransferReceipt = ({ _id, documentNo, documentKind, workflowStatus, version, createdAt }, transferRequestId) =>
-  dto({ _id, documentNo, documentKind, workflowStatus, version, createdAt, header: transferRequestId ? { transferRequestId } : {} });
-const salesTransferFilter = async user => ({
-  'header.dispatchId': { $in: await TransferDispatch.find(await transferDispatchScope(user)).distinct('_id') },
-});
-
-const response = (receipt, user) => {
-  const value = dto(receipt);
-  if (receipt.documentKind === 'OTHER') {
-    const warehouse = currentRole(user)?.code === 'WAREHOUSE';
-    const owner = currentRole(user)?.code === 'OWNER';
-    value.capabilities = {
-      edit: warehouse && hasPermission(user, 'goods_receipt_other:create') && receipt.workflowStatus === 'DRAFT',
-      submit: warehouse && hasPermission(user, 'goods_receipt_other:create') && receipt.workflowStatus === 'DRAFT',
-      cancel: warehouse && hasPermission(user, 'goods_receipt_other:create') && receipt.workflowStatus === 'DRAFT',
-      approve: owner && hasPermission(user, 'goods_receipt_other:approve') && receipt.workflowStatus === 'PENDING_APPROVAL',
-      post: warehouse && hasPermission(user, 'goods_receipt_other:post') && receipt.workflowStatus === 'APPROVED' && receipt.approvedVersion === receipt.version,
-      reverse: warehouse && hasPermission(user, 'goods_receipt_other:reverse') && receipt.workflowStatus === 'POSTED',
-    };
-  }
-  return value;
-};
 const router = Router();
 router.use(authenticate);
 
-for (const [path, , Model, permission] of definitions) {
-  if (path === 'purchase') { router.use('/purchase', purchaseRouter); continue; }
-  if (path === 'transfer') {
-    const scoped = Router();
-    scoped.get('/', validate(schema(empty, empty, query)), catchAsync(async (req, res) => {
-      requirePermission(req.user, permission);
-      const { page, limit, warehouseId, status } = req.validated.query;
-      if (warehouseId) requireWarehouseAccess(req.user, warehouseId);
-      const sales = currentRole(req.user)?.code === 'SALES';
-      const filter = { 'header.warehouseId': warehouseId ?? { $in: req.user.warehouseIds ?? [] }, ...(status && { workflowStatus: status }) };
-      if (isOwner(req.user) && !warehouseId) delete filter['header.warehouseId'];
-      if (sales) Object.assign(filter, await salesTransferFilter(req.user));
-      const list = Model.find(filter).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit);
-      const [rows, total] = await Promise.all([
-        sales ? list.select(salesReceiptFields).lean() : list,
-        Model.countDocuments(filter),
-      ]);
-      if (sales) return formatApiResponse(res, { data: { items: rows.map(row => salesTransferReceipt(row)), total, page, limit } });
-      const dispatches = await TransferDispatch.find({ _id: { $in: rows.map(row => row.header.dispatchId).filter(Boolean) } }).select('_id header.requestId').lean();
-      const requests = await WarehouseTransferRequest.find({ _id: { $in: dispatches.map(row => row.header.requestId).filter(Boolean) } }).select('_id documentNo header').lean();
-      const dispatchById = new Map(dispatches.map(row => [String(row._id), row]));
-      const requestById = new Map(requests.map(row => [String(row._id), row]));
-      const items = rows.map(row => {
-        const dispatch = dispatchById.get(String(row.header.dispatchId));
-        const request = dispatch && requestById.get(String(dispatch.header.requestId));
-        return { ...response(row, req.user), transferId: request ? String(request._id) : undefined, transferDocumentNo: request?.documentNo, dispatchId: String(row.header.dispatchId) };
-      });
-      formatApiResponse(res, { data: { items, total, page, limit } });
-    }));
-    scoped.get('/:id', validate(schema()), handle((user, { params }) => receiptDetail(user, Model, params.id, permission)));
-    router.use('/transfer', scoped);
+for (const { path, permission } of RECEIPT_KINDS) {
+  if (path === 'purchase') {
+    router.use('/purchase', purchaseRouter);
     continue;
   }
+
   const scoped = Router();
   if (path === 'other') {
-    const command = { expectedVersion: ver, operationKey: key };
-    const line = z.object({ productId: z.string().regex(/^[a-f\d]{24}$/i), lotId: z.string().regex(/^[a-f\d]{24}$/i),
-      enteredUnit: z.string().min(1).max(60), enteredQty: qty, destinationLocationId: z.string().regex(/^[a-f\d]{24}$/i),
-      qualityCode: z.enum(['GOOD', 'DAMAGED', 'PENDING', 'BLOCKED']) }).strict();
-    const id = z.string().regex(/^[a-f\d]{24}$/i);
-    scoped.post('/', validate(schema(z.object({ operationKey: key, warehouseId: id, reason,
-      note: z.string().max(2000).optional(), lines: z.array(line).min(1).max(100) }).strict(), empty)), handle((u,v) => other.createOtherReceipt(u,v.body)));
-    scoped.put('/:id', validate(schema(z.object({ ...command, reason,
-      note: z.string().max(2000).optional(),
-      lines: z.array(line).min(1).max(100) }).strict())), handle((u,v) => other.updateOtherReceipt(u,v.params.id,v.body)));
-    scoped.post('/:id/submit', validate(schema(z.object(command).strict())), handle((u,v) => other.submitOtherReceipt(u,v.params.id,v.body)));
-    scoped.post('/:id/approve', validate(schema(z.object({ ...command, decision: z.enum(['APPROVE','REJECT']), reason }).strict())), handle((u,v) => other.approveOtherReceipt(u,v.params.id,v.body)));
-    scoped.post('/:id/post', validate(schema(z.object({ ...command, packaging: z.array(z.object({ lineId: id,
-      portions: z.array(z.object({ packagingState: z.enum(['SEALED','OPEN','LOOSE']), quantityBase: qty,
-        sealedPackCount: z.number().int().nonnegative().optional(), measuredVolumeMm3: qty.optional(),
-        extraOccupiedVolumeMm3: qty.optional(), packagingSnapshot: z.object({ packageUnit: z.string().min(1).max(60),
-          baseUnitsPerPackage: qty, outerLengthMm: qty, outerWidthMm: qty, outerHeightMm: qty }).strict().optional() }).strict()).min(1).max(100) }).strict()).max(100).optional() }).strict())), handle((u,v) => other.postOtherReceipt(u,v.params.id,v.body)));
-    scoped.post('/:id/reverse', validate(schema(z.object({ ...command, reason, evidenceIds: optionalEvidenceIds }).strict())), handle((u,v) => other.reverseOtherReceipt(u,v.params.id,v.body)));
-    scoped.post('/:id/cancel', validate(schema(z.object({ ...command, reason }).strict())), handle((u,v) => other.cancelOtherReceipt(u,v.params.id,v.body)));
-    scoped.get('/:id/reversal-preflight', validate(schema()), handle((u,v) => other.otherReversalPreflight(u,v.params.id)));
+    scoped.post('/', checkPermission('goods_receipt_other:create'), validate(validation.createOtherReceiptSchema), controller.createOther);
+    scoped.put('/:id', checkPermission('goods_receipt_other:create'), validate(validation.updateOtherReceiptSchema), controller.updateOther);
+    scoped.post('/:id/submit', checkPermission('goods_receipt_other:create'), validate(validation.submitOtherReceiptSchema), controller.submitOther);
+    scoped.post('/:id/approve', checkPermission('goods_receipt_other:approve'), validate(validation.approveOtherReceiptSchema), controller.approveOther);
+    scoped.post('/:id/post', checkPermission('goods_receipt_other:post'), validate(validation.postOtherReceiptSchema), controller.postOther);
+    scoped.post('/:id/reverse', checkPermission('goods_receipt_other:reverse'), validate(validation.reverseOtherReceiptSchema), controller.reverseOther);
+    scoped.post('/:id/cancel', checkPermission('goods_receipt_other:create'), validate(validation.cancelOtherReceiptSchema), controller.cancelOther);
+    scoped.get(
+      '/:id/reversal-preflight',
+      checkPermission('goods_receipt_other:read'),
+      checkPermission('goods_receipt_other:reverse'),
+      validate(validation.otherReversalPreflightSchema),
+      controller.getOtherReversalPreflight,
+    );
   }
-  scoped.get('/', validate(schema(empty, empty, query)), catchAsync(async (req, res) => {
-    requirePermission(req.user, permission);
-    const { page, limit, warehouseId, status } = req.validated.query;
-    if (warehouseId) requireWarehouseAccess(req.user, warehouseId);
-    const filter = { 'header.warehouseId': warehouseId ?? { $in: req.user.warehouseIds ?? [] }, ...(status && { workflowStatus: status }) };
-    if (isOwner(req.user) && !warehouseId) delete filter['header.warehouseId'];
-    if (path === 'customer-return' && currentRole(req.user)?.code === 'SALES') {
-      const sources = await CustomerReturn.find({ createdBy: req.user._id }).select('_id');
-      filter['header.returnId'] = { $in: sources.map(row => row._id) };
-    }
-    if (path === 'failed-delivery' && currentRole(req.user)?.code === 'SALES') {
-      const orders = await SalesOrder.find({ createdBy: req.user._id }).select('_id').lean();
-      const issues = await SalesGoodsIssue.find({ 'header.salesOrderId': { $in: orders.map(row => row._id) } }).select('_id').lean();
-      filter.$or = [{ 'header.goodsIssueId': { $exists: false } }, { 'header.goodsIssueId': { $in: issues.map(row => row._id) } }];
-    }
-    const [rows, total] = await Promise.all([Model.find(filter).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit), Model.countDocuments(filter)]);
-    formatApiResponse(res, { data: { items: rows.map(row => response(row, req.user)), total, page, limit } });
-  }));
-  scoped.get('/:id', validate(schema()), handle((user, { params }) => receiptDetail(user, Model, params.id, permission)));
+
+  scoped.get(
+    '/',
+    checkPermission(permission),
+    validate(validation.listKindReceiptsSchema),
+    path === 'transfer' ? controller.listTransfer : controller.listByKind(path),
+  );
+  scoped.get(
+    '/:id',
+    checkPermission(permission),
+    validate(validation.getKindReceiptSchema),
+    controller.getByKind(path),
+  );
   router.use(`/${path}`, scoped);
 }
 
-async function receiptDetail(user, Model, id, permission) {
-  requirePermission(user, permission);
-  const query = Model.findById(id);
-  if (Model === TransferReceipt && currentRole(user)?.code === 'SALES')
-    query.select(`${salesReceiptFields} header.warehouseId header.dispatchId`).lean();
-  const receipt = await query;
-  if (!receipt) throw notFoundError();
-  return scopedDetail(user, receipt);
-}
-
-async function scopedDetail(user, receipt) {
-  requireWarehouseAccess(user, receipt.header.warehouseId);
-  if (receipt.documentKind === 'TRANSFER' && currentRole(user)?.code === 'SALES') {
-    if (!receipt.header.dispatchId) throw notFoundError();
-    const dispatch = await TransferDispatch.findOne({ _id: receipt.header.dispatchId, ...await transferDispatchScope(user) })
-      .select('header.requestId').lean();
-    if (!dispatch) throw notFoundError();
-    return salesTransferReceipt(receipt, String(dispatch.header.requestId));
-  }
-  if (receipt.documentKind === 'CUSTOMER_RETURN' && currentRole(user)?.code === 'SALES'
-    && !await CustomerReturn.exists({ _id: receipt.header.returnId, createdBy: user._id })) throw notFoundError();
-  if (receipt.documentKind === 'FAILED_DELIVERY' && receipt.header.goodsIssueId && currentRole(user)?.code === 'SALES') {
-    const issue = await SalesGoodsIssue.findById(receipt.header.goodsIssueId);
-    if (!issue || !await SalesOrder.exists({ _id: issue.header.salesOrderId, createdBy: user._id })) throw notFoundError();
-  }
-  const value = response(receipt, user);
-  const warehouse = await Warehouse.findById(receipt.header.warehouseId).select('name').lean();
-  value.header.warehouseName = warehouse?.name;
-  if (receipt.documentKind === 'TRANSFER') {
-    const dispatch = await TransferDispatch.findById(receipt.header.dispatchId).select('header.requestId').lean();
-    if (dispatch) value.header.transferRequestId = String(dispatch.header.requestId);
-  }
-  if (['CUSTOMER_RETURN', 'FAILED_DELIVERY'].includes(receipt.documentKind) && receipt.stockTransactionId) {
-    const posting = await StockTransaction.findById(receipt.stockTransactionId).select('movements').lean();
-    const moves = posting?.movements.filter(row => row.toBalanceId) ?? [];
-    const balances = await InventoryBalance.find({ _id: { $in: moves.map(row => row.toBalanceId) } }).select('holdingPointId qualityStatus').lean();
-    const points = await StockHoldingPoint.find({ _id: { $in: balances.map(row => row.holdingPointId) } }).select('locationId').lean();
-    for (const item of value.items) {
-      const movement = moves.find(row => String(row.sourceLineId) === item._id);
-      const balance = balances.find(row => movement && String(row._id) === String(movement.toBalanceId));
-      const point = points.find(row => balance && String(row._id) === String(balance.holdingPointId));
-      if (point?.locationId) item.destinationLocationId = String(point.locationId);
-      if (balance) item.qualityCode = balance.qualityStatus;
-    }
-  }
-  await enrichLineItems(value.items);
-  return value;
-}
-
-const unifiedQuery = query.extend({
-  kind: z.enum(GOODS_RECEIPT_KINDS).optional(),
-  purchaseOrderId: documentIdentifier.optional(),
-  q: z.string().trim().min(1).max(100).optional(),
-  from: z.iso.datetime({ offset: true }).optional(),
-  to: z.iso.datetime({ offset: true }).optional(),
-}).refine(validDateRange);
-
-router.get('/', validate(schema(empty, empty, unifiedQuery)), handle(async (user, { query }) => {
-  const { page, limit, kind, status, warehouseId, purchaseOrderId, q, from, to } = query;
-  const role = currentRole(user)?.code;
-  const allowed = definitions.filter(([, , , permission]) => hasPermission(user, permission));
-  if (!allowed.length) requirePermission(user, definitions[0][3]);
-
-  // The discriminator base lacks the variant header schema. Cast header IDs
-  // explicitly here, as well as the historical PO document identity.
-  const visible = allowed.filter(([, value]) => (!kind || value === kind) && (!purchaseOrderId || value === 'PURCHASE'));
-  const clauses = [];
-  for (const [, value] of visible) {
-    const global = isOwner(user) || (value === 'PURCHASE' && role === 'ACCOUNTANT');
-    if (warehouseId && !global && !(user.warehouseIds ?? []).some(id => String(id) === warehouseId)) continue;
-    const scope = warehouseId ? { 'header.warehouseId': databaseId(warehouseId) }
-      : global ? {} : { 'header.warehouseId': { $in: (user.warehouseIds ?? []).map(id => databaseId(String(id))) } };
-    if (value === 'CUSTOMER_RETURN' && role === 'SALES') {
-      scope['header.returnId'] = { $in: await CustomerReturn.find({ createdBy: user._id }).distinct('_id') };
-    }
-    if (value === 'FAILED_DELIVERY' && role === 'SALES') {
-      const orders = await SalesOrder.find({ createdBy: user._id }).distinct('_id');
-      const issues = await SalesGoodsIssue.find({ 'header.salesOrderId': { $in: orders } }).distinct('_id');
-      scope.$or = [{ 'header.goodsIssueId': { $exists: false } }, { 'header.goodsIssueId': { $in: issues } }];
-    }
-    if (value === 'TRANSFER' && role === 'SALES') Object.assign(scope, await salesTransferFilter(user));
-    if (purchaseOrderId) scope['header.purchaseOrderId'] = databaseId(purchaseOrderId);
-    clauses.push({ documentKind: value, ...scope });
-  }
-  if (!clauses.length) return { items: [], total: 0, page, limit };
-
-  const filter = {
-    $or: clauses,
-    ...(status && { workflowStatus: status }),
-    ...(q && { documentNo: { $regex: escapeRegex(q), $options: 'i' } }),
-    ...((from || to) && { createdAt: { ...(from && { $gte: new Date(from) }), ...(to && { $lte: new Date(to) }) } }),
-  };
-  const [rows, total] = await Promise.all([
-    GoodsReceipt.find(filter).setOptions({ strictQuery: false }).sort({ createdAt: -1, _id: -1 })
-      .skip((page - 1) * limit).limit(limit).select('documentKind documentNo workflowStatus createdAt occurredAt header items.qtyBase items.baseUnitSnapshot').lean(),
-    GoodsReceipt.countDocuments(filter).setOptions({ strictQuery: false }),
-  ]);
-  const [warehouses, suppliers] = await Promise.all([
-    Warehouse.find({ _id: { $in: rows.map(row => row.header?.warehouseId).filter(Boolean) } }).select('name').lean(),
-    Supplier.find({ _id: { $in: rows.map(row => row.header?.supplierId).filter(Boolean) } }).select('name').lean(),
-  ]);
-  const items = rows.map(({ items, header, ...receipt }) => {
-    if (receipt.documentKind === 'TRANSFER' && role === 'SALES') return salesTransferReceipt(receipt);
-    const totals = new Map();
-    for (const row of items ?? []) {
-      const unit = row.baseUnitSnapshot || null;
-      totals.set(unit, (totals.get(unit) ?? exact('0')).plus(String(row.qtyBase)));
-    }
-    return dto({
-    ...receipt,
-    header: { ...header, warehouseName: warehouses.find(row => String(row._id) === String(header?.warehouseId))?.name,
-      supplierName: suppliers.find(row => String(row._id) === String(header?.supplierId))?.name },
-    lineCount: items?.length ?? 0,
-    totalQtyBase: (items ?? []).reduce((sum, row) => sum.plus(String(row.qtyBase)), exact('0')).toFixed(),
-    totalsByBaseUnit: [...totals].map(([unit, quantity]) => ({ unit, quantity: quantity.toFixed() })),
-  }); });
-  return { items, total, page, limit };
-}));
-
-router.get('/:id', validate(schema()), handle(async (user, { params }) => {
-  const sales = currentRole(user)?.code === 'SALES';
-  const lookup = GoodsReceipt.findById(params.id);
-  if (sales) lookup.select('documentKind');
-  const receipt = await lookup.lean();
-  const definition = definitions.find(([, kind]) => kind === receipt?.documentKind);
-  if (!definition) throw notFoundError();
-  if (sales && receipt.documentKind !== 'PURCHASE') return receiptDetail(user, definition[2], params.id, definition[3]);
-  requirePermission(user, definition[3]);
-  if (receipt.documentKind === 'PURCHASE') return getDocument(user, params.id, 'GR_PURCHASE');
-  return scopedDetail(user, receipt);
-}));
+// Unified read routes enforce per-kind permissions dynamically in goods-receipt.service.js.
+router.get('/', validate(validation.listUnifiedReceiptsSchema), controller.listUnified);
+router.get('/:id', validate(validation.getUnifiedReceiptSchema), controller.getUnified);
 
 export default router;

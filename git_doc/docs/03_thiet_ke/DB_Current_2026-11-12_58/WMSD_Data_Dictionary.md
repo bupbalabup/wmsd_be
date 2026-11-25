@@ -1473,11 +1473,6 @@ Model: [replenishment-request.model.js](../../../../src/models/replenishment-req
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `submissions` | Array | false |  |
 | `submissions[].documentVersion` | Number | true |  |
 | `submissions[].submittedBy` | ObjectId | true | User |
@@ -1697,11 +1692,6 @@ Model: [purchase-order.model.js](../../../../src/models/purchase-order.model.js)
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `totalAmount` | Decimal128 | true |  |
 | `currency` | String | true |  |
 | `_id` | DocumentIdentity | false |  |
@@ -1860,11 +1850,6 @@ Model: [goods-arrival.model.js](../../../../src/models/goods-arrival.model.js).
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
 
 Indexes:
@@ -1998,11 +1983,6 @@ Model: [goods-inspection.model.js](../../../../src/models/goods-inspection.model
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
 
 Indexes:
@@ -2145,11 +2125,6 @@ Model: [goods-receipt.model.js](../../../../src/models/goods-receipt.model.js).
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
 | `{PurchaseReceipt}.header` | Embedded | true |  |
 | `{CustomerReturnReceipt}.header` | Embedded | true |  |
@@ -2321,11 +2296,6 @@ Model: [transfer-order.model.js](../../../../src/models/transfer-order.model.js)
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
 
 Indexes:
@@ -2491,11 +2461,6 @@ Model: [warehouse-transfer-request.model.js](../../../../src/models/warehouse-tr
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
 
 Indexes:
@@ -2626,11 +2591,6 @@ Model: [internal-transfer-requirement.model.js](../../../../src/models/internal-
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
 
 Indexes:
@@ -2785,11 +2745,6 @@ Model: [transfer-dispatch.model.js](../../../../src/models/transfer-dispatch.mod
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `handovers` | Array | false |  |
 | `handovers[].documentNo` | String | true |  |
 | `handovers[].documentKind` | String | true |  |
@@ -2869,11 +2824,6 @@ Model: [transfer-dispatch.model.js](../../../../src/models/transfer-dispatch.mod
 | `handovers[].items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `handovers[].items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `handovers[].items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `handovers[].tenLoaiPhieu` | String | false |  |
-| `handovers[].maDonVi` | String | false |  |
-| `handovers[].kyDanhSo` | String | false |  |
-| `handovers[].soThuTu` | Number | false |  |
-| `handovers[].trangThaiTiengViet` | String | false |  |
 | `handovers[]._id` | DocumentIdentity | false |  |
 | `_id` | DocumentIdentity | false |  |
 
@@ -3012,11 +2962,6 @@ Model: [sales-order.model.js](../../../../src/models/sales-order.model.js).
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `orderAmount` | Decimal128 | true |  |
 | `currencyCode` | String | true |  |
 | `paymentConfirmations` | Array | false |  |
@@ -3110,11 +3055,6 @@ Model: [sales-order.model.js](../../../../src/models/sales-order.model.js).
 | `paymentConfirmations[].items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `paymentConfirmations[].items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `paymentConfirmations[].items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `paymentConfirmations[].tenLoaiPhieu` | String | false |  |
-| `paymentConfirmations[].maDonVi` | String | false |  |
-| `paymentConfirmations[].kyDanhSo` | String | false |  |
-| `paymentConfirmations[].soThuTu` | Number | false |  |
-| `paymentConfirmations[].trangThaiTiengViet` | String | false |  |
 | `paymentConfirmations[]._id` | DocumentIdentity | false |  |
 | `cancellations` | Array | false |  |
 | `cancellations[].salesOrderLineId` | ObjectId | true |  |
@@ -3217,11 +3157,6 @@ Model: [sales-order.model.js](../../../../src/models/sales-order.model.js).
 | `deliveryConfirmations[].items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `deliveryConfirmations[].items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `deliveryConfirmations[].items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `deliveryConfirmations[].tenLoaiPhieu` | String | false |  |
-| `deliveryConfirmations[].maDonVi` | String | false |  |
-| `deliveryConfirmations[].kyDanhSo` | String | false |  |
-| `deliveryConfirmations[].soThuTu` | Number | false |  |
-| `deliveryConfirmations[].trangThaiTiengViet` | String | false |  |
 | `deliveryConfirmations[]._id` | DocumentIdentity | false |  |
 | `_id` | DocumentIdentity | false |  |
 
@@ -3391,11 +3326,6 @@ Model: [warehouse-issue-request.model.js](../../../../src/models/warehouse-issue
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
 
 Indexes:
@@ -3564,11 +3494,6 @@ Model: [delivery-order.model.js](../../../../src/models/delivery-order.model.js)
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
 
 Indexes:
@@ -3793,11 +3718,6 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `handovers` | Array | false |  |
 | `handovers[].documentNo` | String | true |  |
 | `handovers[].documentKind` | String | true |  |
@@ -3877,11 +3797,6 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `handovers[].items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `handovers[].items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `handovers[].items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `handovers[].tenLoaiPhieu` | String | false |  |
-| `handovers[].maDonVi` | String | false |  |
-| `handovers[].kyDanhSo` | String | false |  |
-| `handovers[].soThuTu` | Number | false |  |
-| `handovers[].trangThaiTiengViet` | String | false |  |
 | `handovers[]._id` | DocumentIdentity | false |  |
 | `_id` | DocumentIdentity | false |  |
 
@@ -4028,11 +3943,6 @@ Model: [defect-report.model.js](../../../../src/models/defect-report.model.js).
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `inspections` | Array | false |  |
 | `inspections[].itemId` | ObjectId | true |  |
 | `inspections[].performedBy` | ObjectId | true | User |
@@ -4150,11 +4060,6 @@ Model: [defect-report.model.js](../../../../src/models/defect-report.model.js).
 | `resolutionPlans[].items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `resolutionPlans[].items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `resolutionPlans[].items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `resolutionPlans[].tenLoaiPhieu` | String | false |  |
-| `resolutionPlans[].maDonVi` | String | false |  |
-| `resolutionPlans[].kyDanhSo` | String | false |  |
-| `resolutionPlans[].soThuTu` | Number | false |  |
-| `resolutionPlans[].trangThaiTiengViet` | String | false |  |
 | `resolutionPlans[].reviewDecisions` | Array | false |  |
 | `resolutionPlans[].reviewDecisions[].decisionId` | ObjectId | true | ApprovalHistory |
 | `resolutionPlans[].reviewDecisions[].revision` | Number | true |  |
@@ -4322,11 +4227,6 @@ Model: [stock-scrap-record.model.js](../../../../src/models/stock-scrap-record.m
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
 
 Indexes:
@@ -4503,11 +4403,6 @@ Model: [stocktake.model.js](../../../../src/models/stocktake.model.js).
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `resolutionPlans` | Array | false |  |
 | `resolutionPlans[].documentNo` | String | true |  |
 | `resolutionPlans[].documentKind` | String | true |  |
@@ -4597,11 +4492,6 @@ Model: [stocktake.model.js](../../../../src/models/stocktake.model.js).
 | `resolutionPlans[].items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `resolutionPlans[].items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `resolutionPlans[].items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `resolutionPlans[].tenLoaiPhieu` | String | false |  |
-| `resolutionPlans[].maDonVi` | String | false |  |
-| `resolutionPlans[].kyDanhSo` | String | false |  |
-| `resolutionPlans[].soThuTu` | Number | false |  |
-| `resolutionPlans[].trangThaiTiengViet` | String | false |  |
 | `resolutionPlans[].selectedCounts` | Array | false |  |
 | `resolutionPlans[].selectedCounts[].snapshotId` | ObjectId | true | StocktakeSnapshot |
 | `resolutionPlans[].selectedCounts[].countId` | ObjectId | true | StocktakeCount |
@@ -4799,11 +4689,6 @@ Model: [stock-adjustment.model.js](../../../../src/models/stock-adjustment.model
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
 
 Indexes:
@@ -4937,11 +4822,6 @@ Model: [failed-delivery.model.js](../../../../src/models/failed-delivery.model.j
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
 
 Indexes:
@@ -5078,11 +4958,6 @@ Model: [stock-quality-change.model.js](../../../../src/models/stock-quality-chan
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
 
 Indexes:
@@ -5217,11 +5092,6 @@ Model: [customer-return.model.js](../../../../src/models/customer-return.model.j
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `decisions` | Array | false |  |
 | `decisions[].decisionId` | ObjectId | true | ApprovalHistory |
 | `decisions[].revision` | Number | true |  |
@@ -5405,11 +5275,6 @@ Model: [supplier-return.model.js](../../../../src/models/supplier-return.model.j
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `agreements` | Array | false |  |
 | `agreements[].itemId` | ObjectId | true |  |
 | `agreements[].agreedQtyBase` | Decimal128 | true |  |
@@ -5557,11 +5422,6 @@ Model: [supplier-return-issue.model.js](../../../../src/models/supplier-return-i
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `acknowledgements` | Array | false |  |
 | `acknowledgements[].documentNo` | String | true |  |
 | `acknowledgements[].documentKind` | String | true |  |
@@ -5646,11 +5506,6 @@ Model: [supplier-return-issue.model.js](../../../../src/models/supplier-return-i
 | `acknowledgements[].items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `acknowledgements[].items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `acknowledgements[].items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `acknowledgements[].tenLoaiPhieu` | String | false |  |
-| `acknowledgements[].maDonVi` | String | false |  |
-| `acknowledgements[].kyDanhSo` | String | false |  |
-| `acknowledgements[].soThuTu` | Number | false |  |
-| `acknowledgements[].trangThaiTiengViet` | String | false |  |
 | `acknowledgements[].reconciliations` | Array | false |  |
 | `acknowledgements[].reconciliations[].itemId` | ObjectId | true |  |
 | `acknowledgements[].reconciliations[].performedBy` | ObjectId | true | User |
@@ -5805,11 +5660,6 @@ Model: [stock-discrepancy.model.js](../../../../src/models/stock-discrepancy.mod
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `resolutionEvents` | Array | false |  |
 | `resolutionEvents[].itemId` | ObjectId | true |  |
 | `resolutionEvents[].performedBy` | ObjectId | true | User |
@@ -5957,11 +5807,6 @@ Model: [custody-receipt.model.js](../../../../src/models/custody-receipt.model.j
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
 
 Indexes:
@@ -6102,11 +5947,6 @@ Model: [custody-release.model.js](../../../../src/models/custody-release.model.j
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `acknowledgements` | Array | false |  |
 | `acknowledgements[].documentNo` | String | true |  |
 | `acknowledgements[].documentKind` | String | true |  |
@@ -6191,11 +6031,6 @@ Model: [custody-release.model.js](../../../../src/models/custody-release.model.j
 | `acknowledgements[].items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `acknowledgements[].items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `acknowledgements[].items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `acknowledgements[].tenLoaiPhieu` | String | false |  |
-| `acknowledgements[].maDonVi` | String | false |  |
-| `acknowledgements[].kyDanhSo` | String | false |  |
-| `acknowledgements[].soThuTu` | Number | false |  |
-| `acknowledgements[].trangThaiTiengViet` | String | false |  |
 | `acknowledgements[].reconciliations` | Array | false |  |
 | `acknowledgements[].reconciliations[].itemId` | ObjectId | true |  |
 | `acknowledgements[].reconciliations[].performedBy` | ObjectId | true | User |
@@ -6359,11 +6194,6 @@ Model: [stock-reversal.model.js](../../../../src/models/stock-reversal.model.js)
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `approvalDecision` | Embedded | false |  |
 | `approvalDecision.decisionId` | ObjectId | true | ApprovalHistory |
 | `approvalDecision.revision` | Number | true |  |
@@ -6518,11 +6348,6 @@ Model: [opening-stock.model.js](../../../../src/models/opening-stock.model.js).
 | `items[].{DocumentLine_SUPPLIER_ACK}.details` | Embedded | true |  |
 | `items[].{DocumentLine_DISCREPANCY}.details` | Embedded | true |  |
 | `items[].{DocumentLine_ADJUSTMENT}.details` | Embedded | true |  |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `_id` | DocumentIdentity | false |  |
 
 Indexes:
@@ -6682,11 +6507,6 @@ Model: [stocktake-plan.model.js](../../../../src/models/stocktake-plan.model.js)
 | `header.endReason` | String | false |  |
 | `header.lastStocktakeId` | DocumentIdentity | false | Stocktake |
 | `updatedBy` | ObjectId | false | User |
-| `tenLoaiPhieu` | String | false |  |
-| `maDonVi` | String | false |  |
-| `kyDanhSo` | String | false |  |
-| `soThuTu` | Number | false |  |
-| `trangThaiTiengViet` | String | false |  |
 | `createdAt` | Date | false |  |
 | `updatedAt` | Date | false |  |
 | `_id` | DocumentIdentity | false |  |

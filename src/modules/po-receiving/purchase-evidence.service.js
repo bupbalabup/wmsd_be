@@ -95,13 +95,13 @@ export async function uploadEvidence(user,id,file,lineId){
   }catch(error){await Attachment.updateOne({_id:attachment._id,status:'TEMPORARY'},{$set:{expiresAt:new Date()}});throw error;}
 }
 export async function attachEvidence(user,id,input){
-  const {permission}=await parent(user,id,true);
-  const upload=await Attachment.findOne({_id:input.attachmentId,ownerDocumentId:id,uploadedBy:user._id});
+  const {document:parentDoc,permission}=await parent(user,id,true);
+  const upload=await Attachment.findOne({_id:input.attachmentId,ownerDocumentId:parentDoc._id,uploadedBy:user._id});
   if(!upload)throw notFoundError();
   if(upload.status==='TEMPORARY'){try{await evidenceStorage.exists(upload.storageKey,resourceType(upload));}catch{throw new ApiError(502,'Không xác minh được tệp trên storage');}}
   return command(user,'ATTACH_PURCHASE_EVIDENCE',permission,id,input,replayPurchase,async(session,actor)=>{
     const {document}=await parent(actor,id,true,session);checkVersion(document,input.expectedVersion);if(document.documentKind==='OTHER'&&!['DRAFT','POSTED'].includes(document.workflowStatus))throw validationError('Phiếu nhập khác không nhận chứng cứ ở trạng thái này');
-    const attachment=await Attachment.findOne({_id:input.attachmentId,ownerDocumentId:id,uploadedBy:actor._id,status:'TEMPORARY',expiresAt:{$gt:new Date()}}).session(session);
+    const attachment=await Attachment.findOne({_id:input.attachmentId,ownerDocumentId:document._id,uploadedBy:actor._id,status:'TEMPORARY',expiresAt:{$gt:new Date()}}).session(session);
     if(!attachment)throw validationError('Tệp đã gắn, hết hạn hoặc đang dọn');
     if(attachment.ownerItemId&&!document.items.id(attachment.ownerItemId))throw validationError('Dòng gốc không còn tồn tại');
     const write=await Attachment.updateOne({_id:attachment._id,status:'TEMPORARY',expiresAt:{$gt:new Date()}},{$set:{status:'ATTACHED',ownerRevision:document.version+1},$unset:{expiresAt:1,uploadSessionId:1}},{session,runValidators:true});
@@ -112,10 +112,10 @@ export async function attachEvidence(user,id,input){
 }
 const priceAccess=user=>['OWNER','ACCOUNTANT'].includes(currentRole(user)?.code);
 export async function listEvidence(user,id){
-  await parent(user,id);return {items:(await Attachment.find({ownerDocumentId:id,status:'ATTACHED',...(!priceAccess(user)&&{accessCategory:{$ne:'PURCHASE_PRICE'}})}).select('-storageKey -checksum -uploadSessionId').lean()).map(dto)};
+  const {document}=await parent(user,id);return {items:(await Attachment.find({ownerDocumentId:document._id,status:'ATTACHED',...(!priceAccess(user)&&{accessCategory:{$ne:'PURCHASE_PRICE'}})}).select('-storageKey -checksum -uploadSessionId').lean()).map(dto)};
 }
 export async function downloadEvidence(user,id,evidenceId){
-  await parent(user,id);const attachment=await Attachment.findOne({_id:evidenceId,ownerDocumentId:id,status:'ATTACHED',...(!priceAccess(user)&&{accessCategory:{$ne:'PURCHASE_PRICE'}})});
+  const {document}=await parent(user,id);const attachment=await Attachment.findOne({_id:evidenceId,ownerDocumentId:document._id,status:'ATTACHED',...(!priceAccess(user)&&{accessCategory:{$ne:'PURCHASE_PRICE'}})});
   if(!attachment)throw notFoundError();const expiresAt=Math.floor(Date.now()/1000)+60;
   return {url:await evidenceStorage.download(attachment.storageKey,format(attachment),resourceType(attachment),expiresAt),expiresAt:new Date(expiresAt*1000).toISOString()};
 }

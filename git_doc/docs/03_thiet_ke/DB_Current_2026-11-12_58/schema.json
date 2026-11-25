@@ -4410,36 +4410,6 @@
         "target": ""
       },
       {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "submissions",
         "type": "Array",
         "required": false,
@@ -5464,36 +5434,6 @@
         "target": ""
       },
       {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "totalAmount",
         "type": "Decimal128",
         "required": true,
@@ -6117,36 +6057,6 @@
         "target": ""
       },
       {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "_id",
         "type": "DocumentIdentity",
         "required": false,
@@ -6697,36 +6607,6 @@
         "path": "items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -7334,36 +7214,6 @@
         "path": "items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -8015,36 +7865,6 @@
         "path": "items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -8713,36 +8533,6 @@
         "target": ""
       },
       {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "_id",
         "type": "DocumentIdentity",
         "required": false,
@@ -9275,36 +9065,6 @@
         "path": "items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -9907,36 +9667,6 @@
         "target": ""
       },
       {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "handovers",
         "type": "Array",
         "required": false,
@@ -10408,36 +10138,6 @@
         "path": "handovers[].items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "handovers[].tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "handovers[].maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "handovers[].kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "handovers[].soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "handovers[].trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -11024,36 +10724,6 @@
         "target": ""
       },
       {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "orderAmount",
         "type": "Decimal128",
         "required": true,
@@ -11609,36 +11279,6 @@
         "path": "paymentConfirmations[].items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "paymentConfirmations[].tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "paymentConfirmations[].maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "paymentConfirmations[].kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "paymentConfirmations[].soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "paymentConfirmations[].trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -12254,36 +11894,6 @@
         "target": ""
       },
       {
-        "path": "deliveryConfirmations[].tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "deliveryConfirmations[].maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "deliveryConfirmations[].kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "deliveryConfirmations[].soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "deliveryConfirmations[].trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "deliveryConfirmations[]._id",
         "type": "DocumentIdentity",
         "required": false,
@@ -12875,36 +12485,6 @@
         "path": "items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -13668,36 +13248,6 @@
         "path": "items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -14600,36 +14150,6 @@
         "target": ""
       },
       {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "handovers",
         "type": "Array",
         "required": false,
@@ -15101,36 +14621,6 @@
         "path": "handovers[].items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "handovers[].tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "handovers[].maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "handovers[].kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "handovers[].soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "handovers[].trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -15762,36 +15252,6 @@
         "path": "items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -16497,36 +15957,6 @@
         "target": ""
       },
       {
-        "path": "resolutionPlans[].tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "resolutionPlans[].maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "resolutionPlans[].kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "resolutionPlans[].soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "resolutionPlans[].trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "resolutionPlans[].reviewDecisions",
         "type": "Array",
         "required": false,
@@ -17156,36 +16586,6 @@
         "path": "items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -18000,36 +17400,6 @@
         "target": ""
       },
       {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "resolutionPlans",
         "type": "Array",
         "required": false,
@@ -18561,36 +17931,6 @@
         "path": "resolutionPlans[].items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "resolutionPlans[].tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "resolutionPlans[].maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "resolutionPlans[].kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "resolutionPlans[].soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "resolutionPlans[].trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -19346,36 +18686,6 @@
         "target": ""
       },
       {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "_id",
         "type": "DocumentIdentity",
         "required": false,
@@ -19926,36 +19236,6 @@
         "path": "items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -20530,36 +19810,6 @@
         "target": ""
       },
       {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "_id",
         "type": "DocumentIdentity",
         "required": false,
@@ -21116,36 +20366,6 @@
         "path": "items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -21957,36 +21177,6 @@
         "target": ""
       },
       {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "agreements",
         "type": "Array",
         "required": false,
@@ -22624,36 +21814,6 @@
         "target": ""
       },
       {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "acknowledgements",
         "type": "Array",
         "required": false,
@@ -23155,36 +22315,6 @@
         "path": "acknowledgements[].items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "acknowledgements[].tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "acknowledgements[].maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "acknowledgements[].kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "acknowledgements[].soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "acknowledgements[].trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -23819,36 +22949,6 @@
         "path": "items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -24489,36 +23589,6 @@
         "target": ""
       },
       {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "_id",
         "type": "DocumentIdentity",
         "required": false,
@@ -25114,36 +24184,6 @@
         "target": ""
       },
       {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "acknowledgements",
         "type": "Array",
         "required": false,
@@ -25645,36 +24685,6 @@
         "path": "acknowledgements[].items[].{DocumentLine_ADJUSTMENT}.details",
         "type": "Embedded",
         "required": true,
-        "target": ""
-      },
-      {
-        "path": "acknowledgements[].tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "acknowledgements[].maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "acknowledgements[].kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "acknowledgements[].soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "acknowledgements[].trangThaiTiengViet",
-        "type": "String",
-        "required": false,
         "target": ""
       },
       {
@@ -26366,36 +25376,6 @@
         "target": ""
       },
       {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "approvalDecision",
         "type": "Embedded",
         "required": false,
@@ -27075,36 +26055,6 @@
         "target": ""
       },
       {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
         "path": "_id",
         "type": "DocumentIdentity",
         "required": false,
@@ -27572,36 +26522,6 @@
         "type": "ObjectId",
         "required": false,
         "target": "User"
-      },
-      {
-        "path": "tenLoaiPhieu",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "maDonVi",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "kyDanhSo",
-        "type": "String",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "soThuTu",
-        "type": "Number",
-        "required": false,
-        "target": ""
-      },
-      {
-        "path": "trangThaiTiengViet",
-        "type": "String",
-        "required": false,
-        "target": ""
       },
       {
         "path": "createdAt",
