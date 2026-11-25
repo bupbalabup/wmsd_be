@@ -6,6 +6,7 @@ import { transaction } from '../../shared/utils/persistence.js';
 import { appendAudit } from '../../shared/utils/audit.js';
 import { rectanglesOverlap, applicationIssues, palletIssues, heightWarnings } from './layout-geometry.js';
 import { oid } from './validation.js';
+import { createLocationsForNewSlots, syncLocationSizesFromLayout } from './service.js';
 
 const point = z.object({ x: z.number().finite().min(0).max(1000), y: z.number().finite().min(0).max(1000) }).strict();
 const id=z.string().trim().min(1).max(80),name=z.string().trim().min(1).max(120),size=z.number().finite().min(0.01).max(1000);
@@ -60,7 +61,7 @@ export const layoutSchema = z.object({
     if(layout.doors.some((other,j)=>j<index&&other.edge===door.edge&&door.offset<other.offset+other.width&&other.offset<door.offset+door.width)) fail('Các cửa không được chồng nhau');
   });
 });
-export const saveLayoutSchema=z.object({layout:layoutSchema,expectedUpdatedAt:z.string().datetime(),apply:z.boolean().optional()}).strict();
+export const saveLayoutSchema=z.object({layout:layoutSchema,expectedUpdatedAt:z.string().datetime(),apply:z.boolean().optional(),createLocationForSlots:z.array(id).max(2000).optional()}).strict();
 export async function saveLayout(user,id,input) {
   requirePermission(user,'warehouse_location:update'); requireWarehouseAccess(user,id);
   return transaction(async session => {
@@ -80,11 +81,14 @@ export async function saveLayout(user,id,input) {
         if(!activeById.get(slot.locationId)&&previousLinks.get(slot.id)!==slot.locationId)throw validationError(`Ô ${slot.name}: vị trí đã ngừng hoạt động. Hãy chọn vị trí khác.`);
       }
     }
+    const fresh=await createLocationsForNewSlots(user,id,input.layout,previous.layout3d,session,input.createLocationForSlots);
     const timestamp=new Date(Math.max(Date.now(),Date.parse(input.expectedUpdatedAt)+1));
     const changes={layout3d:input.layout,updatedAt:timestamp,...(input.apply&&{layout3dApplied:input.layout,layout3dAppliedAt:timestamp})};
     const result=await Warehouse.findOneAndUpdate({_id:id,updatedAt:new Date(input.expectedUpdatedAt)},{$set:changes},{new:true,runValidators:true,session,timestamps:false});
     if(!result) throw validationError('Kho đã thay đổi hoặc không tồn tại. Hãy tải lại trước khi lưu.');
     await appendAudit({actorId:user._id,action:input.apply?'APPLY_WAREHOUSE_LAYOUT':'SAVE_WAREHOUSE_LAYOUT',entityType:'warehouses',entityId:id,warehouseIds:[id],session});
-    return { layout: result.layout3d, updatedAt: result.updatedAt,appliedAt:result.layout3dAppliedAt,issues,warnings:heightWarnings(input.layout) };
+    const sizes=await syncLocationSizesFromLayout(user,id,input.layout,previous.layout3d,session);
+    const warnings=[...heightWarnings(input.layout),...fresh.warnings,...sizes.skipped.map(code=>`Vị trí ${code} gắn nhiều ô nên không tự đồng bộ kích thước; hãy cập nhật kích thước vị trí thủ công.`)];
+    return { layout: result.layout3d, updatedAt: result.updatedAt,appliedAt:result.layout3dAppliedAt,issues,warnings,syncedLocations:sizes.synced,createdLocations:fresh.created };
   });
 }

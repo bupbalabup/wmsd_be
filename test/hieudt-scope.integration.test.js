@@ -82,6 +82,89 @@ run('3D slot saves only same-warehouse active links and can clear a retained ina
   assert.equal((await m.InventoryBalance.findById(balance._id)).quantityBase.toString(),'40');
  }finally{await m.WarehouseLocation.updateOne({_id:stage._id},{$set:{isActive:true}});}
 });
+run('3D slot size and location usable size stay synchronised both ways',async()=>{
+ const warehouseId=String(wa._id);
+ const extra=await m.WarehouseLocation.create({warehouseId:wa._id,code:'SYNC',name:'Đồng bộ',locationType:'STAGING',isPickable:false,usableLengthMm:'4000',usableWidthMm:'2000'});
+ const twin=await m.WarehouseLocation.create({warehouseId:wa._id,code:'TWIN',name:'Hai ô',locationType:'STAGING',isPickable:false,usableLengthMm:'1000',usableWidthMm:'1000'});
+ const slot={id:'sync-slot',name:'Ô S',x:0,y:0,width:2,length:4,locationId:String(extra._id)};
+ const layout={points:[{x:0,y:0},{x:10,y:0},{x:10,y:10},{x:0,y:10}],height:3,doors:[],functions:[{id:'f',name:'Lưu trữ'}],
+  zones:[{id:'sync-zone',name:'Khu S',x:1,y:1,width:5,length:5,rotation:0,color:'#ffffff',functionId:'f',slots:[slot]}]};
+ const stamp=async()=>(await m.Warehouse.findById(wa._id)).updatedAt.toISOString();
+ const save=async()=>saveLayout(owner,warehouseId,{layout,expectedUpdatedAt:await stamp()});
+ // Linking a slot whose size already matches changes nothing.
+ assert.deepEqual((await save()).syncedLocations,[]);
+ // Resizing the slot on the drawing updates the catalogue, with an audit entry.
+ slot.width=2.5;slot.length=3.25;
+ const saved=await save();
+ assert.deepEqual(saved.syncedLocations,['SYNC']);
+ let row=await m.WarehouseLocation.findById(extra._id);
+ assert.equal(String(row.usableLengthMm),'3250');assert.equal(String(row.usableWidthMm),'2500');assert.equal(row.version,extra.version+1);
+ assert.ok(await m.AuditLog.exists({action:'SYNC_LOCATION_SIZE_FROM_LAYOUT'}));
+ // Saving again without touching the slot does not rewrite the location edited in the catalogue.
+ await m.WarehouseLocation.updateOne({_id:extra._id},{$set:{usableLengthMm:'3000'}});
+ assert.deepEqual((await save()).syncedLocations,[]);
+ assert.equal(String((await m.WarehouseLocation.findById(extra._id)).usableLengthMm),'3000');
+ // Editing the location resizes its single slot when it fits the zone…
+ const edit=async(length,width)=>{const current=await stock.locationDetail(owner,String(extra._id));
+  return stock.saveLocation(owner,String(extra._id),{warehouseId,code:'SYNC',name:'Đồng bộ',locationType:'STAGING',isPickable:false,isActive:true,usableLengthMm:length,usableWidthMm:width,expectedVersion:current.version,idempotencyKey:key()});};
+ await edit('4500','3000');
+ let drawn=(await m.Warehouse.findById(wa._id)).layout3d.zones[0].slots[0];
+ assert.equal(drawn.length,4.5);assert.equal(drawn.width,3);
+ // …and leaves the drawing alone when it would overflow the zone.
+ await edit('6000','3000');
+ drawn=(await m.Warehouse.findById(wa._id)).layout3d.zones[0].slots[0];
+ assert.equal(drawn.length,4.5);
+ // A location on two slots is reported, not resized.
+ Object.assign(slot,{length:4.5,width:3});
+ layout.zones[0].slots=[slot,{id:'t1',name:'T1',x:3.5,y:0,width:1,length:1,locationId:String(twin._id)},{id:'t2',name:'T2',x:3.5,y:1.5,width:1.5,length:1,locationId:String(twin._id)}];
+ const twinSave=await save();
+ assert.ok(twinSave.warnings.some(warning=>warning.includes('TWIN')));
+ assert.equal(String((await m.WarehouseLocation.findById(twin._id)).usableWidthMm),'1000');
+ // Shrinking below the stock already stored is rejected and the drawing is not saved.
+ const before=await stamp();
+ layout.zones[0].slots=[{...slot,id:'src-slot',name:'Ô SRC',width:0.1,length:0.1,locationId:String(source._id)}];
+ await assert.rejects(save(),/không đủ chỗ/);
+ assert.equal(await stamp(),before);
+});
+run('a new unlinked slot becomes a storage location named after the slot when the layout is saved',async()=>{
+ const warehouseId=String(wb._id);
+ const stamp=async()=>(await m.Warehouse.findById(warehouseId)).updatedAt.toISOString();
+ const layout={points:[{x:0,y:0},{x:10,y:0},{x:10,y:10},{x:0,y:10}],height:3,doors:[],
+  functions:[{id:'stg',name:'Khu tập kết'},{id:'f',name:'Lưu trữ'}],
+  zones:[{id:'auto-z',name:'Khu T',x:0,y:0,width:4,length:4,rotation:0,color:'#ffffff',functionId:'stg',slots:[{id:'auto-1',name:'TK-01',x:0,y:0,width:1.5,length:2}]},
+   {id:'auto-s',name:'Khu L',x:5,y:0,width:4,length:4,rotation:0,color:'#ffffff',functionId:'f',slots:[{id:'auto-2',name:'L-01',x:0,y:0,width:1,length:1}]}]};
+ const saved=await saveLayout(owner,warehouseId,{layout,expectedUpdatedAt:await stamp()});
+ assert.deepEqual(saved.createdLocations,['TK-01','L-01']);
+ const staging=await m.WarehouseLocation.findOne({warehouseId:wb._id,code:'TK-01'}).lean();
+ assert.equal(staging.locationType,'STAGING');assert.equal(staging.isPickable,false);assert.equal(staging.name,'Khu T / TK-01');
+ assert.equal(String(staging.usableLengthMm),'2000');assert.equal(String(staging.usableWidthMm),'1500');
+ assert.equal((await m.WarehouseLocation.findOne({warehouseId:wb._id,code:'L-01'}).lean()).locationType,'STORAGE');
+ assert.equal(saved.layout.zones[0].slots[0].locationId,String(staging._id));
+ assert.ok(await m.AuditLog.exists({action:'CREATE_LOCATION_FROM_LAYOUT_SLOT'}));
+ // Saving again creates nothing; an unlinked slot that is already on the drawing is left alone.
+ const kept=saved.layout;kept.zones[1].slots[0]={...kept.zones[1].slots[0]};delete kept.zones[1].slots[0].locationId;
+ await m.Warehouse.updateOne({_id:wb._id},{$set:{layout3d:kept}},{timestamps:false});
+ assert.deepEqual((await saveLayout(owner,warehouseId,{layout:kept,expectedUpdatedAt:await stamp()})).createdLocations,[]);
+ // Asked explicitly, an unlinked slot that was already on the drawing becomes a location too.
+ kept.zones[1].slots[0].name='L-09';
+ const asked=await saveLayout(owner,warehouseId,{layout:kept,expectedUpdatedAt:await stamp(),createLocationForSlots:['auto-2']});
+ assert.deepEqual(asked.createdLocations,['L-09']);assert.ok(asked.layout.zones[1].slots[0].locationId);
+ kept.zones[1].slots[0].locationId=asked.layout.zones[1].slots[0].locationId;
+ await assert.rejects(saveLayout(owner,warehouseId,{layout:kept,expectedUpdatedAt:await stamp(),createLocationForSlots:['missing']}),/không có trên bản vẽ/);
+ // A slot whose name is already a location code is rejected and nothing is saved.
+ const before=await stamp();
+ kept.zones[1].slots.push({id:'auto-3',name:'store',x:2,y:2,width:1,length:1});
+ await assert.rejects(saveLayout(owner,warehouseId,{layout:kept,expectedUpdatedAt:before}),/mã vị trí store đã có/);
+ assert.equal(await stamp(),before);
+ assert.equal(await m.WarehouseLocation.countDocuments({warehouseId:wb._id,code:/^(TK|L)-/}),3);
+ // Without permission to create locations the drawing still saves, with a warning.
+ const grants=(...codes)=>codes.map(code=>({code,isActive:true}));
+ const editor={...b.toObject(),roleId:{code:'CUSTOM_EDITOR',permissionIds:grants('warehouse_location:update')}};
+ kept.zones[1].slots[1].name='L-02';
+ const limited=await saveLayout(editor,warehouseId,{layout:kept,expectedUpdatedAt:before});
+ assert.deepEqual(limited.createdLocations,[]);assert.ok(limited.warnings.some(w=>w.includes('không có quyền tạo vị trí')));
+ assert.equal(limited.layout.zones[1].slots[1].locationId,undefined);
+});
 run('UC38–44 location commands, scope, inventory details and freeze/capacity checks use native data',async()=>{
  const body={idempotencyKey:key(),warehouseId:String(wa._id),code:'NEW',name:'Vị trí mới',areaCode:'A',locationType:'STORAGE',isActive:true,isPickable:true,usableLengthMm:'2000',usableWidthMm:'2000'};
  const result=await stock.saveLocation(owner,null,body);assert.equal((await stock.saveLocation(owner,null,body)).id,result.id);
@@ -187,6 +270,8 @@ run('catalogue and drawing share slot bindings in one warehouse transaction',asy
  const layout={points:[{x:0,y:0},{x:10,y:0},{x:10,y:10},{x:0,y:10}],height:3,doors:[],
    functions:[{id:'f',name:'Lưu trữ'}],zones:[{id:'z',name:'Khu A',x:1,y:1,width:4,length:2,rotation:0,color:'#ffffff',functionId:'f',
      slots:[slot,{...slot,id:'two',name:'Ô 2',x:2,locationId:String(source._id)}]}]};
+ // Slot 'one' already exists on the drawing, so saving does not turn it into a location of its own.
+ await m.Warehouse.updateOne({_id:warehouseId},{$set:{layout3d:layout}},{timestamps:false});
  await saveLayout(owner,warehouseId,{layout,expectedUpdatedAt:await stamp(),apply:true});
  const body={warehouseId,code:'BOUND',name:'Vị trí liên kết',locationType:'STORAGE',isActive:true,isPickable:true,usableLengthMm:'800',usableWidthMm:'1000'};
  const create={...body,idempotencyKey:key(),layoutBinding:{slotIds:['one'],expectedUpdatedAt:await stamp()}};
