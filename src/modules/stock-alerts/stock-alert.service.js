@@ -1,7 +1,7 @@
 import * as m from "../../models/runtime.js";
 import { exact } from "../../models/model-utils.js";
 import { canAccessWarehouse, hasPermission, requirePermission } from "../../shared/utils/access.js";
-import { availableStock } from "../replenishments/replenishment.evaluation.js";
+import { availableStocks } from "../replenishments/replenishment.evaluation.js";
 import { initialEmailDelivery } from "../notifications/email.js";
 import { currentSystemSettings } from "../settings/system-settings.service.js";
 
@@ -59,12 +59,13 @@ export async function evaluateThresholds({ warehouseFilter = () => true, setting
     }
   }
   const visible = pairs.map((pair) => ({ ...pair, warehouse: usable(pair.warehouseId) })).filter((pair) => pair.warehouse);
-  // Thresholds are independent reads, so they are evaluated concurrently (sequential evaluation made the owner
-  // dashboard take ~8 s on the deployed database, 25/11/2026).
-  const rows = await Promise.all(visible.map(async ({ product, minimumQty, targetQty, warehouseId, warehouse, source }) => {
+  // One batched availability computation for all pairs (per-pair queries made the owner dashboard and alerts take
+  // ~8 s on the deployed database, 25/11/2026).
+  const availability = await availableStocks(visible.map(({ product, warehouseId }) => ({ productId: product._id, warehouseId })));
+  const rows = visible.map(({ product, minimumQty, targetQty, warehouseId, warehouse, source }) => {
       const minimum = exact(String(minimumQty));
       const target = exact(String(targetQty ?? minimumQty));
-      const available = await availableStock(product._id, warehouseId);
+      const available = availability.get(`${product._id}:${warehouseId}`) ?? exact("0");
       const below = available.lt(minimum);
       const near = !below && minimum.gt(exact("0")) && available.lt(minimum.times(nearFactor));
       return {
@@ -78,7 +79,7 @@ export async function evaluateThresholds({ warehouseFilter = () => true, setting
         status: below ? "BELOW" : near ? "NEAR" : "OK",
         source,
       };
-  }));
+  });
   const rank = { BELOW: 0, NEAR: 1, OK: 2 };
   return rows.sort((a, b) => (a.status === b.status ? a.product.sku.localeCompare(b.product.sku) : rank[a.status] - rank[b.status]));
 }
