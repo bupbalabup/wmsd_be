@@ -28,6 +28,8 @@ Bản v8 là snapshot lịch sử có category. Registry hiện hành có 58 col
 
 ## Tài liệu triển khai
 
+Kế hoạch chưa triển khai: [Xuất bán và trả hàng theo demo Trungph](docs/09_phat_trien/TRUNG_SALES_RETURNS_IMPLEMENTATION_PLAN.md) (25/11/2026). Giữ luồng 8 → 4 → 4 và tách quyết định mở lại xuất bán theo mã ngoài khỏi thay đổi giao diện.
+
 Đặc tả tính năng đang chuẩn bị: [Kho 3D — phiên bản 1](docs/10_Kho3D/README.md) (12/11/2026). Ghi các quyết định mới về mặt bằng, khu vực, pallet và cảnh báo chiều cao; chưa phải hợp đồng API hoặc tính năng đã triển khai.
 
 | Tài liệu | Nội dung |
