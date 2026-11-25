@@ -1,6 +1,74 @@
-## 25/11/2026 — Plan the sales and returns demo improvements
+## 25/11/2026 — Hiển thị lý do hủy, lý do duyệt giảm số lượng và gọn bảng Đề nghị nhập hàng (BE + FE)
 
-- Add a [phased implementation plan](docs/09_phat_trien/TRUNG_SALES_RETURNS_IMPLEMENTATION_PLAN.md) and [demo acceptance matrix](docs/09_phat_trien/TRUNG_DEMO_LOCAL.md#nghiệm-thu-kế-hoạch-xuất-bán-và-trả-hàng--25112026). Keep the 8 → 4 → 4 workflow, and treat restoring external-reference SALE creation as a separate approval gate. Documentation only; no runtime, schema, or shared-data changes and no demo run in this task.
+- **Lý do & quyết định nguồn:** Theo yêu cầu người dùng ngày 25/11/2026 trên nhánh `minhtd`: bổ sung hiển thị lý do hủy phiếu (kèm tên người hủy và thời điểm hủy), lý do duyệt giảm số lượng từng dòng, bỏ cột "Quyết định mới nhất" không còn dữ liệu trên bảng danh sách (đưa về 7 cột theo `fe/DESIGN.md`) và thêm tab lọc "Đã hủy".
+- **Hành vi trước / sau:**
+  - **BE (`src/modules/replenishments/replenishment.service.js`):** `getReplenishment` và `listReplenishments` tra thêm `cancelledBy` trong `User.find` để trả về `cancelledByUser: { id, fullName }` bên cạnh `cancelReason`, `cancelledBy`, `cancelledAt`. Không thay đổi schema DB hay migration.
+  - **FE (`fe/src/features/replenishments/`):**
+    - `replenishmentTypes.ts` & `api/nativeReplenishmentMapping.ts`: bổ sung kiểu và map `cancelReason`, `cancelledAt`, `cancelledBy` (ưu tiên `cancelledByUser`), và `reason` trong `approvalHistory[].lines[]`.
+    - `detail/ReplenishmentDetailPage.tsx`: thêm banner `<Alert>` hiển thị lý do hủy, tên người hủy và thời điểm hủy khi phiếu ở trạng thái `CANCELLED`.
+    - `detail/components/ReplenishmentLinesTab.tsx`: hiển thị `"Lý do duyệt giảm:"` dưới số lượng duyệt cho các dòng có `approvedQtyBase < qtyBase`.
+    - `detail/components/ReplenishmentHistoryTab.tsx`: bổ sung thẻ sự kiện `"Đã hủy phiếu"` (người hủy, thời điểm, lý do hủy) và hiển thị lý do duyệt giảm từng dòng trong mỗi quyết định duyệt.
+    - `list/ReplenishmentsListPage.tsx`: xóa cột `"Quyết định mới nhất"` và state thừa `decisionFilter`, giữ 7 cột chuẩn `DESIGN.md`, thêm tab `"Đã hủy"` (`status: CANCELLED`).
+- **Tài liệu cập nhật:** `git_doc/docs/08_api/REPLENISHMENT_COVERAGE.md`, `git_doc/change_logs.md`.
+- **Kiểm chứng thực tế:**
+  - BE: `node --check src/modules/replenishments/replenishment.service.js` đạt; `node --test test/replenishment-review-decision.test.js` (1/1 pass); `npm run docs:check` đạt. Chưa chạy integration test BE cần MongoDB local hoặc E2E trình duyệt.
+  - FE: `vitest run` cho `nativeReplenishmentMapping.test.ts`, `ReplenishmentDetailPage.test.tsx`, `ReplenishmentsListPage.test.tsx` (35/35 pass); `tsc --noEmit` đạt (0 lỗi); `eslint` 9 file sửa đạt (0 lỗi); `impeccable detect --json` trên 4 file UI trả `[]` (0 lỗi). `pnpm ui:check` chưa chạy do script `scripts/ui-check.sh` không tồn tại trong repo FE; chưa chạy kiểm thử trình duyệt thực tế (`ui-visual-test`).
+
+## 25/11/2026 — Sửa 404 chi tiết hàng lỗi của Owner và gom truy vấn tồn khả dụng
+
+- **Lý do:** Kiểm tra bản deploy: `GET /api/defects/:id` trả 404 "Không xác định được kho của hồ sơ" với hồ sơ `DEFECT_CASE-202610-002` (Owner thấy trong danh sách nhưng không mở được chi tiết); `GET /api/stock-alerts` và `GET /api/dashboard/owner` mất khoảng 7,9 giây vì mỗi cặp sản phẩm × kho chạy lần lượt khoảng 6 truy vấn cho mỗi số dư.
+- **Hành vi:** `scoped()` (`return-workflows/native.shared.js`) cho Owner đọc hồ sơ hàng lỗi không xác định được kho, khớp phạm vi danh sách của Owner; vai trò khác vẫn nhận 404. Thêm `freeQuantities()` (`shared/utils/stock.js`) và `availableStocks()` (`replenishments/replenishment.evaluation.js`) tính tồn khả dụng cho nhiều số dư bằng số truy vấn cố định; `evaluateThresholds()` dùng chúng. `freeQuantity`/`availableStock` giữ nguyên cho luồng ghi.
+- **Dữ liệu:** không migration, không đổi API contract hay phân quyền.
+- **Kiểm chứng:** `test/stock-availability-bulk.test.js` (mock model) xác nhận kết quả gom bằng kết quả từng số dư; `test/system-admin.test.js` đạt. Chưa đo lại trên bản deploy; test tích hợp cần MongoDB bị bỏ qua.
+
+## 25/11/2026 — Đồng bộ sơ đồ BF-01 sau khi tách module nhận mua
+
+- Rà lại 25 trang, cập nhật trang 1 và 13–25 của [sơ đồ BF-01](docs/04_so_do/WMSD_BF01_Diagrams.drawio). Cập nhật đường gọi kiểm nhận, nhập mua, giữ hộ và đảo phiếu theo module mới. Làm rõ loại vị trí theo chất lượng, thứ tự ghi phiếu và tính lại PO, vòng lặp đảo biến động gốc và bội số RR–quyết định, ARR–INS.
+- Đồng bộ [Report 4 §II.1](docs/01_bao_cao/WMSD_Report4_Draft.md#L407), [báo cáo đối chiếu](docs/04_so_do/WMSD_BF01_Diagrams_Review.md) và 14 ảnh xem trước. Thay đổi thuộc tài liệu, không cần migration.
+- Kiểm cấu trúc XML cả 25 trang, xem 14 ảnh xuất lại và render 25 khối Mermaid BF-01. Sáu test BE khoanh vùng vòng đời PO, sửa kiểm nhận, ghi tồn và đảo phiếu đạt trên cơ sở dữ liệu tạm MongoDB cục bộ. Nhánh `QUARANTINE` của PATCH được đối chiếu qua mã nguồn. Lượt này không chạy bộ test FE hoặc kiểm thử ứng dụng qua trình duyệt.
+- Sau khi đối chiếu, gỡ 25 ảnh xem trước và các liên kết ảnh khỏi báo cáo theo yêu cầu.
+- Đổi nhãn `RestController` thành `Controller` trên 21 sơ đồ tuần tự BF-01 trong draw.io và Report 4.
+
+## 25/11/2026 — Tách module `po-receiving` theo loại chứng từ (BE + FE)
+
+- **Lý do & quyết định nguồn:** Thực hiện [PLAN_tach_module_po_receiving.md](../../PLAN_tach_module_po_receiving.md) đã chốt ngày 25/11/2026: tách module `po-receiving` quá lớn thành các module theo loại chứng từ, bỏ phụ thuộc vòng giữa `purchase-orders` ↔ `po-receiving` và nội bộ `po-receiving`. Refactor thuần: giữ nguyên URL, permission, payload request/response, tên command trong audit và hành vi transaction.
+- **Hành vi trước / sau:**
+  - **BE shared (`src/shared/utils/`):** tách `purchase-core.js` (thêm `activePo`, `cancelDraft`; xóa alias `commitments`), `intake-packaging.js` (`intakePortions`, `checkPackagingLines`), `evidence-storage.js` (`evidenceStorage`, `inspectFile`, `MAX_BYTES`), `purchase-validation.js` (schema Zod dùng chung). Không file nào trong `shared/utils/` import `modules/`.
+  - **BE modules mới & di chuyển:**
+    - `src/modules/goods-inspections/`: `goods-inspection.service.js`, `goods-inspection.correction.js`, `goods-inspection.controller.js`, `goods-inspection.validation.js`, `goods-inspection.routes.js` (`inspectionRouter`, `purchaseOrderInspectionRouter`).
+    - `src/modules/custody/`: `custody-stock.js`, `custody.service.js`, `custody.controller.js`, `custody.validation.js`, `custody.routes.js` (`custodyRouter`, `custodyReleaseRouter`).
+    - `src/modules/stock-reversals/`: `stock-reversal.service.js`, `stock-reversal.controller.js`, `stock-reversal.validation.js`, `stock-reversal.routes.js` (`reversalRouter`).
+    - `src/modules/goods-receipts/`: thêm `purchase-receipt.service.js`, `purchase-receipt.controller.js`, `purchase-receipt.validation.js`, `purchase-receipt.routes.js`; `goods-receipt.routes.js` và `other-receipt.service.js` cập nhật import.
+    - `src/modules/po-receiving/`: chỉ giữ tầng đọc (`purchase-read.service.js` nhận thêm `receivingOperation`, `purchase-evidence.service.js`, `purchase-reconciliation.js`, `po-receiving.routes/controller/validation.js`); xóa `purchase-core.js`, `po-receiving.service.js`, `purchase-correction.service.js`, `purchase-custody.service.js`.
+  - **FE (`fe/src/`):** tạo `shared/api/apiResponse.ts` (re-export từ `purchaseOrdersApi.ts`), tạo `features/receiving/` (`api/receivingApi.ts`, `api/receivingMappers.ts`, `api/receivingMappers.test.ts`, `components/PurchaseEvidenceField.tsx`), chuyển `PurchaseReceiptReverseModal.tsx` vào `features/receipts/detail/`, xóa thư mục trống `purchase-orders/detail/components/receiving/`, cập nhật toàn bộ import.
+  - **Script & test:** cập nhật `scripts/generate-db-overview.mjs` và các test (`native-api.integration.test.js`, `receiving-custody-policy.test.js`, `purchase-evidence*.test.js`, `refactor-regression.integration.test.js`).
+- **Tài liệu cập nhật:** `git_doc/docs/08_api/GOODS_RECEIPTS.md`, `git_doc/docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md`, `git_doc/docs/01_bao_cao/WMSD_Report4_Draft.md`, `git_doc/docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Overview_Relationships.md` (sinh lại bằng `generate-db-overview.mjs`), `git_doc/docs/04_so_do/WMSD_BF01_Diagrams_Review.md`, `git_doc/change_logs.md`. Không đổi model, schema DB hay migration.
+- **Kiểm chứng thực tế:**
+  - Đối chiếu route trước/sau tách BE: `discoverRoutes(app)` 307/307 route và 257/257 cặp `(method, path, checkPermission...)` khớp tuyệt đối (0 diff).
+  - BE unit tests (`purchase-evidence.test.js`, `purchase-evidence.local.test.js`, `receiving-custody-policy.test.js`): 9/9 pass.
+  - BE integration tests trên MongoDB local `rs0` (`native-api.integration.test.js`, `refactor-regression.integration.test.js`, `goods-receipt.integration.test.js`): 38/38 pass.
+  - FE: `npx tsc --noEmit` và `npm run build` pass (0 lỗi); `vitest` cho `purchase-orders`, `receiving`, `inspections`, `receipts`, `custody` đạt 146/148 pass (2 fail duy nhất thuộc `CUSTOMER_RETURN` bị ẩn bởi `salesVisibility` có sẵn trên nhánh `minhtd`, không liên quan refactor).
+
+## 25/11/2026 · Sơ đồ RR Class dùng trực tiếp các model nguồn
+
+- Theo yêu cầu người dùng, bỏ hộp `ReplenishmentSource` và các đường nối qua hộp này. Thêm ba đường phụ thuộc đọc từ `ReplenishmentEvaluation` đến `SalesOrder`, `WarehouseIssueRequest` và `Stocktake` theo `resolveSource()`.
+- Đồng bộ ảnh trang 1, báo cáo đối chiếu, sơ đồ Mermaid trong Report 4 và hướng dẫn đọc code RR. Kiểm 16 đường nối của trang RR Class, xuất và xem ảnh trang 1. Thay đổi thuộc tài liệu, không cần migration.
+
+## 25/11/2026 · Báo cáo đối chiếu 25 sơ đồ BF-01
+
+- Thêm [báo cáo Markdown](docs/04_so_do/WMSD_BF01_Diagrams_Review.md) theo yêu cầu giải thích từng hình. Báo cáo nhúng 25 ảnh xuất từ draw.io, giải thích 90 đường nối lớp và ghi lại 400 thông điệp tuần tự. Kết quả gồm 20 hình khớp ở mức thiết kế, 4 khớp một phần và 1 cần chỉnh điều kiện vị trí.
+- Kiểm ảnh, thứ tự trang, đích liên kết và mã nguồn hiện hành. BE qua 27 test đã chọn, trong đó 17 test dùng DB tạm trên replica set cục bộ. FE qua 78 test đã chọn. Browser và môi trường triển khai nằm ngoài phạm vi. Thay đổi chỉ thuộc tài liệu, không cần migration.
+
+## 25/11/2026 — Bỏ nhãn mô tả trên đường nối class diagram BF-01
+
+- Bỏ 87 nhãn trên đường nối của bốn class diagram trong draw.io và Report 4. Giữ đầu nối, kiểu quan hệ, bội số UML và toàn bộ sequence diagram.
+
+## 25/11/2026 — Ghi tên file thực thi trên sequence diagram BF-01
+
+- Đồng bộ 21 sequence BF-01 trong Report 4 và WMSD_BF01_Diagrams.drawio. Mỗi lifeline UI, RestController và Service ghi tên file triển khai. Các bước gửi RR đã lưu, phát hành PO và xác nhận sửa kiểm nhận đi qua file UI riêng. Những bước đánh giá RR, tính lượng PO, chuẩn bị lại kiểm nhận và xử lý tồn giữ hộ hiển thị lời gọi giữa các service.
+- Luồng PATCH đổi vị trí phiếu nhập mua bắt đầu từ API client vì chưa có đường gọi từ màn hình phiếu nhập hiện tại.
+- Kiểm tra 400 thông điệp và đầu mút giữa hai bản, render 26 khối Mermaid, xuất đủ 25 trang draw.io và xem các trang đại diện.
+
 ## 25/11/2026 — Tạo vị trí cho ô ngay trên màn hình vẽ
 
 Theo yêu cầu người dùng: “Tạo vị trí mới và gán” không chuyển trang mà hiện thông báo thành công. `PUT /api/warehouse-catalogue/:id/layout` nhận thêm `createLocationForSlots?: string[]`; `createLocationsForNewSlots` tạo vị trí cho các ô này dù đã có trên bản vẽ (mã ô lạ bị từ chối, thiếu `warehouse_location:create` bị từ chối). FE gửi trường này, cập nhật bản vẽ từ response, gọi toast `message.success`, bỏ điều hướng sang trang tạo/chi tiết vị trí; FE còn thêm nút “Nhân bản kích thước” ô, tách công cụ Chọn/Chỉnh sửa và quy tắc con trỏ theo chế độ (chỉ FE). Không đổi model/quyền. Tài liệu: [STAGE2_ZONES.md](docs/10_Kho3D/STAGE2_ZONES.md). Kiểm tra: integration `hieudt-scope` 8 pass trên replica set tạm `127.0.0.1:27018`; FE tsc, eslint, vitest `warehouse-3d`/`warehouse-stock` 74 pass. Chưa thử trên trình duyệt.
@@ -37,12 +105,6 @@ Email production dẫn vào trang đăng nhập FE Tân Thương, kể cả khi 
 
 - Restore customer return and linked receipt screens without restoring Sales Order screens or changing return permissions.
 - The create API and `CustomerReturn` header accept an optional plain-text `salesOrderReference`. Existing records remain valid without migration. Source, lot, claim and stock rules do not change. See [Return Workflows](docs/08_api/RETURN_WORKFLOWS_NATIVE.md).
-
-## 25/11/2026 — Customer return receipt retry and evidence checks
-
-- Match downloaded evidence to the authorized parent document's stored ID, consistent with upload and listing. The API and stored data are unchanged; no migration or customer-return reversal command is added.
-- Added coverage for authorizing evidence by document, posting a partial receipt and replaying it without duplicating stock, receiving the remainder, and showing both quantities and retrying the same payload in the UI. See [Return Workflows](docs/08_api/RETURN_WORKFLOWS_NATIVE.md).
-- Verification: 30 focused backend tests passed with isolated local MongoDB databases where required, and 20 focused frontend tests passed. Evidence authorization used a stubbed download signer; live storage and deployment were not exercised.
 
 ## 25/11/2026 — Đồng bộ thiết kế BF-01 với code nhận mua hiện hành
 
@@ -2628,11 +2690,10 @@ Theo yêu cầu người dùng, gỡ Dockerfile của BE và cập nhật hướ
 - **Kiểm chứng bổ sung**: `node --check` các file đổi; kiểm tra ad-hoc bằng stub (không DB) ghi đúng 2 bản audit (người thực hiện, đối tượng `roles`, quyền trước/sau); `node --test test/system-admin.test.js` 7/7 đạt; `npm run docs:check` đạt; không còn tiêu đề use case trùng số trong Report 3.
 - **Hạn chế còn lại**: các mục chi tiết và tham chiếu của nhóm khác vẫn dùng số cũ khác với catalogue (ví dụ customer return UC-79…UC-86, defect UC-73…UC-78, supplier return UC-88…UC-92, stock movement UC-114…UC-116, UC-117…UC-120, UC-122/123), nên nhiều dòng BF/DR/BR đang trộn số cũ và số mới; không còn trùng tiêu đề nhưng cần một đợt đánh số lại toàn bộ phần chi tiết theo catalogue; kế hoạch kiểm kê, hủy phiên, `GET/POST /users`, `POST /roles`, `PUT /roles/:code/permissions` và chọn lý do chênh lệch (FE) vẫn chưa có test tự động theo quyết định không tạo test mới; không chạy test cần MongoDB.
 25/11/2026 — Customer Return sources from posted Goods Issues expose the actual active issue lots and per-lot remaining claim. Sales can split one source across those lots; the backend validates and retains each lot through receipt. Add an explicit private local evidence provider for isolated demos with no Cloudinary credentials; Cloudinary remains the default. Current contracts: `docs/08_api/GOODS_ISSUES.md`, `docs/08_api/RETURN_WORKFLOWS_NATIVE.md`.
-## 25/11/2026 — Xuất bán độc lập và demo bán 8 → trả khách 4 → trả NCC 4
+## 26/11/2026 — Xuất bán độc lập và demo bán 8 → trả khách 4 → trả NCC 4
 
 - Backend cho phép Sales tạo `SALE` bằng mã đơn ngoài, tùy chọn snapshot tên/SĐT khách; Owner khác duyệt cùng phiếu; Kho chọn lô khi soạn và ghi xuất trừ tồn một lần.
 - Lookup nguồn khách trả tìm theo số PXB hoặc mã ngoài, trả lô và lượng còn được trả; Customer Return kế thừa snapshot khách của phiếu nguồn. Luồng supplier return giữ agreement/dispatch/ACK hiện hành và được kiểm chứng với lô khác.
 - FE hiển thị form Sale, quy đổi lượng nhập → lượng gốc, snapshot khách, source reference/lot/remaining quantity và giữ ẩn Sales Order nội bộ.
-- Kiểm chứng: backend direct-sales.integration 1/1 và return-workflows.integration 22/22 trên MongoDB local `27018/hieudt-test`; FE focused tests 27/32, còn 5 lỗi jsdom/Ant Design interaction; chưa browser visual run, chưa rollout remote.
-- Model fields additive, không migration/index/backfill; cập nhật contract, MODEL_MAP, Data Dictionary, model changelog và runbook.
+- Backend direct-sales 1/1 và return-workflows 22/22 đã đạt; FE typecheck/build và docs check đạt. Focused UI tests 27/32, còn 5 lỗi jsdom/Ant Design interaction; chưa browser visual run.
 

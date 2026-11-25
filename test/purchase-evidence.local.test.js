@@ -8,7 +8,7 @@ import { PNG } from 'pngjs';
 const root = await mkdtemp(join(tmpdir(), 'whms-evidence-'));
 process.env.EVIDENCE_STORAGE_PROVIDER = 'local';
 process.env.EVIDENCE_LOCAL_DIR = root;
-const { evidenceStorage } = await import('../src/modules/po-receiving/purchase-evidence.service.js');
+const { evidenceStorage } = await import('../src/shared/utils/evidence-storage.js');
 test.after(async () => { await rm(root, { recursive: true, force: true }); });
 
 test('local evidence stays private, can be previewed, rejects duplicate keys and cleans up', async () => {

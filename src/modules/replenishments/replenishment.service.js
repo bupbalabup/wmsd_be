@@ -83,7 +83,11 @@ export async function listReplenishments(user, query) {
     ),
   ];
   const userIds = [
-    ...new Set(paged.items.map((row) => row.createdBy).filter(Boolean)),
+    ...new Set(
+      paged.items
+        .flatMap((row) => [row.createdBy, row.cancelledBy])
+        .filter(Boolean),
+    ),
   ];
   const productIds = [
     ...new Set(
@@ -115,6 +119,9 @@ export async function listReplenishments(user, query) {
   paged.items = paged.items.map((item) => {
     const w = warehouseMap.get(String(item.header?.warehouseId));
     const u = userMap.get(String(item.createdBy));
+    const cancelledByUser = item.cancelledBy
+      ? userMap.get(String(item.cancelledBy))
+      : undefined;
     const items = (item.items || []).map((line) => {
       const prod = productMap.get(String(line.productId));
       return {
@@ -132,6 +139,12 @@ export async function listReplenishments(user, query) {
         warehouse: { id: String(w._id), code: w.code, name: w.name },
       }),
       ...(u && { createdByUser: { id: String(u._id), fullName: u.fullName } }),
+      ...(cancelledByUser && {
+        cancelledByUser: {
+          id: String(item.cancelledBy),
+          fullName: cancelledByUser.fullName,
+        },
+      }),
     };
   });
   return paged;
@@ -176,6 +189,7 @@ export async function getReplenishment(user, id) {
   const userIds = [
     document.createdBy,
     document.header?.submittedBy,
+    document.cancelledBy,
     ...approvals.map((a) => a.requestedBy),
     ...approvals.map((a) => a.decidedBy),
   ].filter(Boolean);
@@ -211,6 +225,9 @@ export async function getReplenishment(user, id) {
   const createdByUser = userMap.get(String(document.createdBy));
   const submittedByUser = document.header?.submittedBy
     ? userMap.get(String(document.header.submittedBy))
+    : undefined;
+  const cancelledByUser = document.cancelledBy
+    ? userMap.get(String(document.cancelledBy))
     : undefined;
 
   const mappedApprovals = approvals.map((approval) => {
@@ -294,6 +311,12 @@ export async function getReplenishment(user, id) {
       submittedByUser: {
         id: String(document.header.submittedBy),
         fullName: submittedByUser.fullName,
+      },
+    }),
+    ...(cancelledByUser && {
+      cancelledByUser: {
+        id: String(document.cancelledBy),
+        fullName: cancelledByUser.fullName,
       },
     }),
     approvals: mappedApprovals,

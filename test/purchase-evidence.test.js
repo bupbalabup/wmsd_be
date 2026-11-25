@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { PNG } from 'pngjs';
 import jpeg from 'jpeg-js';
 import { PDFDocument } from 'pdf-lib';
-import { inspectFile } from '../src/modules/po-receiving/purchase-evidence.service.js';
+import { inspectFile } from '../src/shared/utils/evidence-storage.js';
 
 test('evidence decodes actual PNG/JPEG/PDF bytes and ignores claimed MIME', async () => {
   const png = PNG.sync.write(new PNG({ width: 1, height: 1 }));

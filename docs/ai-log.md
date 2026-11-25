@@ -35,6 +35,37 @@ Validation performed / not performed:
 
 ## Log entries
 
+### 2026-11-25 — Plan and review: split `po-receiving` by document type (UC-08, UC-15, UC-16, UC-37)
+
+- **Work item:** Pure refactor of `src/modules/po-receiving`. PO create, edit and cancel were already in `purchase-orders`. AI wrote the plan and reviewed the implementation; the user implemented it.
+  - **Plan:**
+    - Split by document type: `goods-inspections`, `goods-receipts/purchase-receipt.*`, `custody`, `stock-reversals`.
+    - Shared helpers move to `shared/utils/{purchase-core,intake-packaging,evidence-storage,purchase-validation}.js`.
+    - `po-receiving` keeps evidence, the read services and reconciliation.
+    - Dependencies must form a one-way graph with no import cycle.
+    - No change to URLs, permissions, payloads, audit command names or transactions.
+  - **Review findings:**
+    - Moved functions match HEAD by AST token comparison.
+    - All 61 route, method and permission tuples are unchanged.
+    - There are no import cycles.
+    - Stale file names remain in `git_doc/docs/01_bao_cao/WMSD_Report4_Draft.md`, `git_doc/docs/04_so_do/WMSD_BF01_Diagrams.drawio` and `HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md`; these were not fixed.
+  - **Corrected review claim:** the review said the two inspection routes under `/purchase-orders`, which pass through three routers, query the user three times. That is wrong: `authenticate` returns early once `req[AUTHENTICATED]` is set, and a stubbed count measured one `User.findById` per request. No code change.
+- **Tool and model:** Claude Code (Claude Opus 5.5).
+- **Prompt summary:** Plan how to split `po-receiving`, update the plan after another agent's review, review the implementation, and explain the duplicate authentication concern.
+- **Result used:** Plan file `PLAN_tach_module_po_receiving.md` in the workspace root, outside the `be/` and `fe/` repositories, and the review findings.
+- **Intervention:** Edited.
+- **Human changes:**
+  - The user accepted corrections from another agent's review: helper placement, no shared `commitments`, and no `goods-inspections → stock-reversals` edge.
+  - The user revised the plan and implemented the code.
+- **Files affected:** `docs/ai-log.md`, `docs/rtm.md` (UC-07 link, UC-37 note). Implementation by the user: `src/modules/{po-receiving,goods-inspections,goods-receipts,custody,stock-reversals}/**`, `src/shared/utils/{purchase-core,intake-packaging,evidence-storage,purchase-validation}.js`, `src/routes.js`.
+- **Validation:**
+  - AST comparison of moved functions and route tuple comparison against HEAD.
+  - `tsc --checkJs` for undefined names.
+  - `npm test`: 455 tests, 400 passed, 7 failed. All 7 failures need MongoDB on port 27018, which was not running.
+  - `npm run docs:check` passed.
+  - The authentication count stopped at 403 with a stubbed user, so no controller ran.
+  - Native API integration tests were not run.
+
 ### 2026-11-20 — Link a replaced inspection to its replacement (UC-37)
 
 - Date: 2026-11-20

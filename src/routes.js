@@ -21,10 +21,12 @@ import suppliersRouter from "./modules/suppliers/supplier.routes.js";
 import lotsRouter from "./modules/lots/lot.routes.js";
 import purchaseOrdersRouter from "./modules/purchase-orders/purchase-order.routes.js";
 import {
-  inspectionRouter,
   purchaseReceivingRouter,
-  custodyReleaseRouter, custodyRouter, reversalRouter, queueRouter, purchaseDocumentRouter,
+  queueRouter, purchaseDocumentRouter,
 } from "./modules/po-receiving/po-receiving.routes.js";
+import { inspectionRouter, purchaseOrderInspectionRouter } from "./modules/goods-inspections/goods-inspection.routes.js";
+import { custodyRouter, custodyReleaseRouter } from "./modules/custody/custody.routes.js";
+import { reversalRouter } from "./modules/stock-reversals/stock-reversal.routes.js";
 
 import returnWorkflowsRouter from './modules/return-workflows/workflow.routes.js';
 import uomRouter from './modules/uoms/uom.routes.js';
@@ -61,6 +63,7 @@ router.use("/suppliers", suppliersRouter);
 router.use("/lots", lotsRouter);
 router.use("/purchase-orders", purchaseOrdersRouter);
 router.use("/purchase-orders", purchaseReceivingRouter);
+router.use("/purchase-orders", purchaseOrderInspectionRouter);
 router.use("/goods-inspections", inspectionRouter);
 router.use("/stock-reversals", reversalRouter);
 router.use("/custody-receipts", custodyRouter);

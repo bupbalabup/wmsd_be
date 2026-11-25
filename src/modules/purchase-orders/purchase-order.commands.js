@@ -25,7 +25,7 @@ import {
   replayPurchase,
   newDocument,
   evidenceFor,
-} from "../po-receiving/purchase-core.js";
+} from "../../shared/utils/purchase-core.js";
 import { purchaseOrderQuantities, cancelBlocker, receivingStatus, reopenable } from "./purchase-order.service.js";
 
 // A changed or new expected date may not be in the past; an unchanged saved date stays editable.
