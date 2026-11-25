@@ -3,7 +3,16 @@ import assert from 'node:assert/strict';
 import * as v from '../src/modules/return-workflows/native.validation.js';
 import { eligibility } from '../src/modules/return-workflows/native.service.js';
 import { heldOnBalance } from '../src/shared/utils/stock.js';
+import { createCustomerReturnHeaderSchema } from '../src/models/customer-return-header.schema.js';
 const id='a'.repeat(24),base={expectedVersion:1,idempotencyKey:'operation-test-000001',note:'Verified actual facts'};
+test('a customer return accepts an optional plain-text order reference without replacing its stock source',()=>{
+ const body={idempotencyKey:base.idempotencyKey,warehouseId:id,lines:[{salesIssueLineId:id,qtyBase:'2',reason:base.note}]};
+ assert.equal(v.customerCreateSchema.parse({body}).body.salesOrderReference,undefined);
+ assert.equal(v.customerCreateSchema.parse({body:{...body,salesOrderReference:'  EXT-SO-019  '}}).body.salesOrderReference,'EXT-SO-019');
+ assert.equal(v.customerCreateSchema.safeParse({body:{...body,salesOrderReference:'X'.repeat(101)}}).success,false);
+ assert.equal(v.customerCreateSchema.safeParse({body:{...body,salesOrderReference:'EXT-SO-019',lines:[{qtyBase:'2',reason:base.note}]}}).success,false);
+ assert.equal(createCustomerReturnHeaderSchema().path('salesOrderReference').instance,'String');
+});
 test('customer request parts and defect outcomes can share a source while supplier proposals stay unique',()=>{
  const part={salesIssueLineId:id,qtyBase:'2',reason:'Inspect separately'};
  assert.equal(v.customerCreateSchema.safeParse({body:{idempotencyKey:base.idempotencyKey,warehouseId:id,lines:[part,part]}}).success,true);

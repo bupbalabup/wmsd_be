@@ -5031,6 +5031,7 @@ Model: [customer-return.model.js](../../../../src/models/customer-return.model.j
 | `header.customerName` | String | false |  |
 | `header.customerPhone` | String | false |  |
 | `header.intakeMode` | String | false |  |
+| `header.salesOrderReference` | String | false | Plain-text reference only, max 100 characters |
 | `header.financialFollowupStatus` | String | true |  |
 | `header.openedBy` | ObjectId | false | User |
 | `header.openedAt` | Date | false |  |

@@ -79,6 +79,15 @@ run('customer custody, current inspection decision and receipt preserve physical
  const ownedAfter=await m.InventoryBalance.find({ownerType:'STORE',batchId:batch._id});assert.equal(ownedAfter.reduce((n,b)=>n+Number(String(b.quantityBase)),0),totalBefore+4);assert.equal((await m.CustomerReturn.findById(doc.id)).workflowStatus,'COMPLETED');
  const claim=await m.ReturnQuantityClaim.findOne({requestLineId:doc.items[0]._id});assert.equal(claim.events.at(-1).kind,'RECEIVED');
 });
+run('customer return stores and returns plain-text order reference without a Sales Order',async()=>{
+ const external=await legacyHistoricalSource('8');
+ for(const salesOrderReference of [undefined,'EXT-SO-019']){
+  const result=await service.createCustomerReturn(users.SALES,{idempotencyKey:key(),warehouseId:warehouse.id,salesOrderReference,lines:[{historicalExternalLineId:sid(external.items[0]),qtyBase:'2',reason:'Unused cartons'}]});
+  const doc=await reads.detail(users.SALES,'customer-returns',result.id);
+  assert.equal(doc.header.salesOrderReference,salesOrderReference);
+  assert.equal(doc.header.salesOrderId,undefined);
+ }
+});
 run('multiple customer custody arrivals retain later packaging timestamps on receipt',async()=>{
  const location=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'RET-MULTI-CUSTODY',locationType:'CUSTODY',usableLengthMm:5000,usableWidthMm:5000});
  const external=await legacyHistoricalSource('8'),returns=[];
