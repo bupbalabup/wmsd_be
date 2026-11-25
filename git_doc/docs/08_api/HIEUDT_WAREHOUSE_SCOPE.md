@@ -27,6 +27,8 @@ Tất cả API có tiền tố /api, yêu cầu xác thực và quyền thật t
 
 ## Kho, vị trí và tồn kho
 
+`GET /api/warehouse-overview` (quyền `inventory:read`, theo kho được phân công) trả `warehouseCount`, `locationCount`, `balanceCount`, `openRelocations`, `pendingTransfers` và từ 25/11/2026 thêm `openPutaways`, `openPicks` (nhiệm vụ `transfer_orders` loại PUTAWAY/PICK ở trạng thái OPEN/PARTIAL) và `draftIssues` (phiếu xuất `sales_goods_issues` DRAFT). FE "Tổng quan kho" hiện các số này thành danh sách việc cần làm có liên kết.
+
 Chủ cửa hàng (`OWNER`) có phạm vi toàn bộ kho, kể cả khi `warehouseIds` rỗng hoặc kho vừa được tạo. Đối với [thiết kế Kho 3D](../10_Kho3D/STAGE2_ZONES.md#api-và-quyền), quyền sửa kho của Chủ cửa hàng bao gồm quản lý chức năng khu vực. Các vai trò khác vẫn theo quyền thao tác và phạm vi kho được phân công.
 
 GET /warehouses vẫn trả options theo phạm vi; GET /warehouse-catalogue trả danh sách kho cửa hàng với số vị trí; GET /warehouse-catalogue/:id trả chi tiết. POST/PATCH /warehouse-catalogue dùng warehouse_location:create/update để Owner quản lý kho. Mã kho bất biến sau tạo; tên/địa chỉ/mô tả/kích thước/trạng thái được sửa bằng expectedUpdatedAt + idempotencyKey. Không thể ngừng kho còn tồn, reservation, nhiệm vụ mở; thay đổi kích thước vẫn kiểm tra sức chứa thực. Kho được phân công mới hiển thị cho non-Owner; Owner xem toàn bộ. Danh sách vị trí lọc q literal theo mã/tên/khu vực/mô tả, warehouseId, active=true|false, type, page, limit≤100. Chỉ dùng trường mô hình đã duyệt: areaCode, không tạo aisle/rack giả.
