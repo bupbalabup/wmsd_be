@@ -2,7 +2,7 @@ import { newBusinessDocument } from '../../shared/utils/document-number.js';
 import * as m from '../../models/runtime.js';
 import { exact } from '../../models/model-utils.js';
 import { ApiError, validationError, notFoundError, versionConflict } from '../../shared/utils/ApiError.js';
-import { requirePermission, requireWarehouseAccess, canAccessWarehouse, hasPermission } from '../../shared/utils/access.js';
+import { requirePermission, requireWarehouseAccess, canAccessWarehouse, hasPermission, isOwner } from '../../shared/utils/access.js';
 import { command, newId, same, saveVersion, checkVersion, hash } from '../../shared/utils/document-command.js';
 import { transaction, serialize } from '../../shared/utils/persistence.js';
 import { balanceAt, sourceContext, guardLocations, locationAt, beginStock, splitPortions, retainPortions, remainingReservation, pendingTaskQuantity, heldQuantity, verifyCapacity, receiveStock } from '../../shared/utils/stock.js';
@@ -38,6 +38,8 @@ export async function scoped(Model,id,user,session,permission) {
  }
  if(!warehouse&&Model===m.SalesOrder){const requests=await m.WarehouseIssueRequest.find({'header.salesOrderId':doc._id}).session(session);const accessible=requests.find(r=>canAccessWarehouse(user,r.header.requestedWarehouseId));warehouse=accessible?.header.requestedWarehouseId;}
  if(!warehouse&&Model===m.SalesOrder){const requests=await m.WarehouseIssueRequest.find({'header.salesOrderId':doc._id}).session(session);warehouse=requests.find(r=>canAccessWarehouse(user,r.header.requestedWarehouseId))?.header.requestedWarehouseId;}
+ // Owner's list scope is {} so legacy defects without a resolvable warehouse are listed; keep detail consistent.
+ if(!warehouse&&Model===m.DefectReport&&isOwner(user))return doc;
  if(!warehouse)throw notFoundError('Không xác định được kho của hồ sơ');
  requireWarehouseAccess(user,warehouse);
  if(Model===m.CustomerReturn && hasPermission(user,'customer_return:create')&&!hasPermission(user,'customer_return:inspect')&&!hasPermission(user,'customer_return:approve_exception')&&!same(doc.createdBy,user._id))throw notFoundError();

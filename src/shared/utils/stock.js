@@ -70,6 +70,44 @@ export async function freeQuantity(balance, session, excludeTaskId) {
   const pending = await unreservedPendingTaskQuantity(balance._id, session, excludeTaskId);
   return exact(balance.quantityBase).minus(reserved).minus(pending).minus(await heldQuantity(balance._id, session));
 }
+/**
+ * Same result as freeQuantity() for many balances at once (Map balanceId -> Decimal) using a constant number of
+ * queries instead of ~6 per balance. Used by read-only listings (low-stock alerts, owner dashboard).
+ */
+export async function freeQuantities(balances, session) {
+  const result = new Map();
+  if (!balances.length) return result;
+  const ids = balances.map(balance => balance._id);
+  const [reservations, tasks, reports] = await Promise.all([
+    StockReservation.find({ balanceId: { $in: ids } }).session(session),
+    TransferOrder.find({ workflowStatus: { $in: ['OPEN','DRAFT','PARTIAL'] }, 'items.details.sourceBalanceId': { $in: ids } }).session(session).lean(),
+    DefectReport.find({ holds: { $elemMatch: { status: 'ACTIVE', 'allocations.balanceId': { $in: ids } } } }).session(session),
+  ]);
+  const transactions = tasks.length
+    ? await StockTransaction.find({ sourceType: 'transfer_orders', sourceId: { $in: tasks.map(task => task._id) } }).session(session).lean()
+    : [];
+  const movementsByTask = new Map();
+  for (const transaction of transactions) {
+    const key = String(transaction.sourceId);
+    movementsByTask.set(key, [...(movementsByTask.get(key) ?? []), ...transaction.movements]);
+  }
+  for (const balance of balances) {
+    const reserved = reservations.filter(row => same(row.balanceId, balance._id))
+      .reduce((total, row) => total.plus(remainingReservation(row)), exact('0'));
+    const own = tasks.filter(task => task.items.some(item => same(item.details?.sourceBalanceId, balance._id)));
+    const pending = own.reduce((total, task) => total.plus(task.items.filter(item => same(item.details?.sourceBalanceId, balance._id)).reduce((n, item) => {
+      const actual = (movementsByTask.get(String(task._id)) ?? []).filter(move => same(move.sourceLineId, item._id) && same(move.fromBalanceId, balance._id))
+        .reduce((v, move) => v.plus(String(move.quantityBase)), exact('0'));
+      return n.plus(exact(item.qtyBase).minus(actual));
+    }, exact('0'))), exact('0'));
+    const taskIds = own.map(task => task._id);
+    const covered = reservations.filter(row => same(row.balanceId, balance._id) && row.executionRef?.documentType === 'transfer_orders' && taskIds.some(id => same(id, row.executionRef.documentId)))
+      .reduce((total, row) => total.plus(remainingReservation(row)), exact('0'));
+    const unreservedPending = pending.gt(covered) ? pending.minus(covered) : exact('0');
+    result.set(String(balance._id), exact(balance.quantityBase).minus(reserved).minus(unreservedPending).minus(heldOnBalance(reports, balance._id)));
+  }
+  return result;
+}
 // Sales picking tasks are backed by execution reservations. Count that stock
 // once; relocation/putaway tasks without reservations still consume headroom.
 export async function unreservedPendingTaskQuantity(balanceId, session, excludeTaskId) {

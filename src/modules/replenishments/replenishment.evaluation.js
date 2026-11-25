@@ -4,7 +4,7 @@ import { requirePermission, requireWarehouseAccess } from "../../shared/utils/ac
 import { ApiError, validationError, forbiddenError, notFoundError } from "../../shared/utils/ApiError.js";
 import { same } from "../../shared/utils/document-command.js";
 import { resolveConversion, toBaseQuantity } from "../../shared/utils/conversions.js";
-import { freeQuantity } from "../../shared/utils/stock.js";
+import { freeQuantity, freeQuantities } from "../../shared/utils/stock.js";
 import { canReadRelated, canAccessWarehouse } from "./replenishment.access.js";
 import { currentRole } from "../../shared/utils/userRole.js";
 
@@ -239,6 +239,45 @@ export async function availableStock(productId, warehouseId, lotId, session) {
   for (const balance of balances)
     available = available.plus(positive(await freeQuantity(balance, session)));
   return available;
+}
+
+/**
+ * availableStock() for many product×warehouse pairs with a constant number of queries (read-only listings).
+ * Returns Map `${productId}:${warehouseId}` -> Decimal, identical to availableStock for each pair.
+ */
+export async function availableStocks(pairs) {
+  const result = new Map();
+  if (!pairs.length) return result;
+  const key = (productId, warehouseId) => `${productId}:${warehouseId}`;
+  const warehouseIds = [...new Set(pairs.map((pair) => String(pair.warehouseId)))];
+  const productIds = [...new Set(pairs.map((pair) => String(pair.productId)))];
+  const [locations, batches] = await Promise.all([
+    m.WarehouseLocation.find({ warehouseId: { $in: warehouseIds }, isActive: true, locationType: "STORAGE", isPickable: true }).select("_id warehouseId"),
+    m.ProductBatch.find({ productId: { $in: productIds }, identificationStatus: "VERIFIED" }).select("_id productId"),
+  ]);
+  const locationIds = locations.map((location) => location._id);
+  const [locks, points] = await Promise.all([
+    m.StocktakeLocationLock.find({ locationId: { $in: locationIds }, status: "LOCKED" }).select("locationId"),
+    m.StockHoldingPoint.find({ type: "LOCATION", locationId: { $in: locationIds } }).select("_id locationId"),
+  ]);
+  const locked = new Set(locks.map((lock) => String(lock.locationId)));
+  const warehouseOfLocation = new Map(locations.map((location) => [String(location._id), String(location.warehouseId)]));
+  const warehouseOfPoint = new Map(points.filter((point) => !locked.has(String(point.locationId)))
+    .map((point) => [String(point._id), warehouseOfLocation.get(String(point.locationId))]));
+  const productOfBatch = new Map(batches.map((batch) => [String(batch._id), String(batch.productId)]));
+  const balances = warehouseOfPoint.size && productOfBatch.size
+    ? await m.InventoryBalance.find({
+        holdingPointId: { $in: [...warehouseOfPoint.keys()] }, batchId: { $in: [...productOfBatch.keys()] },
+        qualityStatus: "GOOD", ownerType: "STORE",
+      })
+    : [];
+  const free = await freeQuantities(balances);
+  for (const pair of pairs) result.set(key(pair.productId, pair.warehouseId), exact("0"));
+  for (const balance of balances) {
+    const pairKey = key(productOfBatch.get(String(balance.batchId)), warehouseOfPoint.get(String(balance.holdingPointId)));
+    if (result.has(pairKey)) result.set(pairKey, result.get(pairKey).plus(positive(free.get(String(balance._id)))));
+  }
+  return result;
 }
 
 async function otherWarehouseOptions(user, productId, warehouseId, lotId, session) {
