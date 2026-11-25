@@ -54,13 +54,33 @@ export async function sendMail({ to, subject, text }) {
   }
 }
 
-export const passwordMail = ({ fullName, username, password, reason }) => ({
-  subject: reason === 'created' ? 'Tài khoản Tân Thương đã được tạo' : 'Mật khẩu mới cho tài khoản Tân Thương',
-  text: [
-    `Xin chào ${fullName},`, '',
-    reason === 'created' ? 'Tài khoản của bạn trên hệ thống Tân Thương đã được tạo.' : 'Bạn vừa yêu cầu cấp lại mật khẩu cho tài khoản Tân Thương.',
-    `Tên đăng nhập: ${username}`, `Mật khẩu: ${password}`, '',
-    process.env.APP_URL ? `Đăng nhập tại: ${process.env.APP_URL}/login` : '',
-    'Nếu bạn không thực hiện yêu cầu này, hãy liên hệ quản trị viên ngay.',
-  ].filter((line, index, all) => line !== '' || all[index - 1] !== '').join('\n'),
-});
+const productionAppUrl = 'https://wmsd.tanthuong.workers.dev';
+
+function loginUrl() {
+  const base = process.env.APP_URL?.trim().replace(/\/+$/, '');
+  if (process.env.NODE_ENV !== 'production') return base ? base + '/login' : '';
+
+  try {
+    const url = new URL(base);
+    if (url.protocol === 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
+      return new URL('/login', url).href;
+    }
+  } catch {
+    // A missing or invalid runtime value falls back to the public frontend.
+  }
+  return productionAppUrl + '/login';
+}
+
+export const passwordMail = ({ fullName, username, password, reason }) => {
+  const url = loginUrl();
+  return {
+    subject: reason === 'created' ? 'Tài khoản Tân Thương đã được tạo' : 'Mật khẩu mới cho tài khoản Tân Thương',
+    text: [
+      `Xin chào ${fullName},`, '',
+      reason === 'created' ? 'Tài khoản của bạn trên hệ thống Tân Thương đã được tạo.' : 'Bạn vừa yêu cầu cấp lại mật khẩu cho tài khoản Tân Thương.',
+      `Tên đăng nhập: ${username}`, `Mật khẩu: ${password}`, '',
+      url ? 'Đăng nhập tại: ' + url : '',
+      'Nếu bạn không thực hiện yêu cầu này, hãy liên hệ quản trị viên ngay.',
+    ].filter((line, index, all) => line !== '' || all[index - 1] !== '').join('\n'),
+  };
+};

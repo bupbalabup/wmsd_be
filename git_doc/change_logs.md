@@ -1,6 +1,33 @@
 ## 25/11/2026 — Plan the sales and returns demo improvements
 
 - Add a [phased implementation plan](docs/09_phat_trien/TRUNG_SALES_RETURNS_IMPLEMENTATION_PLAN.md) and [demo acceptance matrix](docs/09_phat_trien/TRUNG_DEMO_LOCAL.md#nghiệm-thu-kế-hoạch-xuất-bán-và-trả-hàng--25112026). Keep the 8 → 4 → 4 workflow, and treat restoring external-reference SALE creation as a separate approval gate. Documentation only; no runtime, schema, or shared-data changes and no demo run in this task.
+## 25/11/2026 — Tạo vị trí cho ô ngay trên màn hình vẽ
+
+Theo yêu cầu người dùng: “Tạo vị trí mới và gán” không chuyển trang mà hiện thông báo thành công. `PUT /api/warehouse-catalogue/:id/layout` nhận thêm `createLocationForSlots?: string[]`; `createLocationsForNewSlots` tạo vị trí cho các ô này dù đã có trên bản vẽ (mã ô lạ bị từ chối, thiếu `warehouse_location:create` bị từ chối). FE gửi trường này, cập nhật bản vẽ từ response, gọi toast `message.success`, bỏ điều hướng sang trang tạo/chi tiết vị trí; FE còn thêm nút “Nhân bản kích thước” ô, tách công cụ Chọn/Chỉnh sửa và quy tắc con trỏ theo chế độ (chỉ FE). Không đổi model/quyền. Tài liệu: [STAGE2_ZONES.md](docs/10_Kho3D/STAGE2_ZONES.md). Kiểm tra: integration `hieudt-scope` 8 pass trên replica set tạm `127.0.0.1:27018`; FE tsc, eslint, vitest `warehouse-3d`/`warehouse-stock` 74 pass. Chưa thử trên trình duyệt.
+
+## 25/11/2026 — Ô mới vẽ trên Kho 3D tự thành vị trí khi lưu
+
+Theo yêu cầu người dùng: “Vẽ ô pallet” đổi thành “Vẽ ô”, chọn lớp khu vực thì ô là con của khu đó; ô mới tạo khi lưu thành vị trí thật. Người dùng chọn mã vị trí = tên ô và loại vị trí theo chức năng khu vực.
+
+**Hành vi.** `saveLayout` gọi `createLocationsForNewSlots` (src/modules/warehouse-stock/service.js) trước khi ghi bản vẽ trong cùng transaction: ô không có trong bản đã lưu và chưa gán tạo `WarehouseLocation` (mã = tên ô, tên `<khu>/<ô>`, kích thước theo ô, loại theo tên chức năng), gắn `locationId`, audit `CREATE_LOCATION_FROM_LAYOUT_SLOT`. Mã trùng (không phân biệt hoa thường) hoặc dài quá 50 ký tự từ chối cả lần lưu; thiếu `warehouse_location:create` chỉ cảnh báo. Response thêm `createdLocations`. Không đổi model/schema/quyền; không backfill ô chưa gán đã có. FE: công cụ “Vẽ ô”, chọn “Lớp khu vực của ô”, tên ô mặc định `<khu>-NN` không trùng, nhận lại bản vẽ đã gắn vị trí sau khi lưu, bỏ chọn bằng bấm chỗ trống/Esc.
+
+**Tài liệu.** [STAGE2_ZONES.md](docs/10_Kho3D/STAGE2_ZONES.md).
+
+**Kiểm tra.** Replica set tạm `127.0.0.1:27018` (mongod 8.2 cục bộ, DB thử tự xóa): `RUN_HIEUDT_SCOPE_TESTS=1 node --test test/hieudt-scope.integration.test.js` 8 pass, gồm test mới (tạo hai loại vị trí, không tạo lại, trùng mã bị từ chối, thiếu quyền chỉ cảnh báo); test liên kết catalogue–bản vẽ được chỉnh để ô `one` là ô đã có. FE: `tsc --noEmit`, eslint, vitest `warehouse-3d`/`warehouse-stock` 69 pass. Chưa thử trên trình duyệt; chưa chạy toàn bộ test suite.
+
+## 25/11/2026 — Liên kết ô Kho 3D với vị trí và đồng bộ kích thước
+
+Theo yêu cầu người dùng: bản vẽ Kho 3D và danh sách vị trí phải liên kết rõ; sửa thông số/kích thước ô ngay trên bản vẽ; đồng bộ kích thước ô với “Kích thước sử dụng” của vị trí (người dùng chọn “Có, đồng bộ”).
+
+**Hành vi.** `saveLayout` gọi `syncLocationSizesFromLayout` (src/modules/warehouse-stock/service.js) trong cùng transaction: vị trí gắn đúng một ô, ô vừa gán hoặc đổi rộng/dài, được ghi `usableLengthMm = length × 1000`, `usableWidthMm = width × 1000`, tăng version/operationVersion, audit `SYNC_LOCATION_SIZE_FROM_LAYOUT`; khóa kiểm kê, nhiệm vụ mở hoặc thiếu dung tích từ chối toàn bộ lần lưu. Response thêm `syncedLocations`; vị trí gắn nhiều ô được báo trong `warnings`. `saveLocation` khi có kích thước sẽ cập nhật ô duy nhất trong bản nháp nếu vẫn vừa khu vực và pallet. Không đổi model/schema/quyền. FE: tay nắm kéo đổi kích thước ô, thanh sửa nhanh ô, tô màu và ghi mã vị trí trên ô, lối gán từ danh sách/chi tiết vị trí, chế độ `?locationId=`, ô phủ cả khu vực, hiển thị lệch kích thước.
+
+**Tài liệu.** [STAGE2_ZONES.md](docs/10_Kho3D/STAGE2_ZONES.md), [HIEUDT_WAREHOUSE_SCOPE.md](docs/08_api/HIEUDT_WAREHOUSE_SCOPE.md).
+
+**Kiểm tra.** Replica set tạm `127.0.0.1:27018` (mongod 8.2 cục bộ, DB thử đã xóa): `RUN_HIEUDT_SCOPE_TESTS=1 node --test test/hieudt-scope.integration.test.js` 7 pass, gồm test mới về đồng bộ hai chiều, nhiều ô, thiếu dung tích. `warehouse-layout`, `warehouse-zones`, `warehouse-pallets`, `warehouse-stock`: 20 pass. FE: `tsc --noEmit`, eslint `warehouse-3d`/`warehouse-stock`, vitest hai thư mục 68 pass. Chưa thử trên trình duyệt với dữ liệu thật; chưa chạy toàn bộ test suite.
+
+## 25/11/2026 — Đăng nhập bằng mật khẩu cấp lại qua email
+
+Email production dẫn vào trang đăng nhập FE Tân Thương, kể cả khi cấu hình cũ còn URL localhost. Đăng nhập nhận username hoặc một email khớp duy nhất. Ghi hash khi cấp lại và hoàn tác khi lỗi gửi thư đều có điều kiện để tránh ghi đè lần đổi mật khẩu khác. Bổ sung bài test HTTP từ gửi mật khẩu đến đăng nhập bằng username và email cùng với bài test hoàn tác. Không đổi schema hoặc dữ liệu production. Xem [luồng tài khoản](docs/08_api/USER_ACCESS_STATUS.md) và [cấu hình Workers](docs/09_phat_trien/CLOUDFLARE_WORKERS.md).
 
 ## 25/11/2026 — Warehouse-first other goods issues
 

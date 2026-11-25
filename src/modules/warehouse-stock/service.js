@@ -9,6 +9,7 @@ import { command, checkVersion, same, saveVersion } from '../../shared/utils/doc
 import { remainingReservation, verifyCapacity, guardWarehouses } from '../../shared/utils/stock.js';
 import { stockQuantities } from '../../shared/utils/stock-availability-read.js';
 import { notFoundError, validationError } from '../../shared/utils/ApiError.js';
+import { appendAudit } from '../../shared/utils/audit.js';
 const escape = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export const warehouseScope = user => isOwner(user) ? {} : { _id: { $in: user.warehouseIds || [] } };
 async function scopeContext(user, query = {}, session, scopedWarehouses) {
@@ -134,6 +135,120 @@ async function bindLocationSlots(actor, location, binding, session) {
   await m.Warehouse.updateOne({_id:warehouse._id}, {$set:{layout3d:warehouse.layout3d, updatedAt}}, {session,timestamps:false});
 }
 
+// 3D slot ↔ location size sync (user decision 25/11/2026). Slot metres map to location mm as
+// slot.length → usableLengthMm and slot.width → usableWidthMm, the same mapping the location form prefills.
+// Only a location linked to exactly one slot is synchronised; several slots cannot express one L × W.
+const toMm = metres => String(Math.round(metres * 1000));
+const sameSize = (row, size) => row.usableLengthMm != null && row.usableWidthMm != null
+  && exact(size.usableLengthMm).eq(exact(row.usableLengthMm)) && exact(size.usableWidthMm).eq(exact(row.usableWidthMm));
+function slotsByLocation(layout) {
+  const linked = new Map();
+  for (const zone of layout?.zones ?? []) for (const slot of zone.slots ?? []) {
+    if (slot.locationId) linked.set(slot.locationId, [...(linked.get(slot.locationId) ?? []), { zone, slot }]);
+  }
+  return linked;
+}
+
+/** Layout save → catalogue: a newly linked or resized slot becomes its location's usable size. */
+export async function syncLocationSizesFromLayout(actor, warehouseId, layout, previousLayout, session) {
+  const previous = new Map((previousLayout?.zones ?? []).flatMap(zone => zone.slots ?? []).map(slot => [slot.id, slot]));
+  const synced = [], skipped = [];
+  for (const [locationId, linked] of slotsByLocation(layout)) {
+    const touched = linked.some(({ slot }) => {
+      const before = previous.get(slot.id);
+      return !before || before.locationId !== slot.locationId || before.width !== slot.width || before.length !== slot.length;
+    });
+    if (!touched) continue;
+    const row = await m.WarehouseLocation.findOne({ _id: locationId, warehouseId }).session(session);
+    if (!row) continue;
+    if (linked.length > 1) { skipped.push(row.code); continue; }
+    const { slot } = linked[0];
+    const size = { usableLengthMm: toMm(slot.length), usableWidthMm: toMm(slot.width) };
+    if (sameSize(row, size)) continue;
+    const label = `Ô ${slot.name} (vị trí ${row.code})`;
+    if (await m.StocktakeLocationLock.exists({ locationId, status: 'LOCKED' }).session(session))
+      throw validationError(`${label}: vị trí đang khóa kiểm kê, chưa đổi được kích thước.`);
+    if (await m.TransferOrder.exists({ workflowStatus: { $in: ['OPEN', 'PARTIAL', 'DRAFT'] }, $or: [{ 'items.details.fromLocationId': locationId }, { 'items.details.toLocationId': locationId }] }).session(session))
+      throw validationError(`${label}: vị trí còn nhiệm vụ mở, chưa đổi được kích thước.`);
+    const before = { usableLengthMm: row.usableLengthMm == null ? null : String(row.usableLengthMm), usableWidthMm: row.usableWidthMm == null ? null : String(row.usableWidthMm) };
+    const versionBefore = row.version;
+    row.set(size);
+    row.operationVersion = (row.operationVersion ?? 0) + 1;
+    const saved = await saveVersion(row, versionBefore, session);
+    try { await verifyCapacity([locationId], session); }
+    catch (error) { throw validationError(`${label}: kích thước ${slot.width} × ${slot.length} m không đủ chỗ cho hàng đang chứa. ${error.message}`); }
+    await appendAudit({ actorId: actor._id, action: 'SYNC_LOCATION_SIZE_FROM_LAYOUT', entityType: 'warehouse_locations', entityId: locationId,
+      warehouseIds: [warehouseId], versionBefore, versionAfter: saved.version, session,
+      changes: Object.keys(size).map(field => ({ field, before: before[field], after: size[field] })) });
+    synced.push(row.code);
+  }
+  return { synced, skipped };
+}
+
+// New drawn slot → catalogue location (user decision 25/11/2026). A slot that did not exist in the previously
+// saved layout and is still unlinked becomes a storage location when the layout is saved: code = slot name,
+// usable size from the slot, type from the zone's function name. Older unlinked slots keep the manual flow.
+const plain = text => text.normalize('NFD').replace(/\p{M}/gu, '').replace(/đ/gi, 'd').toLowerCase();
+export function locationTypeForFunction(name = '') {
+  const value = plain(name);
+  if (value.includes('tap ket')) return 'STAGING';
+  if (value.includes('cach ly')) return 'QUARANTINE';
+  if (value.includes('ky gui') || value.includes('giu ho')) return 'CUSTODY';
+  if (value.includes('nhan')) return 'RECEIVING';
+  return 'STORAGE';
+}
+// `requested` = slot ids the user explicitly asked to turn into locations (“Tạo vị trí mới và gán”), even if they
+// were already on the saved drawing; asking without the create permission is refused instead of only warned.
+export async function createLocationsForNewSlots(actor, warehouseId, layout, previousLayout, session, requested = []) {
+  const previous = new Set((previousLayout?.zones ?? []).flatMap(zone => zone.slots ?? []).map(slot => slot.id));
+  const asked = new Set(requested);
+  const all = (layout.zones ?? []).flatMap(zone => zone.slots.map(slot => ({ zone, slot })));
+  if ([...asked].some(id => !all.some(({ slot }) => slot.id === id))) throw validationError('Ô cần tạo vị trí không có trên bản vẽ.');
+  const fresh = all.filter(({ slot }) => !slot.locationId && (!previous.has(slot.id) || asked.has(slot.id)));
+  if (!fresh.length) return { created: [], warnings: [] };
+  if (asked.size) requirePermission(actor, 'warehouse_location:create');
+  if (!hasPermission(actor, 'warehouse_location:create'))
+    return { created: [], warnings: [`Bạn không có quyền tạo vị trí nên ${fresh.length} ô mới chưa có trong danh sách vị trí.`] };
+  await guardWarehouses([warehouseId], session);
+  const taken = new Set((await m.WarehouseLocation.find({ warehouseId }).select('code').session(session).lean()).map(row => row.code.toLocaleLowerCase('vi')));
+  const created = [];
+  for (const { zone, slot } of fresh) {
+    const code = slot.name.trim();
+    if (code.length > 50) throw validationError(`Ô ${slot.name}: tên ô dùng làm mã vị trí nên tối đa 50 ký tự.`);
+    if (taken.has(code.toLocaleLowerCase('vi'))) throw validationError(`Ô ${slot.name}: mã vị trí ${code} đã có trong kho. Hãy đổi tên ô hoặc gán ô vào vị trí có sẵn.`);
+    taken.add(code.toLocaleLowerCase('vi'));
+    const functionName = layout.functions?.find(item => item.id === zone.functionId)?.name ?? '';
+    const locationType = locationTypeForFunction(functionName);
+    const row = await new m.WarehouseLocation({
+      warehouseId, code, name: `${zone.name} / ${slot.name}`.slice(0, 160), areaCode: zone.name.trim().slice(0, 50), locationType,
+      isPickable: locationType === 'STORAGE', isActive: true, version: 1,
+      usableLengthMm: toMm(slot.length), usableWidthMm: toMm(slot.width),
+    }).save({ session });
+    slot.locationId = String(row._id);
+    await appendAudit({ actorId: actor._id, action: 'CREATE_LOCATION_FROM_LAYOUT_SLOT', entityType: 'warehouse_locations', entityId: row._id,
+      warehouseIds: [warehouseId], versionAfter: 1, session, details: { slotId: slot.id, zoneId: zone.id } });
+    created.push(code);
+  }
+  return { created, warnings: [] };
+}
+
+/** Location save → drawing: the single linked slot takes the new usable size when it still fits its zone. */
+async function syncSlotSizeFromLocation(location, session) {
+  if (!location.usableLengthMm || !location.usableWidthMm) return;
+  const warehouse = await m.Warehouse.findById(location.warehouseId).select('layout3d updatedAt').session(session);
+  const linked = slotsByLocation(warehouse?.layout3d).get(String(location._id));
+  if (!linked || linked.length !== 1) return;
+  const { zone, slot } = linked[0];
+  const width = Number(location.usableWidthMm) / 1000, length = Number(location.usableLengthMm) / 1000;
+  if (slot.width === width && slot.length === length) return;
+  const fits = slot.x + width <= zone.width + 1e-7 && slot.y + length <= zone.length + 1e-7
+    && (slot.pallets ?? []).every(pallet => pallet.x + pallet.width <= width + 1e-7 && pallet.y + pallet.length <= length + 1e-7);
+  if (!fits) return; // The catalogue keeps its size; the drawing shows the mismatch until someone redraws the slot.
+  slot.width = width; slot.length = length;
+  const updatedAt = new Date(Math.max(Date.now(), warehouse.updatedAt.getTime() + 1));
+  await m.Warehouse.updateOne({ _id: warehouse._id }, { $set: { layout3d: warehouse.layout3d, updatedAt } }, { session, timestamps: false });
+}
+
 const locationReplay = (id,user,session) => getLocation(user,id,session);
 export function saveLocation(user,id,input) {
   return command(user,id?'UPDATE_STORAGE_LOCATION':'CREATE_STORAGE_LOCATION',id?'warehouse_location:update':'warehouse_location:create',id,input,locationReplay,async(session,actor)=>{
@@ -169,6 +284,7 @@ export function saveLocation(user,id,input) {
       row=await new m.WarehouseLocation({...fields,version:1}).save({session});
     }
     if (layoutBinding) await bindLocationSlots(actor, row, layoutBinding, session);
+    if (fields.usableLengthMm !== undefined || fields.usableWidthMm !== undefined) await syncSlotSizeFromLocation(row, session);
     row.status=row.isActive?'ACTIVE':'INACTIVE';return {document:row,versionBefore:expectedVersion??0};
   });
 }
