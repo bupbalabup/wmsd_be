@@ -79,7 +79,7 @@ async function returnSource(input,user,session){
 }
 export async function createCustomerReturn(user,input){return command(user,'CREATE_CR','customer_return:create',null,input,replay(m.CustomerReturn),async(session,actor,operationId)=>{
  requireWarehouseAccess(actor,input.warehouseId);
- const doc=await envelope(m.CustomerReturn,actor,{warehouseId:input.warehouseId,openedBy:actor._id,openedAt:new Date()},[]);let intakeMode,sourceDocumentId;const requestedByLot=new Map();
+ const doc=await envelope(m.CustomerReturn,actor,{warehouseId:input.warehouseId,openedBy:actor._id,openedAt:new Date(),...(input.salesOrderReference&&{salesOrderReference:input.salesOrderReference})},[]);let intakeMode,sourceDocumentId;const requestedByLot=new Map();
  for(const row of input.lines){const c=await returnSource(row,actor,session);if(intakeMode&&intakeMode!==c.intakeMode)throw validationError('Không thể kết hợp nguồn trả hàng trực tiếp và nguồn giao hàng cũ');intakeMode=c.intakeMode;await s.assertWholeQuantity(c.item.productId,row.qtyBase,session);if(!same(c.warehouseId,input.warehouseId))throw validationError('Nguồn sai kho');
   if(sourceDocumentId && !same(sourceDocumentId,c.doc._id))throw validationError('Mỗi phiếu trả chỉ dùng một chứng từ nguồn');
   const customerName=c.customerName||input.customerName;if(!customerName)throw validationError('Nhập tên khách hàng cho phiếu xuất chưa có thông tin khách');

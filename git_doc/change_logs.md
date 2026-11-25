@@ -1,3 +1,8 @@
+## 25/11/2026 — Customer returns without a Sales Order screen
+
+- Restore customer return and linked receipt screens without restoring Sales Order screens or changing return permissions.
+- The create API and `CustomerReturn` header accept an optional plain-text `salesOrderReference`. Existing records remain valid without migration. Source, lot, claim and stock rules do not change. See [Return Workflows](docs/08_api/RETURN_WORKFLOWS_NATIVE.md).
+
 ## 25/11/2026 — Đồng bộ thiết kế BF-01 với code nhận mua hiện hành
 
 - Report 4 §II.0–1 mô tả thứ tự xác thực, kiểm quyền tĩnh, validation và controller, cùng ngoại lệ phân quyền theo chứng từ và cách phân giải mã lịch sử sang _id. Ba class diagram PO, Inspection và Receipt trong draw.io theo tuyến gọi mới. Quan hệ ghi tồn đi qua StockMovement nhúng và hai đầu tham chiếu số dư.

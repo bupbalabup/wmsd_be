@@ -9,6 +9,7 @@ export function createCustomerReturnHeaderSchema() {
       customerId: ref("Party", false),
       customerName: opt(160),
       customerPhone: opt(30),
+      salesOrderReference: opt(100),
       intakeMode: code(['DIRECT'], { required: false }),
       financialFollowupStatus: financialStatus(),
     },
