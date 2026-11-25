@@ -181,6 +181,8 @@ Ordinary BF03 relocation and receiving retain their existing packaging rules.
 | Confirm picking | POST /api/picking-tasks/:id/confirm | picking_task:confirm + assignee/scope |
 | Post | POST /api/goods-issues/:id/post | goods_issue:post + warehouse scope |
 
+For **Xuất khác**, `GET /api/goods-issues/options?warehouseId=<id>` returns `{ lines: [], availableByProduct }`. The map keys are product IDs; values are positive available quantities as base-unit decimal strings. The active warehouse must be in the caller's scope, and Sales cannot use this option. Counts include verified lots of good store-owned stock in active pickable storage, excluding stocktake-locked locations and unavailable quantities. This read helps build a draft; it does not allocate, reserve, or deduct stock. Existing unscoped and delivery-backed option responses remain available.
+
 Manual create body: `{idempotencyKey,expectedVersion:1,issueKind:'SALE'|'OTHER',
 warehouseId,referenceNo,reasonText?,note?,lines:[{productId,quantity,conversionId?,note?}]}`.
 OTHER requires reasonText. Every product appears once; quantities are positive

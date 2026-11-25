@@ -17,7 +17,6 @@
   - BE unit tests (`purchase-evidence.test.js`, `purchase-evidence.local.test.js`, `receiving-custody-policy.test.js`): 9/9 pass.
   - BE integration tests trên MongoDB local `rs0` (`native-api.integration.test.js`, `refactor-regression.integration.test.js`, `goods-receipt.integration.test.js`): 38/38 pass.
   - FE: `npx tsc --noEmit` và `npm run build` pass (0 lỗi); `vitest` cho `purchase-orders`, `receiving`, `inspections`, `receipts`, `custody` đạt 146/148 pass (2 fail duy nhất thuộc `CUSTOMER_RETURN` bị ẩn bởi `salesVisibility` có sẵn trên nhánh `minhtd`, không liên quan refactor).
-  - Chưa merge `origin/main` vào `minhtd` theo yêu cầu người dùng do `git_doc/change_logs.md` có thay đổi local chưa commit.
 
 ## 25/11/2026 · Sơ đồ RR Class dùng trực tiếp các model nguồn
 
@@ -38,6 +37,15 @@
 - Đồng bộ 21 sequence BF-01 trong Report 4 và WMSD_BF01_Diagrams.drawio. Mỗi lifeline UI, RestController và Service ghi tên file triển khai. Các bước gửi RR đã lưu, phát hành PO và xác nhận sửa kiểm nhận đi qua file UI riêng. Những bước đánh giá RR, tính lượng PO, chuẩn bị lại kiểm nhận và xử lý tồn giữ hộ hiển thị lời gọi giữa các service.
 - Luồng PATCH đổi vị trí phiếu nhập mua bắt đầu từ API client vì chưa có đường gọi từ màn hình phiếu nhập hiện tại.
 - Kiểm tra 400 thông điệp và đầu mút giữa hai bản, render 26 khối Mermaid, xuất đủ 25 trang draw.io và xem các trang đại diện.
+
+## 25/11/2026 — Warehouse-first other goods issues
+
+- Add a read-only warehouse availability option to the [Goods Issue contract](docs/08_api/GOODS_ISSUES.md). The frontend checks the selected warehouse before adding or reviewing draft rows. There is no schema or stock-write change.
+
+## 25/11/2026 — Customer returns without a Sales Order screen
+
+- Restore customer return and linked receipt screens without restoring Sales Order screens or changing return permissions.
+- The create API and `CustomerReturn` header accept an optional plain-text `salesOrderReference`. Existing records remain valid without migration. Source, lot, claim and stock rules do not change. See [Return Workflows](docs/08_api/RETURN_WORKFLOWS_NATIVE.md).
 
 ## 25/11/2026 — Đồng bộ thiết kế BF-01 với code nhận mua hiện hành
 

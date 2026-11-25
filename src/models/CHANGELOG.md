@@ -1,3 +1,7 @@
+## 25/11/2026 — Optional customer return order reference
+
+Adds `customer_returns.header.salesOrderReference` as optional plain text. No Sales Order relationship, index, migration or backfill is needed.
+
 ## 25/11/2026 — Bỏ năm trường sao chép trên chứng từ
 
 Theo quyết định người dùng ngày 25/11/2026, gỡ `tenLoaiPhieu`, `maDonVi`, `kyDanhSo`, `soThuTu`, `trangThaiTiengViet` khỏi `addDocumentIndexesAndRules` (mọi chứng từ và chứng từ nhúng dùng hàm này) và khỏi `StocktakePlan`, cùng hai hook đồng bộ nhãn. Không đổi index, quan hệ hay mã phiếu.

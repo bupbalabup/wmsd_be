@@ -46,6 +46,9 @@ test('UC69–72: source-backed GI create/update/cancel, picking and once-only po
     const point = await m.StockHoldingPoint.create({ type: 'LOCATION', locationId: storage._id });
     const balance = await m.InventoryBalance.create({ holdingPointId: point._id, batchId: batch._id, ownerType: 'STORE', qualityStatus: 'GOOD', quantityBase: '16', version: 1,
       packagingPortions: [{ packagingState: 'SEALED', sealedPackCount: 4, quantityBase: '16', packagingSnapshot: { packageUnit: 'BOX', baseUnitsPerPackage: '4', outerLengthMm: '620', outerWidthMm: '620', outerHeightMm: '50' }, createdBy: worker._id }] });
+    const warehouseOptions = { warehouseId: String(warehouse._id) };
+    assert.deepEqual((await issues.issueOptions(worker, warehouseOptions)).availableByProduct, { [String(product._id)]: '16' });
+    await assert.rejects(issues.issueOptions(outsiderActor, warehouseOptions), { statusCode: 403 });
     const so = await m.SalesOrder.create({ documentNo: 'ĐBH-KD-LEGACY-' + key(), workflowStatus: 'OPEN', version: 1, createdBy: seller._id,
       header: { externalReferenceId: new mongoose.Types.ObjectId(), neededOn: new Date('2026-12-01T00:00:00Z'), deliveryAddressSnapshot: 'Test address' },
       items: [{ _id: new mongoose.Types.ObjectId(), lineNo: 1, lineKind: 'SALES_ORDER', productId: product._id, lotId: batch._id, enteredUnit: 'PIECE', baseUnitSnapshot: 'PIECE', baseUnitsPerUnit: '1',
@@ -56,6 +59,7 @@ test('UC69–72: source-backed GI create/update/cancel, picking and once-only po
     const madeDelivery = await sales.createDelivery(seller, { idempotencyKey: key(), expectedVersion: wir.version, issueRequestId: String(wir._id), warehouseId: String(warehouse._id), plannedOn: '2026-12-01T00:00:00Z', recipientName: 'Customer', recipientPhone: '0900000000', deliveryAddress: 'Test address',
       lines: [{ lineId: String(wir.items[0]._id), sourceBalanceId: String(balance._id), sourceBalanceVersion: balance.version, qtyBase: '16' }] });
     const delivery = await m.DeliveryOrder.findById(madeDelivery.id), root = await m.StockReservation.findOne({ 'executionRef.documentId': delivery._id });
+    assert.deepEqual((await issues.issueOptions(worker, warehouseOptions)).availableByProduct, {});
     const input = { idempotencyKey: key(), expectedVersion: delivery.version, deliveryOrderId: String(delivery._id), note: 'First shipment', lines: [{ reservationId: String(root._id), qtyBase: '8' }] };
     const created = await issues.createIssue(worker, input);
     assert.equal((await issues.createIssue(worker, input)).replayed, true);

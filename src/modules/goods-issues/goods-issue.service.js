@@ -11,6 +11,7 @@ import { validationError, notFoundError, forbiddenError } from '../../shared/uti
 import { escapeRegex } from '../../shared/utils/domain.js';
 import { guardLocations, sourceContext, locationAt, beginStock, remainingReservation, freeQuantity, stocktakeLockedLocations } from '../../shared/utils/stock.js';
 import { takeStock } from '../return-workflows/native.shared.js';
+import { stockQuantities } from '../../shared/utils/stock-availability-read.js';
 import { orderSource, redactPrices, effectiveQuantities } from '../sales-orders/sales-read.service.js';
 import { toBaseQuantity } from '../../shared/utils/conversions.js';
 
@@ -439,9 +440,32 @@ export async function getIssue(user, id) {
         canPost: operate && hasPermission(user, 'goods_issue:post') && issue.workflowStatus === 'PICKED' && tasks.length > 0 && tasks.every(t => t.workflowStatus === 'CONFIRMED') } };
   });
 }
+async function warehouseIssueAvailability(user, warehouseId, session) {
+  if (sales(user)) throw forbiddenError('Bạn không có quyền xem tồn để lập phiếu xuất khác');
+  requireWarehouseAccess(user, warehouseId);
+  if (!await m.Warehouse.exists({ _id: warehouseId, isActive: true }).session(session)) throw validationError('Kho không còn hoạt động');
+  const storage = await m.WarehouseLocation.find({ warehouseId, isActive: true, locationType: 'STORAGE', isPickable: true }).select('_id').session(session).lean();
+  const locationIds = storage.map(location => location._id);
+  const frozen = await stocktakeLockedLocations(locationIds, session);
+  const points = await m.StockHoldingPoint.find({ type: 'LOCATION', locationId: { $in: locationIds.filter(id => !frozen.has(String(id))) } }).select('_id').session(session).lean();
+  const stock = await m.InventoryBalance.find({ holdingPointId: { $in: points.map(point => point._id) }, ownerType: 'STORE', qualityStatus: 'GOOD' }).select('batchId quantityBase').session(session).lean();
+  const batches = await m.ProductBatch.find({ _id: { $in: stock.map(balance => balance.batchId) }, identificationStatus: 'VERIFIED' }).select('productId').session(session).lean();
+  const productsByBatch = new Map(batches.map(batch => [String(batch._id), String(batch.productId)]));
+  const eligibleBalances = stock.filter(balance => productsByBatch.has(String(balance.batchId)));
+  const quantities = await stockQuantities(eligibleBalances, session), totals = new Map();
+  for (const balance of eligibleBalances) {
+    const available = quantities.get(String(balance._id)).free;
+    if (!available.gt(0)) continue;
+    const productId = productsByBatch.get(String(balance.batchId));
+    totals.set(productId, (totals.get(productId) ?? exact('0')).plus(available));
+  }
+  return { lines: [], availableByProduct: Object.fromEntries([...totals].map(([id, quantity]) => [id, quantity.toFixed()])) };
+}
+
 export async function issueOptions(user, query) {
   requirePermission(user, 'goods_issue:create');
   return transaction(async session => {
+    if (query.warehouseId && !query.deliveryOrderId) return warehouseIssueAvailability(user, query.warehouseId, session);
     if (!query.deliveryOrderId) {
       const deliveries = (await readableDeliveries(user, query, session)).filter(d => active(d)
         && (isOwner(user) || (user.warehouseIds || []).some(w => same(w, d.header.warehouseId)))
