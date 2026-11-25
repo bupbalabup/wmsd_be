@@ -83,7 +83,7 @@ export async function createCustomerReturn(user,input){return command(user,'CREA
  for(const row of input.lines){const c=await returnSource(row,actor,session);if(intakeMode&&intakeMode!==c.intakeMode)throw validationError('Không thể kết hợp nguồn trả hàng trực tiếp và nguồn giao hàng cũ');intakeMode=c.intakeMode;await s.assertWholeQuantity(c.item.productId,row.qtyBase,session);if(!same(c.warehouseId,input.warehouseId))throw validationError('Nguồn sai kho');
   if(sourceDocumentId && !same(sourceDocumentId,c.doc._id))throw validationError('Mỗi phiếu trả chỉ dùng một chứng từ nguồn');
   const customerName=c.customerName||input.customerName;if(!customerName)throw validationError('Nhập tên khách hàng cho phiếu xuất chưa có thông tin khách');
-  sourceDocumentId=c.doc._id;doc.header.customerId=c.customerId;doc.header.customerName=customerName;doc.header.customerPhone=c.customerPhone;
+  sourceDocumentId=c.doc._id;doc.header.customerId=c.customerId;doc.header.customerName=customerName;doc.header.customerPhone=c.customerPhone||input.customerPhone;
   const sourceKey=String(c.item._id);
   if(exact(row.qtyBase).plus(await s.claimTotal(c.item._id,'CR',session)).gt(c.allowance))throw validationError('Vượt lượng khách đã nhận còn được trả');
   let lotId=c.item.lotId;

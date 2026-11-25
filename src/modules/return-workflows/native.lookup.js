@@ -33,7 +33,7 @@ async function page(Model, stages, query, searchFields = ['code', 'name']) {
   return { items: result?.items || [], total: result?.count[0]?.total || 0, page: query.page, limit: query.limit };
 }
 const productContext = [join(m.ProductBatch, 'lotId', 'batch'), { $set: { manufacturerLot: first('batch.manufacturerLot') } }, join(m.Product, 'productId', 'product'), { $set: { productName: first('product.name'), productCode: first('product.sku'), unit: first('product.baseUnit'), wholeBaseUnits: first('product.wholeBaseUnits') } }];
-const sourceProjection = { _id: '$items._id', documentId: '$_id', documentNo: 1, documentKind: 1, warehouseId: '$header.warehouseId', customerId: 1, customerName: 1, customerPhone: 1, supplierId: 1, lotId: '$items.lotId', productId: '$items.productId', name: '$items.productNameSnapshot', qtyBase: '$items.qtyBase', unit: '$items.baseUnitSnapshot', version: 1, sourceKind: 1, baseUnitsPerPackage: '$items.packagingSnapshot.baseUnitsPerPackage', enteredUnit: '$items.enteredUnit', baseUnitsPerUnit: '$items.baseUnitsPerUnit', baseUnitSnapshot: '$items.baseUnitSnapshot' };
+const sourceProjection = { _id: '$items._id', documentId: '$_id', documentNo: 1, documentKind: 1, warehouseId: '$header.warehouseId', referenceNo: '$header.referenceNo', customerId: 1, customerName: { $ifNull: ['$header.customerName', '$customerName'] }, customerPhone: { $ifNull: ['$header.customerPhone', '$customerPhone'] }, supplierId: 1, lotId: '$items.lotId', productId: '$items.productId', name: '$items.productNameSnapshot', qtyBase: '$items.qtyBase', unit: '$items.baseUnitSnapshot', version: 1, sourceKind: 1, baseUnitsPerPackage: '$items.packagingSnapshot.baseUnitsPerPackage', enteredUnit: '$items.enteredUnit', baseUnitsPerUnit: '$items.baseUnitsPerUnit', baseUnitSnapshot: '$items.baseUnitSnapshot' };
 async function sourceLookup(user, query) {
   const purpose = query.purpose;
   const stages = [{ $match: { ...scope(user, query), workflowStatus: 'POSTED', ...(purpose === 'customer-returns' && { documentKind: 'GI_SALE' }), ...(query.documentId && { _id: oid(query.documentId) }) } }, { $unwind: '$items' }];
@@ -70,7 +70,7 @@ async function sourceLookup(user, query) {
   if (query.supplierId) stages.push({ $match: { supplierId: oid(query.supplierId) } });
   if (query.lotId) stages.push({ $match: { 'items.lotId': oid(query.lotId) } });
   stages.push({ $project: sourceProjection }, ...productContext);
-  const result = await page(Model, stages, query, ['documentNo', 'name', 'productName', 'productCode', 'manufacturerLot']);
+  const result = await page(Model, stages, query, ['documentNo', 'referenceNo', 'name', 'productName', 'productCode', 'manufacturerLot']);
   const models = new Map([m.SalesGoodsIssue, m.PurchaseReceipt, m.CustodyReceipt, m.TransferReceipt, m.CustomerReturnReceipt].map(model => [model.schema.path('documentKind').defaultValue, model]));
   for (const row of result.items) {
     let available = exact('0');
