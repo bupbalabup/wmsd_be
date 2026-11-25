@@ -89,12 +89,37 @@ export async function resolveClaim(itemId,quantity,kind,document,user,session) {
  const before=claim.version;claim.events.push({kind,quantityBase:String(quantity),sourceRef:ref(document),performedBy:user._id,performedAt:new Date()});claim.version++;
  await claim.validate();const result=await m.ReturnQuantityClaim.updateOne({_id:claim._id,version:before},{$set:{events:claim.events},$inc:{version:1}},{session});if(result.matchedCount!==1)throw versionConflict();
 }
+async function activeSourceTransactions(doc,session) {
+ const roots=await m.StockTransaction.find({sourceId:doc._id,reversedTransactionId:{$exists:false}}).session(session);
+ const active=[];
+ for(const root of roots){let isActive=true,current=root,seen=new Set();while(current){if(seen.has(String(current._id)))throw validationError('Lịch sử đảo có vòng lặp');seen.add(String(current._id));const next=await m.StockTransaction.findOne({reversedTransactionId:current._id}).session(session);if(!next)break;isActive=!isActive;current=next;}if(isActive)active.push(root);}
+ return active;
+}
 export async function effectivePosted(doc,itemId,session) {
  if(doc.workflowStatus!=='POSTED')return exact('0');
- const roots=await m.StockTransaction.find({sourceId:doc._id,reversedTransactionId:{$exists:false}}).session(session);
+ const roots=await activeSourceTransactions(doc,session);
  let total=exact('0');
- for(const root of roots){let active=true,current=root,seen=new Set();while(current){if(seen.has(String(current._id)))throw validationError('Lịch sử đảo có vòng lặp');seen.add(String(current._id));const next=await m.StockTransaction.findOne({reversedTransactionId:current._id}).session(session);if(!next)break;active=!active;current=next;}if(active)total=total.plus(sum(root.movements.filter(x=>same(x.sourceLineId,itemId)&&(['GI_SALE','GI_SUPPLIER_RETURN'].includes(doc.documentKind)?x.fromBalanceId:x.toBalanceId)),'quantityBase'));}
+ for(const root of roots)total=total.plus(sum(root.movements.filter(x=>same(x.sourceLineId,itemId)&&(['GI_SALE','GI_SUPPLIER_RETURN'].includes(doc.documentKind)?x.fromBalanceId:x.toBalanceId)),'quantityBase'));
  return total;
+}
+export async function postedIssueLots(doc,itemId,session) {
+ if(doc.workflowStatus!=='POSTED')return [];
+ const totals=new Map();
+ for(const transaction of await activeSourceTransactions(doc,session))for(const movement of transaction.movements.filter(row=>same(row.sourceLineId,itemId)&&row.fromBalanceId)){
+  const key=String(movement.fromBalanceId);totals.set(key,(totals.get(key)??exact('0')).plus(String(movement.quantityBase)));
+ }
+ const balances=await m.InventoryBalance.find({_id:{$in:[...totals.keys()]}}).select('batchId').session(session);
+ const batches=await m.ProductBatch.find({_id:{$in:balances.map(row=>row.batchId).filter(Boolean)}}).select('manufacturerLot').session(session);
+ const byLot=new Map();
+ for(const balance of balances){if(!balance.batchId)continue;const batch=batches.find(row=>same(row._id,balance.batchId));if(!batch)continue;const key=String(balance.batchId);byLot.set(key,(byLot.get(key)??exact('0')).plus(totals.get(String(balance._id))??'0'));}
+ if(!byLot.size){const item=doc.items.id(itemId);if(item?.lotId){const batch=await m.ProductBatch.findById(item.lotId).select('manufacturerLot').session(session);const quantity=await effectivePosted(doc,itemId,session);if(batch&&quantity.gt(0)){batches.push(batch);byLot.set(String(item.lotId),quantity);}}}
+ return [...byLot].map(([lotId,quantityBase])=>({lotId,manufacturerLot:batches.find(row=>String(row._id)===lotId)?.manufacturerLot??'—',quantityBase:quantityBase.toFixed()})).sort((a,b)=>a.manufacturerLot.localeCompare(b.manufacturerLot)||a.lotId.localeCompare(b.lotId));
+}
+export async function committedCustomerReturnLot(sourceLineId,lotId,session) {
+ const docs=await m.CustomerReturn.find({'items.details.originalIssueLineId':sourceLineId,'items.lotId':lotId}).select('items').session(session);
+ const lineIds=docs.flatMap(doc=>doc.items.filter(item=>same(item.details?.originalIssueLineId,sourceLineId)&&same(item.lotId,lotId)).map(item=>item._id));
+ const claims=await m.ReturnQuantityClaim.find({requestLineId:{$in:lineIds},claimKind:'CR'}).session(session);
+ return claims.reduce((total,claim)=>total.plus(exact(claim.claimedQtyBase).minus(sum(claim.events.filter(event=>event.kind==='RELEASED'),'quantityBase')).plus(sum(claim.events.filter(event=>event.kind==='REACQUIRED'),'quantityBase'))),exact('0'));
 }
 export async function undeliveredReturnedQuantity(itemId,session) {
  const receipts=await m.FailedDeliveryReceipt.find({workflowStatus:'POSTED','items.details.salesIssueLineId':itemId}).session(session);let total=exact('0');

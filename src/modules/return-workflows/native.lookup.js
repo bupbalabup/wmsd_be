@@ -95,6 +95,17 @@ async function sourceLookup(user, query) {
       }
     }
     row.availableQty = available.gt(0) ? available.toFixed() : '0';
+    if (purpose === 'customer-returns' && row.documentKind === 'GI_SALE') {
+      const issue = await m.SalesGoodsIssue.findById(row.documentId);
+      const standaloneSale = issue?.header.issueKind === 'SALE' && issue.header.referenceNo && !issue.header.salesOrderId && !issue.header.fulfillmentMode;
+      if (issue?.header.fulfillmentMode === 'DIRECT' || standaloneSale) {
+        row.sourceLots = await Promise.all((await s.postedIssueLots(issue, row._id)).map(async lot => {
+          const committed = await s.committedCustomerReturnLot(row._id, lot.lotId);
+          const remaining = exact(lot.quantityBase).minus(committed);
+          return { ...lot, availableQty: remaining.gt(0) ? remaining.toFixed() : '0' };
+        }));
+      }
+    }
     row.name = row.name || row.productName;
     delete row.batch; delete row.product;
   }
