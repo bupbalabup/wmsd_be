@@ -4,6 +4,14 @@ Theo yêu cầu người dùng, hai luồng dùng Route → Controller → Servi
 
 Kiểm tra 25 test liên quan đạt, một test MongoDB bỏ qua. Smoke test HTTP với model giả lập qua bảy request. Chưa chạy giao dịch trên MongoDB.
 
+## 25/11/2026 — Add the return workflows controller layer
+
+The shared workflow router delegates HTTP handling for customer returns, supplier returns and shared endpoints to a controller. Existing routes, permissions, validation, evidence cleanup and stock behavior are unchanged. No schema or data migration.
+
+## 25/11/2026 — Add the Goods Issue controller layer
+
+Goods Issue and picking confirmation now delegate HTTP response handling to a controller. Existing routes, validation, permissions, service calls and stock transactions are unchanged. No schema or data migration.
+
 ## 25/11/2026 — Let Sales return goods from a Warehouse-issued standalone sale
 
 Sales can create a customer-return request from a posted standalone SALE Goods Issue created by Warehouse when it has an external reference and is in the selected warehouse. This source path uses the posted issue quantity and outstanding return claims; it does not require a Sales Order or a customer-receipt confirmation. Other source, warehouse and quantity checks remain enforced. A focused integration test reproduces the Warehouse-created source and verifies Sales can select it and create the request in an isolated database.
