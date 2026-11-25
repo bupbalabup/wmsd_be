@@ -1,3 +1,7 @@
+## 25/11/2026 — Plan the sales and returns demo improvements
+
+- Add a [phased implementation plan](docs/09_phat_trien/TRUNG_SALES_RETURNS_IMPLEMENTATION_PLAN.md) and [demo acceptance matrix](docs/09_phat_trien/TRUNG_DEMO_LOCAL.md#nghiệm-thu-kế-hoạch-xuất-bán-và-trả-hàng--25112026). Keep the 8 → 4 → 4 workflow, and treat restoring external-reference SALE creation as a separate approval gate. Documentation only; no runtime, schema, or shared-data changes and no demo run in this task.
+
 ## 25/11/2026 — Warehouse-first other goods issues
 
 - Add a read-only warehouse availability option to the [Goods Issue contract](docs/08_api/GOODS_ISSUES.md). The frontend checks the selected warehouse before adding or reviewing draft rows. There is no schema or stock-write change.

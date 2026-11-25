@@ -1,5 +1,22 @@
 # Trungph — usable local demo data, 12 November 2026
 
+## Nghiệm thu kế hoạch xuất bán và trả hàng — 25/11/2026
+
+Ma trận dưới đây thuộc [kế hoạch triển khai](TRUNG_SALES_RETURNS_IMPLEMENTATION_PLAN.md), không phải bằng chứng đã chạy qua hoặc hướng dẫn đổi môi trường bên dưới. Chỉ bắt đầu từ tạo mới `PXB` khi backend/FE đã hỗ trợ tạo `SALE` theo mã ngoài. Nếu chưa, dùng `PXB-K-GACH-01-261118-000002` làm nguồn khách trả **sau khi kiểm tra còn đủ hạn mức và đúng quyền trong DB demo**; không tính phần tạo phiếu là đã nghiệm thu. Nếu thiếu dữ liệu, chuẩn bị fixture riêng thay vì sửa hoặc dùng hết chứng từ dự phòng.
+
+| Mã | Thao tác và bằng chứng cần lưu | Kết quả đạt |
+|---|---|---|
+| DEMO-01 | Kinh doanh tạo `PXB` với `DEMO-XUAT-TRUNG-01`, 8 viên `AP6601`; Ban điều hành duyệt; Kho vận chọn lô `AP6601-260928-B`, soạn tại `STAGING-03`, rồi bàn giao. So sánh sổ tồn từng mốc. | Duyệt không giữ chỗ; tạo lệnh soạn giữ 8; soạn mới 4/8 chưa được ghi xuất. Ghi xuất sau đủ 8 làm giảm tổng tồn 8 đúng một lần. |
+| DEMO-02 | Từ đúng dòng `PXB` đã ghi sổ, đề nghị và kiểm 1 thùng (4 viên), Kinh doanh chấp nhận 4, Kho vận nhập 4 vào `RECEIVING-01`; tra lại cùng dòng nguồn. | Kiểm và chấp nhận không ghi tồn; nhập tăng 4 một lần. Hạn mức mới là 4 nếu ban đầu cả 8 đủ điều kiện và không có khoản trả/giữ chỗ khác; không nhập vượt 4. |
+| DEMO-03 | Tạo `ĐTNCC` từ `PN-202610-001`, lô **`AP6601-261001-A`**, không dùng lại lô khách trả. Thỏa thuận 4, bàn giao 4 qua một trong hai màn, Kế toán ghi nhận NCC nhận 4. | Thỏa thuận không giảm tồn vật lý; bàn giao tạo `PXNCC` và giảm 4 đúng một lần. Xác nhận chỉ đổi tiến độ nhận (4/4), không ghi xuất lại. |
+| EDGE-01 | Với sản phẩm chỉ cho phép viên nguyên, thử quy cách 4 viên/thùng, nhập 1,5 rồi 0,1 thùng trên phiếu luyện tập riêng. | 1,5 thùng hiển thị 6 viên; 0,1 thùng bị chặn tại form và backend nếu gửi trực tiếp. |
+| EDGE-02 | Tạo fixture riêng có hai `PXB` đã ghi sổ cùng mã `SO-001`; phiếu được chọn có 6 viên đủ điều kiện. Yêu cầu trả 3, kiểm/chấp nhận/nhập 3, rồi tra lại. | Cả hai phiếu đủ quyền hiện riêng; chọn theo phiếu/dòng, không theo tên hoặc SĐT. Hạn mức còn 3 trên dòng đã chọn; phiếu kia không đổi. Phiếu chưa ghi sổ hoặc khác kho ngoài phạm vi không xuất hiện. |
+| EDGE-03 | Với thỏa thuận 4 và đã bàn giao 3, yêu cầu bàn giao thêm 2; sau đó thử đúng 1. | Hệ thống từ chối 2, không sinh phiếu hoặc biến động tồn; chỉ 1 được bàn giao tiếp. |
+
+Giữ các ca từ chối khách trả (không lập phiếu nhập), NCC xác nhận 3 rồi 1 trên **cùng** dòng bàn giao, và NCC từ chối trước bàn giao làm kiểm tra hồi quy. Không chạy nhánh giữ hộ nếu chưa có nguồn đủ điều kiện.
+
+## Bản diễn tập ngày 12/11/2026
+
 This is an isolated synthetic rehearsal environment for UC-73–92, UC-116, UC-122 and UC-123. It is not a shared-database rollout. The application is running at <http://127.0.0.1:3334> against `mongodb://127.0.0.1:27017/wmsd_demo_trung_20261112?replicaSet=rs0`.
 
 The canonical backend checkout is now `building-material-management`, on branch `trungph`. Only local `main` and `trungph` remain. The former `-latest` and `-usability` checkouts were archived outside the workspace under `~/.codex/backups/whms-backend-branches-20261112`; all old side-branch commits are already in main and a verified Git bundle preserves their former refs. Demo files and the cleanly shut-down local database were moved into this checkout and restarted successfully. The initial local consolidation made no commit/push or shared database write. Subsequent user-requested GitHub cleanup now keeps main, HieuDT, minhbach03, minhtd and the consolidated user branch trungph; the user confirmed combining trung into trungph. Teammate branches are preserved.
