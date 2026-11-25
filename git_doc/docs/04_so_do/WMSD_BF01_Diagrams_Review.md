@@ -1,6 +1,6 @@
-# BF-01 · Giải thích và đối chiếu 25 sơ đồ với mã nguồn
+# BF-01 · Giải thích và đối chiếu 26 sơ đồ với mã nguồn
 
-**Đã đồng bộ 25 trang với cấu trúc backend sau khi tách module nhận mua.** Các thay đổi tập trung vào controller và service của kiểm nhận, nhập mua, giữ hộ và đảo phiếu; đồng thời làm rõ điều kiện chọn vị trí, thứ tự cập nhật PO và bội số trong phạm vi BF-01.
+**Bộ sơ đồ có 26 trang, gồm một sơ đồ lớp dành riêng cho nhập mua.** Các sơ đồ tập trung vào controller và service của kiểm nhận, nhập mua, giữ hộ và đảo phiếu, cùng điều kiện chọn vị trí, thứ tự cập nhật PO và bội số trong phạm vi BF-01.
 
 Đối chiếu mã nguồn ngày 25/11/2026 sau refactor trên BE `5105f36` và FE `46abeb0`. Đã so lại sau merge BE `3bba4da` và FE `0d9df07`; phần triển khai dùng trong các sơ đồ khớp với mốc refactor. Đọc sơ đồ theo luồng nghiệp vụ BF-01 và các thao tác API được nêu ở từng trang. Hai trang UC-40 và UC-42 mô tả riêng nhánh nhập mua; danh mục §4.2 của Report 3 dùng hai mã này cho phạm vi rộng hơn. [Sơ đồ nguồn](WMSD_BF01_Diagrams.drawio), [Report 3 §4.2](../01_bao_cao/WMSD_Report3_Fix.docx.txt#L510).
 
@@ -11,7 +11,7 @@
 | 1–5 | [Yêu cầu bổ sung](#yeu-cau-bo-sung) |
 | 6–12 | [Đơn mua](#don-mua) |
 | 13–17 | [Hàng đến và kiểm nhận](#hang-den-va-kiem-nhan) |
-| 18–25 | [Nhập mua, giữ hộ và ghi tồn](#nhap-mua-giu-ho-va-ghi-ton) |
+| 18-26 | [Nhập mua, giữ hộ và ghi tồn](#nhap-mua-giu-ho-va-ghi-ton) |
 
 ## Quy ước đọc các đường nối
 
@@ -19,7 +19,7 @@
 | --- | --- |
 | Sơ đồ lớp, nét đứt đầu mũi tên mở | **Phụ thuộc**. A gọi B, dùng dữ liệu B hoặc đọc/ghi model B. Mũi tên đi từ bên dùng sang bên được dùng. Dùng cho router → controller → service và cho service → model, vì quan hệ đó phát sinh khi thực thi. Hai kiểu khoảng cách gạch trên file đều cùng nghĩa. |
 | Sơ đồ lớp, nét liền đầu mở | **Liên kết dữ liệu có hướng**. Hướng chỉ phía mà đối tượng đầu nguồn có thể lần tới từ trường ID hoặc danh sách nguồn đã lưu. Mỗi nhãn bội số nằm ở đầu đối tượng được đếm: `1` đúng một, `0..1` tùy chọn tối đa một, `0..*` có thể chưa có hoặc có nhiều, `1..*` ít nhất một. Bội số áp dụng trong phạm vi nghiệp vụ ghi rõ bên dưới. `ref` Mongoose và ID đa hình cần service kiểm nguồn, trạng thái và phạm vi khi xử lý. |
-| Sơ đồ lớp, hình thoi đen | **Hợp thành**. Đầu có hình thoi chứa phần tử nhúng của đầu còn lại. Trang 18 dùng cho `StockTransaction.movements[]`. Hai đường nét liền tiếp theo nối movement với số dư nguồn và đích qua hai trường riêng. |
+| Sơ đồ lớp, hình thoi đen | **Hợp thành**. Đầu có hình thoi chứa phần tử nhúng của đầu còn lại. Trang 18 và 19 dùng ký hiệu này cho `StockTransaction.movements[]`. Hai đường nét liền tiếp theo nối movement với số dư nguồn và đích qua hai trường riêng. |
 | Góc gấp, đường cong và cầu vượt nhỏ ở điểm giao | Các đoạn bẻ góc phục vụ bố cục. Cầu vượt cho biết hai đường đi qua nhau. Chỉ đầu mút được gắn vào một hộp mới tạo liên kết. Vòng nét liền quay về chính hộp `GoodsInspection` ở trang 13 thể hiện tham chiếu phiếu kiểm trước đó. |
 | Sơ đồ tuần tự, nét liền ngang đầu đặc | **Lời gọi hoặc thao tác**. Người dùng thao tác trên UI, UI gửi HTTP, controller chuyển vào hàm nghiệp vụ, service gọi service khác hoặc thực hiện đọc/ghi qua model. Mũi tên gập trở lại cùng đường sống biểu thị bước tự xử lý trong cùng service. |
 | Sơ đồ tuần tự, nét đứt ngang đầu mở | **Phản hồi**. DB trả dữ liệu/kết quả lưu, service trả kết quả hoặc chuyển lỗi về tầng HTTP, UI hiển thị kết quả cho người dùng. `Saved` là phản hồi ở bước ghi được mô tả. Thành công của cả lệnh còn phụ thuộc commit transaction. `Error response` đại diện cho phản hồi lỗi, mã cụ thể phụ thuộc điểm chặn. |
@@ -579,7 +579,18 @@ Sơ đồ lớp thể hiện hai controller nhập mua và giữ hộ, cùng cá
 
 **Lý do bố cục.** Router và controller ở trên cho thấy điểm vào HTTP. Ở đáy, cặp giao dịch và movement nằm nối tiếp trước số dư để truy được biến động cụ thể, dù nhiều chứng từ dùng chung hạ tầng. Khi tra chứng từ nguồn, đọc `header.arrivalId` và nguồn từng dòng GR, `StockReversal.header.sourceDocument`, hoặc `CustodyRelease.custodyDecisionId` tùy loại phiếu. [Header GR][gr-header], [nguồn giữ hộ][custody-service], [header phiếu đảo][reversal-header], [model phiếu giải phóng][release-model].
 
-### 19 · 1.4.2.1 Change Purchase Receipt Destinations
+### 19 · 1.4.1 Goods Receipt Class
+
+Sơ đồ lớp này tập trung vào `PurchaseReceipt`, discriminator `PURCHASE` của `goods_receipts`, và các thành phần phục vụ đọc, đổi vị trí đích, hủy nháp, ghi tồn và đảo phiếu nhập mua. Các lớp dành riêng cho giữ hộ được mô tả ở trang 18. [File draw.io](WMSD_BF01_Diagrams.drawio), [model phiếu nhập][gr-model].
+
+| Đường trên hình | Cách đọc |
+| --- | --- |
+| `GoodsReceiptRouter` ⇢ `GoodsReceiptController`, `ReceiptRouter` | API đọc phiếu hợp nhất đi qua `GoodsReceiptController` và `GoodsReceiptService`. Các yêu cầu dưới `/purchase` đi qua `ReceiptRouter` tới `PurchaseReceiptController`. Cả hai nhánh dùng `PurchaseReadService` để đọc phiếu nhập mua. [Router phiếu nhập][gr-route], [service phiếu nhập][gr-read], [controller nhập mua][purchase-controller]. |
+| `PurchaseReceiptController` ⇢ `PurchaseReceiptService`, `PurchaseCore`, `StockReversalService` | Đổi vị trí đích và ghi tồn đi qua `PurchaseReceiptService`. Hủy nháp gọi `PurchaseCore`. Kiểm điều kiện đảo và thực thi đảo đi qua `StockReversalService`. Tuyến `GET /api/stock-reversals/:id` dùng cùng service để đọc chi tiết phiếu đảo. [Controller nhập mua][purchase-controller], [route đảo tồn][reversal-route]. |
+| `PurchaseReceipt` → `PurchaseOrder`, `StockTransaction` | Từ phiếu nhập, lần về PO qua `header.purchaseOrderId` và đến giao dịch ghi nhập qua `stockTransactionId`. Từ `StockReversal`, theo hai đường riêng đến giao dịch gốc và giao dịch bù. [Header phiếu nhập][gr-header], [ghi nhập][gr-post], [header phiếu đảo][reversal-header]. |
+| `StockTransaction` ◆ `StockMovement` → `InventoryBalance` | Giao dịch chứa danh sách `movements[]`. Mỗi biến động có thể tham chiếu số dư nguồn qua `fromBalanceId` và số dư đích qua `toBalanceId`. Xem trang 18 để đối chiếu bội số ở từng đầu nối. [Model giao dịch][transaction-model], [schema biến động][movement-model]. |
+
+### 20 · 1.4.2.1 Change Purchase Receipt Destinations
 
 Warehouse Staff gọi PATCH qua API client. Service đọc chất lượng của dòng INS nguồn để chọn `RECEIVING` cho `GOOD` hoặc `QUARANTINE` cho mã khác. Luồng xác nhận INS mua mới chỉ sinh dòng nhận sở hữu cho `GOOD/ACCEPT`, nên nhánh `QUARANTINE` mô tả điều kiện riêng của endpoint. Lệnh đổi đích của phiếu nháp, tăng version và lưu lý do trong audit. [Route PATCH][purchase-receipt-route], [điều kiện đổi đích][gr-dest], [xác nhận INS][inspection-confirm], [màn phiếu nhập][gr-fe].
 
@@ -605,7 +616,7 @@ Warehouse Staff gọi PATCH qua API client. Service đọc chất lượng của
 
 </details>
 
-### 20 · 1.4.2.2 Cancel Purchase Receipt
+### 21 · 1.4.2.2 Cancel Purchase Receipt
 
 **Khớp ở mức thiết kế.** `PurchaseReceiptReview.tsx` gửi `POST /purchase/:id/cancel`; controller chọn `cancelDraft(..., 'GR_PURCHASE', ...)`. Hình đọc cả PO vì hủy GR nháp bỏ lượng cam kết nhận ở phép tính PO. Nhánh hợp lệ kiểm version GR và PO, `DRAFT` và lý do, ghi `CANCELLED` rồi trả kết quả. Trong transaction thực tế, code cập nhật version PO trước lúc lưu GR. Không phát sinh giao dịch trừ hàng vì phiếu chưa post. [Hủy nháp][receiving-cancel], [validation hai version][rec-val], [tính lượng PO][po-qty], [màn GR][gr-fe].
 
@@ -631,7 +642,7 @@ Warehouse Staff gọi PATCH qua API client. Service đọc chất lượng của
 
 </details>
 
-### 21 · 1.4.2.3 Post Purchase Receipt (UC-40)
+### 22 · 1.4.2.3 Post Purchase Receipt (UC-40)
 
 **Khớp ở mức thiết kế.** `POST /purchase/:id/post` đọc nháp, PO, lượng sẵn cho nhận, nguồn từng dòng và vị trí. `loop` là cần thiết vì một phiếu có nhiều dòng và mỗi dòng phải dùng đúng nguồn. `alt` trong vòng lặp thể hiện hai cách ghi tồn: từ INS `GOOD/ACCEPT` thì nhập `STORE` tại `RECEIVING`; dòng có `custodyBalanceId` gọi `postOwnedCustody()` để chuyển tồn `SUPPLIER` sang `STORE`. Mũi tên sang service giữ hộ có ý nghĩa riêng vì cần truy quyết định và lượng còn giữ của NCC. Sau các bước kiểm hàng, quy cách và sức chứa, transaction ghi giao dịch, GR `POSTED` và PO. PO thành `PARTIAL` nếu còn lượng chờ, `COMPLETED` nếu đã đủ, `CLOSED` nếu hết phần chờ có lượng đã chốt thiếu. Sau khi phiếu chuyển sang `POSTED`, service tính lại lượng PO trong cùng transaction để phép tính chứa lần nhập này. [Ghi nhập mua][gr-post], [đổi chủ tồn][custody-stock], [màn GR][gr-fe].
 
@@ -662,7 +673,7 @@ Warehouse Staff gọi PATCH qua API client. Service đọc chất lượng của
 
 </details>
 
-### 22 · 1.4.2.4 Reverse Purchase Receipt (UC-42)
+### 23 · 1.4.2.4 Reverse Purchase Receipt (UC-42)
 
 Luồng đảo kiểm tra điều kiện trước khi ghi giao dịch bù. Mỗi biến động gốc được xử lý một lần.
 
@@ -705,7 +716,7 @@ Luồng đảo kiểm tra điều kiện trước khi ghi giao dịch bù. Mỗi
 
 </details>
 
-### 23 · 1.4.2.5 Cancel Custody Receipt
+### 24 · 1.4.2.5 Cancel Custody Receipt
 
 **Khớp ở mức thiết kế.** `CustodyDetailPage.tsx` mở modal hủy rồi gọi `POST /api/custody-receipts/:id/cancel`. Controller chọn `CUSTODY_RECEIPT` để cùng dùng `cancelDraft()` nhưng kiểm owner `SUPPLIER`. `alt` thể hiện đã kiểm đúng version và nháp thì lưu `CANCELLED`. Payload có lý do bắt buộc và dấu vết người hủy/thời điểm. Nhánh này chỉ lưu phiếu, khác nhánh hủy GR mua còn tăng version PO vì có cam kết nhận. [Hủy nháp nhận mua][receiving-cancel], [validation giữ hộ][rec-val], [màn giữ hộ][custody-fe], [API giữ hộ][custody-api].
 
@@ -731,7 +742,7 @@ Luồng đảo kiểm tra điều kiện trước khi ghi giao dịch bù. Mỗi
 
 </details>
 
-### 24 · 1.4.2.6 Post Custody Receipt (UC-50)
+### 25 · 1.4.2.6 Post Custody Receipt (UC-50)
 
 **Khớp ở mức thiết kế.** Màn giữ hộ chọn đủ một vị trí cho từng dòng rồi gửi `POST /:id/post`. Service kiểm phiếu `DRAFT` thuộc NCC, version, nguồn kỳ kiểm `CONFIRMED` có quyết định `CUSTODY`, đúng NCC/lô/sản phẩm/lượng, cùng đích trong kho là `CUSTODY` hoặc `QUARANTINE`. Đường ghi tồn gộp trong một bước vì sơ đồ mô tả lúc post: service xử lý từng dòng, giữ chủ `SUPPLIER`, xác minh sức chứa, lưu movement và phiếu `POSTED`. PO chỉ tăng lượng thực nhận khi tồn được nhận sở hữu qua GR mua tương ứng. [Post giữ hộ][custody-post], [màn giữ hộ][custody-fe], [tính lượng PO][po-qty].
 
@@ -758,7 +769,7 @@ Luồng đảo kiểm tra điều kiện trước khi ghi giao dịch bù. Mỗi
 
 </details>
 
-### 25 · 1.4.2.7 Reverse Custody Receipt
+### 26 · 1.4.2.7 Reverse Custody Receipt
 
 **Khớp ở mức thiết kế.** `CustodyReverseModal.tsx` gọi preflight rồi `POST /reverse` khi đủ điều kiện và người dùng xác nhận lý do. `opt` phân biệt kiểm tra và ghi thật. Controller truyền `CUSTODY_RECEIPT` để chọn nhánh `SUPPLIER` của cùng lệnh đảo. Service rà phiếu còn `POSTED`, giao dịch gốc, hồ sơ xử lý giữ hộ phụ thuộc, vị trí, phiên bản, lượng tự do và quy cách. Mũi tên sang `transferCustodyStock()` mô tả thao tác trừ khỏi số dư NCC gốc với đích `null`, lặp theo các movement gốc theo thứ tự ngược. Phần cuối lưu giao dịch bù, phiếu đảo và đổi phiếu giữ hộ sang `REVERSED`. Luồng dùng version phiếu giữ hộ, không cập nhật PO. [Điều kiện đảo][reverse-eligible], [lệnh đảo][gr-reverse], [modal đảo giữ hộ][custody-reverse-fe], [API giữ hộ][custody-api].
 
@@ -796,7 +807,8 @@ Luồng đảo kiểm tra điều kiện trước khi ghi giao dịch bù. Mỗi
 
 ## Kiểm chứng
 
-- Rà soát 25 trang XML, xuất và xem ảnh 14 trang thay đổi, render 25 khối Mermaid BF-01 trong Report 4. Bảng trong từng mục mô tả các thông điệp nghiệp vụ theo thứ tự, kể cả nhánh và vòng lặp.
+- Rà soát 25 trang XML của bộ sơ đồ gốc, xuất và xem ảnh 14 trang thay đổi, render 25 khối Mermaid BF-01 trong Report 4. Bảng trong từng mục mô tả các thông điệp nghiệp vụ theo thứ tự, kể cả nhánh và vòng lặp.
+- Render riêng tab Goods Receipt Class trong draw.io và kiểm tra cả 27 đường nối đi ngoài 18 ô lớp.
 - Đối chiếu tuyến gọi, trạng thái và hiệu ứng tồn với BE `5105f36`, FE `46abeb0`. Khi duyệt nghiệp vụ và kiểm tra mã UC, xem [Report 4 §II · BF-01](../01_bao_cao/WMSD_Report4_Draft.md#L407), [phiếu duyệt RR/PO](../03_thiet_ke/DB_Rebuild_Review/13_Duyet_yeu_cau_bo_sung_va_don_mua.md) và [phiếu duyệt hàng đến, kiểm nhận và nhập](../03_thiet_ke/DB_Rebuild_Review/15_Duyet_hang_den_kiem_nhan_va_phieu_nhap.md).
 - Lượt cập nhật chạy 6 test BE cho vòng đời PO, sửa kiểm nhận, ghi tồn và đảo phiếu trên cơ sở dữ liệu tạm MongoDB cục bộ, tất cả đều đạt. Kiểm thử FE, thao tác ứng dụng qua trình duyệt và kiểm thử triển khai nằm ngoài lượt cập nhật này.
 

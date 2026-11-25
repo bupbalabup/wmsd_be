@@ -74,7 +74,7 @@ Thiếu xác nhận khi có cảnh báo trả HTTP 409 `ERR-RR-409-004` kèm `de
 
 `POST /api/replenishments/:id/review` duyệt theo bản đã gửi. Người duyệt có thể gọi `POST /evaluate` để xem cảnh báo hiện tại. Khi duyệt cần người quyết định khác người lập, xét mọi dòng, đúng đơn vị gốc và lượng duyệt trong lượng đề nghị. PO tạo, sửa nháp và phát hành dựa trên RR `APPROVED`, bản và quyết định duyệt còn hiệu lực, sản phẩm/NCC hoạt động và lượng PO trong trần từng dòng.
 
-`POST /api/replenishments/:id/cancel` dùng `expectedVersion`, `operationKey` và `reason`. Người lập rút nháp hoặc phiếu chờ duyệt còn đủ điều kiện. Owner xử lý phần đã duyệt chưa có PO. RR đã liên kết PO đi theo quy trình xử lý PO.
+`POST /api/replenishments/:id/cancel` dùng `expectedVersion`, `operationKey` và `reason`. Người lập rút nháp hoặc phiếu chờ duyệt còn đủ điều kiện. Owner xử lý phần đã duyệt chưa có PO. RR đã liên kết PO đi theo quy trình xử lý PO. `GET /api/replenishments` và `GET /api/replenishments/:id` (25/11/2026) trả thêm `cancelledByUser: { id, fullName }` khi có `cancelledBy` bên cạnh `cancelReason`, `cancelledBy` và `cancelledAt`; chi tiết trả `approvals[].lines[].reason` cho lý do duyệt từng dòng.
 
 ### Tương thích
 
