@@ -1,8 +1,11 @@
 import * as m from "../../models/runtime.js";
 import { requirePermission, isOwner, canAccessWarehouse } from "../../shared/utils/access.js";
 import { evaluateThresholds } from "../stock-alerts/stock-alert.service.js";
-import { currentSalesPolicy } from "../settings/sales-policy.service.js";
 import { ACTION_LABELS, SUBJECT_LABELS } from "../system/audit-log.service.js";
+import { currentSystemSettings } from "../settings/system-settings.service.js";
+
+// Fixed since the editable sales policy was removed (25/11/2026, scope LI-10). Same value as its former default.
+export const AGING_INVENTORY_THRESHOLD_DAYS = 180;
 
 // Owner dashboard from live data (user decision 23/11/2026; replaces the browser mock). WMSD is a warehouse
 // system: no revenue, profit, receivables or payables are shown. Quantities in different base units are never
@@ -19,13 +22,13 @@ const APPROVAL_QUEUES = [
 const scopeFilter = (user) => (isOwner(user) ? {} : { "header.warehouseId": { $in: user.warehouseIds ?? [] } });
 const label = (doc) => doc.documentNo || doc.soChungTu || String(doc._id);
 
-async function approvals(user) {
+async function approvals(user, itemsPerQueue) {
   return Promise.all(APPROVAL_QUEUES.map(async (queue) => {
     const Model = m[queue.model];
     const filter = { ...queue.filter, ...scopeFilter(user) };
     const [count, rows] = await Promise.all([
       Model.countDocuments(filter),
-      Model.find(filter).sort({ updatedAt: -1 }).limit(5).select("documentNo header.warehouseId updatedAt createdAt").lean(),
+      Model.find(filter).sort({ updatedAt: -1 }).limit(itemsPerQueue).select("documentNo header.warehouseId updatedAt createdAt").lean(),
     ]);
     return {
       key: queue.key, label: queue.label, count, href: queue.path,
@@ -52,7 +55,7 @@ async function qualityHolds(user) {
     .reduce((acc, row) => ({ ...acc, [row._id.quality]: (acc[row._id.quality] ?? 0) + row.lines }), {});
 }
 
-async function agingLots(user, days) {
+async function agingLots(user, days, limit) {
   const cutoff = new Date(Date.now() - days * 86_400_000);
   const rows = await m.InventoryBalance.aggregate([
     { $match: { qualityStatus: "GOOD", ownerType: "STORE", quantityBase: { $gt: 0 } } },
@@ -72,7 +75,7 @@ async function agingLots(user, days) {
     { $project: { lot: "$batch.manufacturerLot", since: "$batch.createdAt", sku: "$product.sku", productName: "$product.name", warehouseIds: 1 } },
   ]);
   const visible = rows.filter((row) => row.warehouseIds.some((id) => !id || canAccessWarehouse(user, id)));
-  return { count: visible.length, items: visible.slice(0, 10).map((row) => ({ id: String(row._id), lot: row.lot, sku: row.sku, productName: row.productName, since: row.since, href: `/lots/${row._id}` })) };
+  return { count: visible.length, items: visible.slice(0, limit).map((row) => ({ id: String(row._id), lot: row.lot, sku: row.sku, productName: row.productName, since: row.since, href: `/lots/${row._id}` })) };
 }
 
 async function monthlyActivity() {
@@ -99,9 +102,9 @@ async function monthlyActivity() {
   });
 }
 
-async function recentDecisions() {
+async function recentDecisions(limit) {
   const decisionActions = /APPROVE|REJECT|DECIDE|REVIEW|RESOLVE|POST|CLOSE|LOCK_USER|UNLOCK_USER/;
-  const events = await m.AuditLog.find({ action: { $regex: decisionActions } }).sort({ occurredAt: -1 }).limit(10).lean();
+  const events = await m.AuditLog.find({ action: { $regex: decisionActions } }).sort({ occurredAt: -1 }).limit(limit).lean();
   const actors = await m.User.find({ _id: { $in: events.map((e) => e.actorId).filter(Boolean) } }).select("fullName").lean();
   return events.map((event) => ({
     id: String(event._id), action: event.action, actionLabel: ACTION_LABELS[event.action] ?? event.action,
@@ -113,14 +116,15 @@ async function recentDecisions() {
 
 export async function ownerDashboard(user) {
   requirePermission(user, "dashboard:read");
-  const { policy } = await currentSalesPolicy();
+  // Row counts come from the Administrator's system settings (25/11/2026); defaults are the former fixed numbers.
+  const { settings } = await currentSystemSettings();
   const [queues, thresholds, holds, aging, activity, decisions, productCount, warehouseCount] = await Promise.all([
-    approvals(user),
-    evaluateThresholds({ warehouseFilter: (id) => canAccessWarehouse(user, id) }),
+    approvals(user, settings.dashboardApprovalItems),
+    evaluateThresholds({ warehouseFilter: (id) => canAccessWarehouse(user, id), settings }),
     qualityHolds(user),
-    agingLots(user, policy.agingInventoryThresholdDays),
+    agingLots(user, AGING_INVENTORY_THRESHOLD_DAYS, settings.dashboardAgingLotRows),
     monthlyActivity(),
-    recentDecisions(),
+    recentDecisions(settings.dashboardRecentDecisions),
     m.Product.countDocuments({ isActive: { $ne: false } }),
     m.Warehouse.countDocuments({ isActive: { $ne: false } }),
   ]);
@@ -130,6 +134,7 @@ export async function ownerDashboard(user) {
     kpis: {
       pendingApprovals: queues.reduce((n, q) => n + q.count, 0),
       lowStockItems: lowStock.length,
+      nearThresholdItems: thresholds.filter((row) => row.status === "NEAR").length,
       thresholdsConfigured: thresholds.length,
       qualityHoldLines: Object.values(holds).reduce((n, v) => n + v, 0),
       agingLots: aging.count,
@@ -138,10 +143,10 @@ export async function ownerDashboard(user) {
     },
     approvals: queues,
     warnings: {
-      lowStock: lowStock.slice(0, 10),
+      lowStock: lowStock.slice(0, settings.dashboardLowStockRows),
       qualityHolds: holds,
       agingLots: aging,
-      agingThresholdDays: policy.agingInventoryThresholdDays,
+      agingThresholdDays: AGING_INVENTORY_THRESHOLD_DAYS,
     },
     monthlyActivity: activity,
     recentDecisions: decisions,

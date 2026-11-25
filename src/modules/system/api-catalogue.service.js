@@ -87,16 +87,20 @@ export async function listCatalogue(app, user, query) {
   if (query.status === "present") Object.assign(filter, { isPresent: true, isActive: true });
   if (query.status === "missing") filter.isPresent = false;
   if (query.status === "inactive") filter.isActive = false;
-  const [rows, total, modules, counts] = await Promise.all([
+  // Module counts ignore the module filter so the "by module" view always lists every module (25/11/2026).
+  const { module: _module, ...moduleFilter } = filter;
+  const [rows, total, modules, counts, perModule] = await Promise.all([
     ApiEndpoint.find(filter).sort({ url: 1, method: 1 }).skip((query.page - 1) * query.limit).limit(query.limit).lean(),
     ApiEndpoint.countDocuments(filter),
     ApiEndpoint.distinct("module"),
     ApiEndpoint.aggregate([{ $group: { _id: "$source", n: { $sum: 1 } } }]),
+    ApiEndpoint.aggregate([{ $match: moduleFilter }, { $group: { _id: "$module", n: { $sum: 1 }, missing: { $sum: { $cond: ["$isPresent", 0, 1] } } } }, { $sort: { _id: 1 } }]),
   ]);
   return {
     items: rows.map(dto), total, page: query.page, limit: query.limit,
     modules: modules.filter(Boolean).sort(),
     summary: Object.fromEntries(counts.map((c) => [c._id, c.n])),
+    moduleCounts: perModule.map((m) => ({ module: m._id || "", count: m.n, missing: m.missing })),
   };
 }
 

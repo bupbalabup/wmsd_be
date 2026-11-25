@@ -49,7 +49,8 @@ router.use("/delivery-schedules", deliveryScheduleRouter);
 router.use("/delivery-orders", deliveryOrderRouter);
 
 router.use("/health", healthRouter);
-// Administration and owner overview (23/11/2026): /system/*, /dashboard/owner, /settings/sales-policy, /stock-alerts, /search.
+// Administration and owner overview (23/11/2026): /system/*, /dashboard/owner, /stock-alerts, /search.
+// /settings/sales-policy was removed on 25/11/2026 (scope LI-10).
 router.use("/system", systemRouter);
 router.use(overviewRouter);
 router.use("/auth", authRouter);

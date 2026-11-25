@@ -10,7 +10,7 @@ import { escapeRegex } from "../../shared/utils/domain.js";
 export const ACTION_LABELS = {
   LOGIN: "Đăng nhập", RESET_PASSWORD: "Đặt lại mật khẩu", CHANGE_PASSWORD: "Đổi mật khẩu", CHANGE_EMAIL: "Đổi email",
   UPDATE_PROFILE: "Cập nhật hồ sơ", LOCK_USER: "Khoá tài khoản", UNLOCK_USER: "Mở khoá tài khoản",
-  UPDATE_SALES_POLICY: "Cập nhật chính sách bán hàng", SYNC_API_CATALOGUE: "Đồng bộ danh mục API",
+  UPDATE_SALES_POLICY: "Cập nhật chính sách bán hàng", UPDATE_SYSTEM_SETTINGS: "Cập nhật cấu hình hệ thống", SYNC_API_CATALOGUE: "Đồng bộ danh mục API",
   CREATE_API_ENDPOINT: "Thêm API", UPDATE_API_ENDPOINT: "Sửa API", DELETE_API_ENDPOINT: "Xoá API",
   RESOLVE_ERROR_LOG: "Đánh dấu lỗi đã xử lý", CREATE_ROLE: "Tạo vai trò", UPDATE_ROLE_PERMISSIONS: "Cập nhật quyền vai trò",
 };
