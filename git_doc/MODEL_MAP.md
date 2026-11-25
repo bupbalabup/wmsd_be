@@ -26,6 +26,10 @@ Mốc schema 23/11/2026: 61 collection = 58 collection nghiệp vụ + 3 collect
 
 [Từ điển dữ liệu](docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Data_Dictionary.md) · [Rà trường từng bảng](docs/03_thiet_ke/DB_Rebuild_Review/38_Ra_soat_truong_58_bang.md) · [Phiếu duyệt](docs/03_thiet_ke/DB_Rebuild_Review/01_Danh_muc_duyet.md)
 
+## 25/11/2026 — Bỏ năm trường sao chép trên chứng từ
+
+Chứng từ và chứng từ nhúng không còn `tenLoaiPhieu`, `maDonVi`, `kyDanhSo`, `soThuTu`, `trangThaiTiengViet`. Mã phiếu giữ ở `_id`/`documentNo`, nhãn trạng thái tính lúc đọc từ `workflowStatus`. Dọn dữ liệu cũ trên localhost bằng `scripts/drop-vietnamese-document-fields.mjs`.
+
 ## Excel and opening stock — 16 November 2026
 
 [Current contract](docs/08_api/EXCEL_AND_OPENING_STOCK.md): opening_stocks uses its existing document/item relationships. New optional item packagingState and measuredVolumeMm3 preserve physical packaging for opening imports; a unique partial index on header.warehouseId for POSTED enforces one initialization per warehouse. warehouses.stockOperationVersion (integer, default zero) serializes shared stock commands and location edits against opening posting without changing catalogue updatedAt. No collection or relationship was added. Legacy data needs the additive [local setup](docs/09_phat_trien/EXCEL_OPENING_SETUP.md) before exposing the feature. No remote rollout was performed.

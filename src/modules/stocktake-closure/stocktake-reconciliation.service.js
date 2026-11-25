@@ -219,7 +219,6 @@ export function approveStocktakeDifferences(user, id, input) {
             for (const locationId of locations)
                 if (!snapshots.some(snapshot => same(snapshot.locationId, locationId)) && !counts.some(count => same(count.locationId, locationId) && count.targetType === 'EMPTY_LOCATION' && exact(count.countedQtyBase).isZero()))
                     throw validationError('Ô trống chưa được xác nhận đã kiểm');
-            document.tenLoaiPhieu = 'Đợt kiểm kê';
             document.workflowStatus = 'COMPLETED';
             header.completedAt = now;
             header.closedBy = actor._id;

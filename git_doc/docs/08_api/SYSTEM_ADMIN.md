@@ -91,7 +91,7 @@ Quyền `system_monitor:read`.
 
 ## Tìm kiếm nhanh
 
-`GET /api/search?q=<2–100 ký tự>&limit=<1–10, mặc định 5>`. Tìm theo nhóm mà người gọi có quyền đọc: sản phẩm (SKU, tên, mã hãng), lô (số lô), nhà cung cấp (mã, tên, MST), kho, tài khoản (`user:read`), và số chứng từ của đơn mua, đề nghị nhập, đơn bán, phiếu nhập, phiếu xuất, chuyển kho, kiểm kê, hàng khách trả, trả NCC, hàng lỗi. Chứng từ lọc theo kho được phân công trừ Chủ cửa hàng. Kết quả trả `href` của màn hình FE; màn hình đích vẫn tự kiểm quyền. FE: ô tìm ở header, phím tắt Ctrl/⌘+K.
+`GET /api/search?q=<2–100 ký tự>&limit=<1–10, mặc định 5>`. Tìm theo nhóm mà người gọi có quyền đọc: sản phẩm (SKU, tên, mã hãng), lô (số lô), nhà cung cấp (mã, tên, MST), kho, tài khoản (`user:read`), và số chứng từ của đơn mua, đề nghị nhập, đơn bán, phiếu nhập, phiếu xuất, chuyển kho, kiểm kê, hàng khách trả, trả NCC, hàng lỗi. `subtitle` của chứng từ là nhãn tiếng Việt tính lúc đọc từ `workflowStatus` (trạng thái chưa có nhãn hiện nguyên mã). Chứng từ lọc theo kho được phân công trừ Chủ cửa hàng. Kết quả trả `href` của màn hình FE; màn hình đích vẫn tự kiểm quyền. FE: ô tìm ở header, phím tắt Ctrl/⌘+K.
 
 ## Giao diện (FE)
 

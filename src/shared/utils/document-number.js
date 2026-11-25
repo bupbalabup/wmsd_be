@@ -68,7 +68,7 @@ export async function nextDocumentFields(Model,type,warehouseId,session=currentT
  session.documentNumbers??=new Map();const scope=Model.collection.name+':'+prefix;const sequence=Math.max(last,session.documentNumbers.get(scope)??0)+1;
  if(!Number.isSafeInteger(sequence))throw validationError('Số thứ tự phiếu vượt giới hạn');session.documentNumbers.set(scope,sequence);
  const id=formatDocumentNumber(config[0],unit,period,sequence);
- return {_id:id,documentNo:id,tenLoaiPhieu:config[1],maDonVi:parts.unit,kyDanhSo:period,soThuTu:sequence};
+ return {_id:id,documentNo:id};
 }
 export async function newBusinessDocument(Model,user,header,items=[],status='DRAFT',note,type) {
  const warehouseId=header.warehouseId??header.sourceWarehouseId??header.requestedWarehouseId??header.warehouseIds?.[0];
@@ -78,6 +78,7 @@ export async function newBusinessDocument(Model,user,header,items=[],status='DRA
 // A delivery schedule shares the sequence number of its sales order (same unit and period).
 export function pairedDocumentFields(type,order) {
  const config=documentTypes[type];if(!config)throw validationError('Loại phiếu chưa hỗ trợ cấp mã');
- const id=formatDocumentNumber(config[0],order.maDonVi,order.kyDanhSo,order.soThuTu);
- return {_id:id,documentNo:id,tenLoaiPhieu:config[1],maDonVi:order.maDonVi,kyDanhSo:order.kyDanhSo,soThuTu:order.soThuTu};
+ // Type prefixes contain no hyphen, so everything from the first one is unit, period and sequence.
+ const id=config[0]+order.documentNo.slice(order.documentNo.indexOf('-'));
+ return {_id:id,documentNo:id};
 }

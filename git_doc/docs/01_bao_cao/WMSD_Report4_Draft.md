@@ -395,136 +395,60 @@ sequenceDiagram
 
 ### 1. BF-01 Replenishment, purchasing and goods receipt — Implemented
 
-The BF-01 diagrams follow the operations available in the application at the design/specification level. An approved Replenishment Request (RR) can produce a Purchase Order (PO). Staff create a Goods Inspection (INS) with its Goods Arrival (ARR) against an open PO. Confirmation can produce a draft purchase Goods Receipt (GR), a draft supplier Custody Receipt, or both, depending on the inspection lines. Every write command also runs the shared pipeline in section 0. Editable sequence diagrams are available in [WMSD BF-01 diagrams](../04_so_do/WMSD_BF01_Diagrams.drawio). In the class diagrams, dotted arrows (`..>`) denote call or read/write dependencies, dashed triangles (`..|>`) denote interface realization, and solid arrows (`-->`) with multiplicity denote stored references. Document ids such as `RR-warehouse-YYMMDD-seq` are placeholders: the stored `_id` uses the Vietnamese type code (`YCBS` for RR, `ĐMH` for PO, `HĐK` for ARR, `PKN` for INS, `PNM` for GR, `PNGH` for CustodyReceipt, `PXGH` for CustodyRelease, `PĐN` for StockReversal), the warehouse code, the date and a six-digit sequence.
+The BF-01 diagrams follow the operations available in the application at the design/specification level. An approved Replenishment Request (RR) can produce a Purchase Order (PO). Staff create a Goods Inspection (INS) with its Goods Arrival (ARR) against an open PO. Confirmation can produce a draft purchase Goods Receipt (GR), a draft supplier Custody Receipt, or both, depending on the inspection lines. Every write command also runs the shared pipeline in section 0. Editable class and sequence diagrams are available in [WMSD BF-01 diagrams](../04_so_do/WMSD_BF01_Diagrams.drawio). The class diagrams show design responsibilities and domain relationships. Dashed arrows (`..>`) show dependencies. Solid links with multiplicities show associations, and a filled diamond (`*--`) shows composition. Stereotypes identify each element’s role in the design. Document ids such as `RR-warehouse-YYMMDD-seq` are placeholders: the stored `_id` uses the Vietnamese type code (`YCBS` for RR, `ĐMH` for PO, `HĐK` for ARR, `PKN` for INS, `PNM` for GR, `PNGH` for CustodyReceipt, `PXGH` for CustodyRelease, `PĐN` for StockReversal), the warehouse code, the date and a six-digit sequence.
 
 #### 1.1 Replenishment Request (RR)
 
 ##### 1.1.1 Class Diagram
 
-Express routes in `replenishment.routes.js` handle JWT authentication and Zod validation before dispatching to `ReplenishmentController`; route-level or command-level RBAC guards are enforced per operation.
+An evaluated request captures demand and the Store Owner’s decision on the submitted revision.
 
 ```mermaid
 classDiagram
+  direction TB
   class ReplenishmentController {
     <<controller>>
-    +options(req, res) void
-    +lotOptions(req, res) void
-    +sourceOptions(req, res) void
-    +evaluate(req, res) void
-    +listReplenishments(req, res) void
-    +getReplenishment(req, res) void
-    +create(req, res) void
-    +update(req, res) void
-    +submit(req, res) void
-    +review(req, res) void
-    +cancel(req, res) void
-    +submissions(req, res) void
-    +submission(req, res) void
+    +create()
+    +review()
   }
   class ReplenishmentCommands {
     <<service>>
-    +getReplenishmentOptions(user, mode, requestId) Object
-    +getReplenishmentLotOptions(user, query) Page
-    +evaluateReplenishment(user, input) List~Evaluation~
-    +createReplenishment(user, input) CommandReceipt
-    +updateReplenishment(user, id, input) CommandReceipt
-    +submitReplenishment(user, id, input) CommandReceipt
-    +reviewReplenishment(user, id, input) CommandReceipt
-    +cancelReplenishment(user, id, input) CommandReceipt
-    +readRequest(id, user, session) ReplenishmentRequest
-    +requireEditableRequest(user, requestId) void
+    +createReplenishment()
+    +reviewReplenishment()
+    +cancelReplenishment()
   }
   class ReplenishmentEvaluation {
     <<service>>
-    +evaluateLines(user, input, session, options) List~Evaluation~
-    +resolveSource(line, warehouseId, user, session) SourceRef
-    +availableStock(productId, warehouseId, lotId, session) Decimal
-    +reviewRequired(evaluations, message, invalidLines) ApiError
-    -openRequests(user, productId, warehouseId, excludeId, session) Object
-    -incomingPurchaseOrders(productId, warehouseId, excludeId, session) List
-    -otherWarehouseOptions(user, productId, warehouseId, lotId, session) Object
-  }
-  class ReplenishmentService {
-    <<service>>
-    +listReplenishments(user, query) Page
-    +getReplenishment(user, id) Object
-    +listReplenishmentSubmissions(user, id, query) Page
-    +getReplenishmentSubmission(user, id, version) Object
-  }
-  class ReplenishmentSources {
-    <<service>>
-    +getReplenishmentSourceOptions(user, query) Page
+    +evaluateLines()
   }
   class ReplenishmentRequest {
     <<entity>>
-    +id : DocumentIdentity
-    +documentNo : String
     +workflowStatus : WorkflowStatus
-    +version : Int
-    +warehouseId : ObjectId
-    +neededOn : Date
-    +triggerReason : String
-    +approvedRevision : Int
-    +latestDecisionId : ObjectId
-    +items : List~ReplenishmentItem~
-    +submissions : List~SubmissionSnapshot~
+    +version : Integer
   }
   class ApprovalHistory {
     <<entity>>
-    +id : ObjectId
-    +subjectType : String
-    +subjectId : DocumentIdentity
-    +subjectRevision : Int
-    +decision : String
-    +reason : String
-    +itemDecisions : List~ItemDecision~
+    +subjectRevision : Integer
+    +decision : ApprovalDecision
   }
-  class ReplenishmentSource {
-    <<interface>>
-    +id : DocumentIdentity
-    +workflowStatus : WorkflowStatus
-    +version : Int
-  }
-  class SalesOrder {
+  class ReplenishmentItem {
     <<entity>>
+    +requestedQty : Decimal
+    +approvedQty : Decimal
   }
-  class WarehouseIssueRequest {
-    <<entity>>
+  class SourceReference {
+    <<value_object>>
+    +type : SourceType
   }
-  class Stocktake {
-    <<entity>>
-  }
-  class InventoryBalance {
-    <<entity>>
-    +quantityBase : Decimal
-  }
-  class Product {
-    <<entity>>
-    +stockThresholds : List~WarehouseThreshold~
-  }
-  class PurchaseOrder {
-    <<entity>>
-    +workflowStatus : WorkflowStatus
-    +replenishmentRequestId : DocumentIdentity
-  }
-  ReplenishmentController ..> ReplenishmentCommands : invokes commands
-  ReplenishmentController ..> ReplenishmentService : queries
-  ReplenishmentController ..> ReplenishmentSources : queries sources
-  ReplenishmentCommands ..> ReplenishmentEvaluation : evaluates lines
-  ReplenishmentCommands ..> ReplenishmentRequest : reads & writes
-  ReplenishmentCommands ..> ApprovalHistory : creates on review
-  ReplenishmentCommands ..> PurchaseOrder : checks live PO
-  ReplenishmentEvaluation ..> ReplenishmentSource : resolves source
-  ReplenishmentEvaluation ..> ReplenishmentRequest : reads open RR
-  ReplenishmentEvaluation ..> InventoryBalance : reads free stock
-  ReplenishmentEvaluation ..> Product : reads thresholds
-  ReplenishmentEvaluation ..> PurchaseOrder : reads incoming PO
-  SalesOrder ..|> ReplenishmentSource
-  WarehouseIssueRequest ..|> ReplenishmentSource
-  Stocktake ..|> ReplenishmentSource
-  ApprovalHistory "0..*" --> "1" ReplenishmentRequest : subjectId
-  ReplenishmentRequest "0..*" --> "0..1" ApprovalHistory : latestDecisionId
-  ReplenishmentRequest "0..*" --> "0..*" ReplenishmentSource : items[].sources
+  ReplenishmentController ..> ReplenishmentCommands : dispatches
+  ReplenishmentCommands ..> ReplenishmentEvaluation : evaluates demand
+  ReplenishmentCommands ..> ReplenishmentRequest : handles lifecycle
+  ReplenishmentRequest "1" --> "0..*" ApprovalHistory : decisions
+  ReplenishmentRequest "0..1" --> "0..1" ApprovalHistory : latestDecision {subsets decisions}
+  ReplenishmentRequest "1" *-- "1..*" ReplenishmentItem : items
+  ReplenishmentItem "0..*" --> "0..1" SourceReference : source
+  note "A line may link to a sales order, warehouse issue request or completed stocktake."
+  note "The Store Owner reviews a submitted revision and must be a different user from the requester."
 ```
 
 ##### 1.1.2 Sequence diagrams
@@ -721,107 +645,51 @@ sequenceDiagram
 
 ##### 1.2.1 Class Diagram
 
-Read endpoints in `purchase-order.routes.js` dispatch to `PurchaseOrderController` (`checkPermission` at route level), while write endpoints in `purchase-order.commands.routes.js` dispatch directly to `PurchaseOrderCommands` where permissions are checked inside `command()`.
+Commands manage the order lifecycle. The receiving service computes quantities from linked receipts.
 
 ```mermaid
 classDiagram
-  class PurchaseOrderController {
-    <<controller>>
-    +list(req, res) void
-    +supplierOptions(req, res) void
-    +get(req, res) void
-  }
+  direction TB
   class PurchaseOrderCommands {
     <<service>>
-    +createPurchaseOrder(user, input) CommandReceipt
-    +updatePurchaseOrder(user, id, input) CommandReceipt
-    +confirmPurchaseOrder(user, id, input) CommandReceipt
-    +rescheduleExpectedOn(user, id, input) CommandReceipt
-    +closeRemainder(user, id, input) CommandReceipt
-    +reopenPurchaseOrder(user, id, input) CommandReceipt
-    +cancelPurchaseOrder(user, id, input) CommandReceipt
-    -draftItems(actor, input, session, previous) Object
-    -validateClose(po, lines, session) void
+    +createPurchaseOrder()
+    +confirmPurchaseOrder()
+    +closeRemainder()
+    +reopenPurchaseOrder()
   }
   class PurchaseOrderService {
     <<service>>
-    +purchaseOrderQuantities(po, session) List~LineQuantity~
-    +receivingStatus(quantities) String
-    +reopenable(po, quantities) Boolean
-    +cancelBlocker(po, session) String
-    +openReceivingWorkIds(orders) Set
-    +getPurchaseOrder(user, id) Object
-    +listPurchaseOrders(user, query) Page
-    +listPurchaseOrderSupplierOptions(user, query) Page
-  }
-  class PurchaseOrder {
-    <<entity>>
-    +id : DocumentIdentity
-    +documentNo : String
-    +workflowStatus : WorkflowStatus
-    +version : Int
-    +replenishmentRequestId : DocumentIdentity
-    +warehouseId : ObjectId
-    +supplierId : ObjectId
-    +supplierSnapshot : SupplierSnapshot
-    +expectedOn : Date
-    +issuedAt : Date
-    +approvedRequestRevision : Int
-    +closedAt : Date
-    +closureReason : String
-    +totalAmount : Decimal
-    +currency : String
-    +items : List~PurchaseOrderItem~
-  }
-  class ReplenishmentRequest {
-    <<entity>>
-    +id : DocumentIdentity
-    +workflowStatus : WorkflowStatus
-    +approvedRevision : Int
-    +latestDecisionId : ObjectId
-  }
-  class ApprovalHistory {
-    <<entity>>
-    +id : ObjectId
-    +decision : String
-    +itemDecisions : List~ItemDecision~
+    +purchaseOrderQuantities()
   }
   class Supplier {
     <<entity>>
-    +id : ObjectId
-    +status : String
+  }
+  class PurchaseOrder {
+    <<entity>>
+    +workflowStatus : WorkflowStatus
+    +expectedOn : Date
+  }
+  class ReplenishmentRequest {
+    <<entity>>
+  }
+  class PurchaseOrderItem {
+    <<entity>>
+    +orderedQty : Decimal
+    +closedRemainderQty : Decimal
   }
   class PurchaseReceipt {
     <<entity>>
-    +id : DocumentIdentity
     +workflowStatus : WorkflowStatus
-    +purchaseOrderId : DocumentIdentity
   }
-  class GoodsArrival {
-    <<entity>>
-    +id : DocumentIdentity
-    +purchaseOrderId : DocumentIdentity
-  }
-  class GoodsInspection {
-    <<entity>>
-    +id : DocumentIdentity
-    +workflowStatus : WorkflowStatus
-    +arrivalId : DocumentIdentity
-  }
-  PurchaseOrderController ..> PurchaseOrderService : delegates queries
-  PurchaseOrderCommands ..> PurchaseOrderService : quantities, blockers, status
-  PurchaseOrderCommands ..> PurchaseOrder : creates & updates
-  PurchaseOrderCommands ..> ReplenishmentRequest : verifies APPROVED & touches updatedAt
-  PurchaseOrderCommands ..> ApprovalHistory : verifies approved ceiling
-  PurchaseOrderCommands ..> Supplier : verifies ACTIVE
-  PurchaseOrderService ..> PurchaseOrder : queries
-  PurchaseOrderService ..> PurchaseReceipt : sums received & draft qty
-  PurchaseOrderService ..> GoodsArrival : checks blockers & open work
-  PurchaseOrderService ..> GoodsInspection : checks draft work
-  PurchaseOrder "0..1" --> "0..1" ReplenishmentRequest : replenishmentRequestId
-  PurchaseOrder "0..*" --> "1" Supplier : supplierId
-  PurchaseReceipt "0..*" --> "1" PurchaseOrder : purchaseOrderId
-  GoodsArrival "0..*" --> "1" PurchaseOrder : purchaseOrderId
+  PurchaseOrderCommands ..> PurchaseOrderService : checks receiving quantities
+  PurchaseOrderCommands ..> PurchaseOrder : handles lifecycle
+  PurchaseOrderService ..> PurchaseReceipt : reads receipts
+  PurchaseOrder "0..*" --> "1" Supplier : supplier
+  PurchaseOrder "0..1" --> "0..1" ReplenishmentRequest : approvedRequest
+  PurchaseOrder "1" *-- "1..*" PurchaseOrderItem : items
+  PurchaseReceipt "0..*" --> "1" PurchaseOrder : purchaseOrder
+  note "An approved RR can have at most one linked PO. Cancelling the PO releases that link."
+  note "Closing a remainder records the cancelled quantity per line. The PO closes when every outstanding quantity is zero."
 ```
 
 ##### 1.2.2 Sequence diagrams
@@ -1070,121 +938,52 @@ sequenceDiagram
 
 ##### 1.3.1 Class Diagram
 
-Routers in `po-receiving.routes.js` authenticate and validate payloads with Zod, then dispatch directly to read/write services where RBAC permissions are enforced.
+Receiving records an arrival and its inspection. Correction creates a replacement and links it to the previous inspection.
 
 ```mermaid
 classDiagram
-  class PurchaseReceivingRouter {
-    <<router>>
-    +getInspectionContext(req, res) void
-    +createInspection(req, res) void
-    +getReceivingSummary(req, res) void
-    +getReceivingTrips(req, res) void
-    +getReceivingOperation(req, res) void
-    +getReceivingQueue(req, res) void
-  }
-  class InspectionRouter {
-    <<router>>
-    +listInspections(req, res) void
-    +getInspection(req, res) void
-    +getInspectionHistory(req, res) void
-    +updateInspection(req, res) void
-    +confirmInspection(req, res) void
-    +cancelInspection(req, res) void
-    +getCorrectionPreflight(req, res) void
-    +replaceInspection(req, res) void
-  }
+  direction TB
   class PoReceivingService {
     <<service>>
-    +inspectionContext(user, id) Object
-    +receivingOperation(user, id, key) Object
-    +createInspection(user, id, input) CommandReceipt
-    +updateInspection(user, id, input) CommandReceipt
-    +confirmInspection(user, id, input) CommandReceipt
-    +cancelDraft(user, id, kind, input) CommandReceipt
-    +activePo(user, id, expectedVersion, session) PurchaseOrder
-    +prepare(po, input, actor, session, arrival, inspection) void
-  }
-  class PurchaseReadService {
-    <<service>>
-    +listDocuments(user, kind, query) Page
-    +getDocument(user, id, kind) Object
-    +receivingSummary(user, id) Object
-    +receivingTrips(user, id, query) Page
-    +receivingQueue(user, query) Page
-    +receivingHistory(user, id, query) Page
+    +createInspection()
+    +confirmInspection()
   }
   class PurchaseCorrectionService {
     <<service>>
-    +correctionPreflight(user, id) Object
-    +replaceInspection(user, id, input) CommandReceipt
-    -correctionBlockers(inspection, session) List~Blocker~
+    +correctionPreflight()
+    +replaceInspection()
   }
   class PurchaseOrder {
     <<entity>>
-    +id : DocumentIdentity
     +workflowStatus : WorkflowStatus
-    +version : Int
   }
   class GoodsArrival {
     <<entity>>
-    +id : DocumentIdentity
-    +documentNo : String
     +workflowStatus : WorkflowStatus
-    +purchaseOrderId : DocumentIdentity
     +arrivedAt : Date
-    +deliveredBy : String
-    +deliveryReference : String
-    +items : List~ArrivalItem~
   }
   class GoodsInspection {
     <<entity>>
-    +id : DocumentIdentity
-    +documentNo : String
     +workflowStatus : WorkflowStatus
-    +arrivalId : DocumentIdentity
-    +previousInspectionId : DocumentIdentity
-    +correctionReason : String
-    +items : List~InspectionItem~
   }
   class PurchaseReceipt {
     <<entity>>
-    +id : DocumentIdentity
-    +documentKind : String
     +workflowStatus : WorkflowStatus
   }
   class CustodyReceipt {
     <<entity>>
-    +id : DocumentIdentity
-    +workflowStatus : WorkflowStatus
-    +ownerType : String
-  }
-  class SupplierReturn {
-    <<entity>>
-    +id : DocumentIdentity
     +workflowStatus : WorkflowStatus
   }
-  PurchaseReceivingRouter ..> PoReceivingService : context, create, operation
-  PurchaseReceivingRouter ..> PurchaseReadService : summary, trips, queue
-  InspectionRouter ..> PoReceivingService : update, confirm, cancel
-  InspectionRouter ..> PurchaseReadService : list, detail, history
-  InspectionRouter ..> PurchaseCorrectionService : preflight, replace
-  PurchaseCorrectionService ..> PoReceivingService : activePo, prepare
-  PoReceivingService ..> PurchaseOrder : locks & bumps version
-  PoReceivingService ..> GoodsArrival : creates & updates
-  PoReceivingService ..> GoodsInspection : creates & confirms
-  PoReceivingService ..> PurchaseReceipt : creates DRAFT on confirm
-  PoReceivingService ..> CustodyReceipt : creates DRAFT on confirm
-  PurchaseCorrectionService ..> GoodsArrival : creates replacement
+  PoReceivingService ..> GoodsArrival : records arrival
+  PoReceivingService ..> GoodsInspection : handles inspection
   PurchaseCorrectionService ..> GoodsInspection : creates replacement
-  PurchaseCorrectionService ..> PurchaseReceipt : checks blockers
-  PurchaseCorrectionService ..> CustodyReceipt : checks blockers
-  PurchaseCorrectionService ..> SupplierReturn : checks blockers
-  GoodsArrival "0..*" --> "1" PurchaseOrder : purchaseOrderId
-  GoodsInspection "1..*" --> "1" GoodsArrival : arrivalId
-  GoodsInspection "0..*" --> "0..1" GoodsInspection : previousInspectionId
-  PurchaseReceipt "0..*" --> "0..1" GoodsInspection : items[].inspectionId
-  CustodyReceipt "0..*" --> "0..1" GoodsInspection : sources
+  GoodsArrival "0..*" --> "1" PurchaseOrder : purchaseOrder
+  GoodsInspection "1..*" --> "1" GoodsArrival : arrival
+  GoodsInspection "0..*" --> "0..1" GoodsInspection : previousInspection
+  PurchaseReceipt "0..1" --> "1" GoodsInspection : confirmedSource
+  CustodyReceipt "0..1" --> "1" GoodsInspection : confirmedSource
+  note "Custody reinspection reuses the original arrival. Correcting a confirmed inspection creates a new arrival."
+  note "Confirmation can create one draft receipt per disposition: purchase for ACCEPT and custody for CUSTODY."
 ```
 
 ##### 1.3.2 Sequence diagrams
@@ -1395,178 +1194,58 @@ sequenceDiagram
 
 ##### 1.4.1 Class Diagram
 
-`GoodsReceiptRouter` exposes unified `/goods-receipts` queries and mounts `PurchaseReceiptRouter` at `/purchase`. Custody endpoints (`/custody-receipts` and `/custody-releases`) cover both initial posting/reversal and custody resolution (`reinspectCustody`, `decideCustody`, `createCustodyResolution`, `postCustodyRelease`) via `PurchaseCustodyService`.
+Posting records stock by owner. Reversal links the original transaction to a separate compensating transaction.
 
 ```mermaid
 classDiagram
-  class GoodsReceiptRouter {
-    <<router>>
-    +listUnifiedReceipts(req, res) void
-    +getUnifiedReceipt(req, res) void
-    +mountPurchaseRouter() void
-  }
-  class PurchaseReceiptRouter {
-    <<router>>
-    +listPurchaseReceipts(req, res) void
-    +getPurchaseReceipt(req, res) void
-    +postPurchaseReceipt(req, res) void
-    +cancelDraftReceipt(req, res) void
-    +changeDestinations(req, res) void
-    +getReversalPreflight(req, res) void
-    +reversePurchaseReceipt(req, res) void
-  }
-  class CustodyRouter {
-    <<router>>
-    +listCustodyReceipts(req, res) void
-    +getCustodyReceipt(req, res) void
-    +postCustodyReceipt(req, res) void
-    +cancelDraftCustody(req, res) void
-    +getCustodyReversalPreflight(req, res) void
-    +reverseCustodyReceipt(req, res) void
-    +reinspectCustody(req, res) void
-    +decideCustody(req, res) void
-    +createCustodyResolution(req, res) void
-    +getCustodyRelease(req, res) void
-    +postCustodyRelease(req, res) void
-  }
+  direction TB
   class PoReceivingService {
     <<service>>
-    +postReceipt(user, id, input) CommandReceipt
-    +postCustodyReceipt(user, id, input) CommandReceipt
-    +cancelDraft(user, id, kind, input) CommandReceipt
-    +changeDestinations(user, id, input) CommandReceipt
-    -intakePortions(item, condition, portions, session) List
-  }
-  class PurchaseReadService {
-    <<service>>
-    +listDocuments(user, kind, query) Page
-    +getDocument(user, id, kind) Object
+    +postReceipt()
+    +postCustodyReceipt()
   }
   class PurchaseCorrectionService {
     <<service>>
-    +reversalPreflight(user, id, kind) Object
-    +reverseReceipt(user, id, input, kind) CommandReceipt
-    +eligible(receipt, actor, session) Object
-  }
-  class PurchaseCustodyService {
-    <<service>>
-    +reinspectCustody(user, id, input) CommandReceipt
-    +decideCustody(user, id, input) CommandReceipt
-    +createCustodyResolution(user, id, input, action) CommandReceipt
-    +postOwnedCustody(receipt, item, po, posting, actor, session) void
-    +postCustodyRelease(user, id, input) CommandReceipt
-    +transferCustodyStock(sourceId, target, item, posting, actor, session, preferredIds) void
-  }
-  class StockUtils {
-    <<utility>>
-    +guardLocations(ids, session) void
-    +locationAt(id, warehouseId, kinds, session) WarehouseLocation
-    +balanceAt(pointFields, source, qualityStatus, session) InventoryBalance
-    +beginStock(document, user, operation, input) StockTransaction
-    +receiveStock(target, item, portions, posting, actor, session, condition) void
-    +sourceContext(id, session) Object
-    +splitPortions(portions, amount, actorId) Object
-    +freeQuantity(balance, session) Decimal
-    +verifyCapacity(locations, session) void
+    +reversalPreflight()
+    +reverseReceipt()
   }
   class PurchaseReceipt {
     <<entity>>
-    +id : DocumentIdentity
-    +documentNo : String
-    +documentKind : String
     +workflowStatus : WorkflowStatus
-    +purchaseOrderId : DocumentIdentity
-    +arrivalId : DocumentIdentity
-    +supplierId : ObjectId
-    +receivedAt : Date
-    +stockTransactionId : ObjectId
-    +postedBy : ObjectId
-    +postedAt : Date
-    +items : List~PurchaseReceiptItem~
   }
   class CustodyReceipt {
     <<entity>>
-    +id : DocumentIdentity
-    +documentNo : String
     +workflowStatus : WorkflowStatus
-    +ownerType : String
-    +ownerId : ObjectId
-    +stockTransactionId : ObjectId
-    +items : List~CustodyReceiptItem~
-  }
-  class CustodyRelease {
-    <<entity>>
-    +id : DocumentIdentity
-    +documentNo : String
-    +workflowStatus : WorkflowStatus
-    +custodyDecisionId : ObjectId
-    +stockTransactionId : ObjectId
-  }
-  class InventoryBalance {
-    <<entity>>
-    +id : ObjectId
-    +holdingPointId : ObjectId
-    +batchId : ObjectId
-    +qualityStatus : String
-    +ownerType : String
-    +ownerId : ObjectId
-    +quantityBase : Decimal
-    +packagingPortions : List~Portion~
-  }
-  class StockTransaction {
-    <<entity>>
-    +id : ObjectId
-    +sourceType : String
-    +sourceId : DocumentIdentity
-    +operation : String
-    +reversedTransactionId : ObjectId
-    +movements : List~StockMovement~
   }
   class StockReversal {
     <<entity>>
-    +id : DocumentIdentity
-    +documentNo : String
     +workflowStatus : WorkflowStatus
-    +originalTransactionId : ObjectId
-    +stockTransactionId : ObjectId
-    +sourceDocument : SourceReference
   }
-  class PurchaseOrder {
+  class StockTransaction {
     <<entity>>
-    +id : DocumentIdentity
-    +workflowStatus : WorkflowStatus
+    +operation : StockOperation
   }
-  GoodsReceiptRouter ..> PurchaseReceiptRouter : mounts /purchase
-  PurchaseReceiptRouter ..> PurchaseReadService : list & detail
-  PurchaseReceiptRouter ..> PoReceivingService : post, cancel, destinations
-  PurchaseReceiptRouter ..> PurchaseCorrectionService : preflight & reverse
-  CustodyRouter ..> PurchaseReadService : list & detail
-  CustodyRouter ..> PoReceivingService : post & cancel
-  CustodyRouter ..> PurchaseCorrectionService : preflight & reverse
-  CustodyRouter ..> PurchaseCustodyService : reinspect, decide, resolve, release
-  PoReceivingService ..> PurchaseCustodyService : postOwnedCustody
-  PoReceivingService ..> StockUtils : guards & posts stock
-  PoReceivingService ..> PurchaseReceipt : posts & updates
-  PoReceivingService ..> CustodyReceipt : posts & cancels
-  PoReceivingService ..> PurchaseOrder : updates PARTIAL / COMPLETED / CLOSED
-  PurchaseCorrectionService ..> StockUtils : checks free qty & capacity
-  PurchaseCorrectionService ..> PurchaseCustodyService : transferCustodyStock
-  PurchaseCorrectionService ..> PurchaseOrder : updates PARTIAL / OPEN
-  PurchaseCorrectionService ..> StockReversal : creates POSTED
-  PurchaseCorrectionService ..> StockTransaction : records REVERSAL
-  PurchaseCustodyService ..> CustodyReceipt : updates
-  PurchaseCustodyService ..> PurchaseReceipt : creates ACCEPT draft
-  PurchaseCustodyService ..> CustodyRelease : creates & posts RETURN
-  PurchaseCustodyService ..> StockUtils : guards & splits stock
-  StockUtils ..> InventoryBalance : updates balances
-  StockUtils ..> StockTransaction : records movements
-  PurchaseReceipt "0..*" --> "1" PurchaseOrder : purchaseOrderId
-  PurchaseReceipt "0..1" --> "0..1" StockTransaction : stockTransactionId
-  CustodyReceipt "0..1" --> "0..1" StockTransaction : stockTransactionId
-  CustodyRelease "0..1" --> "0..1" StockTransaction : stockTransactionId
-  StockReversal "0..1" --> "1" StockTransaction : originalTransactionId
-  StockReversal "0..1" --> "0..1" StockTransaction : stockTransactionId
-  StockTransaction "0..*" --> "1..*" InventoryBalance : movements
+  class StockMovement {
+    <<entity>>
+    +quantity : Decimal
+  }
+  class InventoryBalance {
+    <<entity>>
+    +ownerType : OwnerType
+    +quantity : Decimal
+  }
+  PoReceivingService ..> PurchaseReceipt : posts purchase
+  PoReceivingService ..> CustodyReceipt : posts custody
+  PurchaseCorrectionService ..> StockReversal : posts reversal
+  PurchaseReceipt "0..1" --> "0..1" StockTransaction : posting
+  CustodyReceipt "0..1" --> "0..1" StockTransaction : posting
+  StockReversal "0..1" --> "1" StockTransaction : originalTransaction
+  StockReversal "0..1" --> "1" StockTransaction : reversalTransaction
+  StockTransaction "1" *-- "1..*" StockMovement : movements
+  StockMovement "0..*" --> "0..1" InventoryBalance : fromBalance
+  StockMovement "0..*" --> "0..1" InventoryBalance : toBalance
+  note "Each movement has a source balance, a destination balance or both. If both exist, they differ."
+  note "A draft receipt has no posting. A posted reversal records one original and one compensating transaction."
 ```
 
 ##### 1.4.2 Sequence diagrams

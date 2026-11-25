@@ -6,6 +6,8 @@
 
 Quy tắc lịch sử trước 12/11 dùng documentNo theo tháng; đã được thay bằng DOCUMENT_IDENTITIES.md dùng YYMMDD và _id=documentNo.
 
+Từ 25/11/2026 chứng từ không còn lưu tenLoaiPhieu, maDonVi, kyDanhSo, soThuTu, trangThaiTiengViet. Các đoạn nhắc tới những trường này bên dưới chỉ là lịch sử.
+
 Các loại: ĐBH (đơn bán), YCX (yêu cầu xuất), LGH (lệnh giao), PXB (phiếu xuất bán nháp), LSH (soạn bán), LCV (TO chuyển vị trí/nội bộ), YCĐC (yêu cầu điều chuyển), PXĐC (xuất điều chuyển), YCNB (yêu cầu nội bộ), PNĐC (nhận điều chuyển), BCH (hàng hỏng phát sinh khi nhận), ĐCKK (điều chỉnh kiểm kê), BBBG (bàn giao nhúng).
 
 Giữ trường kỹ thuật và enum hiện hành. Bổ sung trường tùy chọn tenLoaiPhieu (String 160), maDonVi (String 80), kyDanhSo (String YYYYMM), soThuTu (safe integer >0), trangThaiTiengViet (String 160) trên chứng từ. Nhãn trạng thái đồng bộ lúc validate/save; không dùng nhãn để phân quyền hay quyết định nghiệp vụ. Handover lưu cùng metadata. Đợt kiểm kê có sẵn giữ mã, khi HieuDT chốt ghi nhãn đợt/trạng thái. Không đổi các UC tạo/đếm/duyệt kiểm kê thuộc người khác.

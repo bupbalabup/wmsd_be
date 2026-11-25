@@ -157,6 +157,20 @@ test('quick search only searches groups the caller may read', async (t) => {
   assert.deepEqual(searched, ['products']);
 });
 
+test('quick search labels document status from the status code, falling back to the code', async (t) => {
+  stubAuth();
+  users[salesId].roleId.permissionIds.push({ code: 'replenishment_request:read', isActive: true });
+  t.after(() => users[salesId].roleId.permissionIds.pop());
+  mock.method(Product, 'find', () => query([]));
+  mock.method(models.ReplenishmentRequest, 'find', () => query([
+    { _id: 'YCBS-KHO1-261125-000001', documentNo: 'YCBS-KHO1-261125-000001', workflowStatus: 'SUBMITTED' },
+    { _id: 'YCBS-KHO1-261125-000002', documentNo: 'YCBS-KHO1-261125-000002', workflowStatus: 'UNKNOWN_STATUS' },
+  ]));
+  const res = await (await api(t))(salesId, '/search?q=YCBS');
+  const group = res.body.data.groups.find((g) => g.key === 'replenishment_requests');
+  assert.deepEqual(group.items.map((i) => i.subtitle), ['Chờ duyệt', 'UNKNOWN_STATUS']);
+});
+
 test('notification emails: enabled only with mail config; pending copies are sent once and marked SENT', async () => {
   const saved = { MAIL_TRANSPORT: process.env.MAIL_TRANSPORT, SMTP_HOST: process.env.SMTP_HOST, NOTIFICATION_EMAIL: process.env.NOTIFICATION_EMAIL };
   try {
