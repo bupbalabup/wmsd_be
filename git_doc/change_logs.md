@@ -1,3 +1,10 @@
+## 25/11/2026 — Đồng bộ sơ đồ BF-01 sau khi tách module nhận mua
+
+- Rà lại 25 trang, cập nhật trang 1 và 13–25 của [sơ đồ BF-01](docs/04_so_do/WMSD_BF01_Diagrams.drawio). Cập nhật đường gọi kiểm nhận, nhập mua, giữ hộ và đảo phiếu theo module mới. Làm rõ loại vị trí theo chất lượng, thứ tự ghi phiếu và tính lại PO, vòng lặp đảo biến động gốc và bội số RR–quyết định, ARR–INS.
+- Đồng bộ [Report 4 §II.1](docs/01_bao_cao/WMSD_Report4_Draft.md#L407), [báo cáo đối chiếu](docs/04_so_do/WMSD_BF01_Diagrams_Review.md) và 14 ảnh xem trước. Thay đổi thuộc tài liệu, không cần migration.
+- Kiểm cấu trúc XML cả 25 trang, xem 14 ảnh xuất lại và render 25 khối Mermaid BF-01. Sáu test BE khoanh vùng vòng đời PO, sửa kiểm nhận, ghi tồn và đảo phiếu đạt trên cơ sở dữ liệu tạm MongoDB cục bộ. Nhánh `QUARANTINE` của PATCH được đối chiếu qua mã nguồn. Lượt này không chạy bộ test FE hoặc kiểm thử ứng dụng qua trình duyệt.
+- Sau khi đối chiếu, gỡ 25 ảnh xem trước và các liên kết ảnh khỏi báo cáo theo yêu cầu.
+
 ## 25/11/2026 — Tách module `po-receiving` theo loại chứng từ (BE + FE)
 
 - **Lý do & quyết định nguồn:** Thực hiện [PLAN_tach_module_po_receiving.md](../../PLAN_tach_module_po_receiving.md) đã chốt ngày 25/11/2026: tách module `po-receiving` quá lớn thành các module theo loại chứng từ, bỏ phụ thuộc vòng giữa `purchase-orders` ↔ `po-receiving` và nội bộ `po-receiving`. Refactor thuần: giữ nguyên URL, permission, payload request/response, tên command trong audit và hành vi transaction.

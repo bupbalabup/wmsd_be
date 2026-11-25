@@ -529,7 +529,7 @@ classDiagram
   ReplenishmentEvaluation ..> WarehouseIssueRequest
   ReplenishmentEvaluation ..> Stocktake
   ApprovalHistory "0..*" --> "1" ReplenishmentRequest
-  ReplenishmentRequest "0..*" --> "0..1" ApprovalHistory
+  ReplenishmentRequest "0..1" --> "0..1" ApprovalHistory
 ```
 
 ##### 1.1.2 Sequence diagrams
@@ -1090,27 +1090,20 @@ sequenceDiagram
 
 ##### 1.3.1 Class Diagram
 
-Routers in `goods-inspection.routes.js` and `po-receiving.routes.js` (read layer) authenticate, enforce static RBAC permissions via `checkPermission`, validate payloads with Zod (`goods-inspection.validation.js`, `po-receiving.validation.js`), and dispatch through controllers to read/write services (which recheck scope, state, and dynamic permissions).
+The two routers in `goods-inspection.routes.js` dispatch through `GoodsInspectionController` after authentication, permission checks and validation. The controller calls the inspection and correction services, reuses `PurchaseReadService` for queries and calls `PurchaseCore` to cancel a draft. In BF-01, creating or replacing an inspection creates a new arrival–inspection pair.
 
 ```mermaid
 classDiagram
-  class PurchaseReceivingRouter {
+  class PurchaseOrderInspectionRouter {
     <<router>>
   }
   class InspectionRouter {
     <<router>>
   }
-  class QueueRouter {
-    <<router>>
-  }
-  class PoReceivingController {
+  class GoodsInspectionController {
     <<controller>>
     +getInspectionContext(req, res) void
     +createInspection(req, res) void
-    +getReceivingSummary(req, res) void
-    +getReceivingTrips(req, res) void
-    +getReceivingOperation(req, res) void
-    +getReceivingQueue(req, res) void
     +listInspections(req, res) void
     +getInspection(req, res) void
     +getReceivingHistory(req, res) void
@@ -1120,15 +1113,12 @@ classDiagram
     +getCorrectionPreflight(req, res) void
     +replaceInspection(req, res) void
   }
-  class PoReceivingService {
+  class GoodsInspectionService {
     <<service>>
     +inspectionContext(user, id) Object
-    +receivingOperation(user, id, key) Object
     +createInspection(user, id, input) CommandReceipt
     +updateInspection(user, id, input) CommandReceipt
     +confirmInspection(user, id, input) CommandReceipt
-    +cancelDraft(user, id, kind, input) CommandReceipt
-    +activePo(user, id, expectedVersion, session) PurchaseOrder
     +prepare(po, input, actor, session, arrival, inspection) void
   }
   class PurchaseReadService {
@@ -1140,11 +1130,16 @@ classDiagram
     +receivingQueue(user, query) Page
     +receivingHistory(user, id, query) Page
   }
-  class PurchaseCorrectionService {
+  class GoodsInspectionCorrection {
     <<service>>
     +correctionPreflight(user, id) Object
     +replaceInspection(user, id, input) CommandReceipt
     -correctionBlockers(inspection, session) List~Blocker~
+  }
+  class PurchaseCore {
+    <<utility>>
+    +activePo(user, id, expectedVersion, session) PurchaseOrder
+    +cancelDraft(user, id, kind, input) CommandReceipt
   }
   class PurchaseOrder {
     <<entity>>
@@ -1190,28 +1185,30 @@ classDiagram
     +id : DocumentIdentity
     +workflowStatus : WorkflowStatus
   }
-  PurchaseReceivingRouter ..> PoReceivingController
-  InspectionRouter ..> PoReceivingController
-  QueueRouter ..> PoReceivingController
-  PoReceivingController ..> PoReceivingService
-  PoReceivingController ..> PurchaseReadService
-  PoReceivingController ..> PurchaseCorrectionService
-  PurchaseCorrectionService ..> PoReceivingService
-  PoReceivingService ..> PurchaseOrder
-  PoReceivingService ..> GoodsArrival
-  PoReceivingService ..> GoodsInspection
-  PoReceivingService ..> PurchaseReceipt
-  PoReceivingService ..> CustodyReceipt
-  PurchaseCorrectionService ..> GoodsArrival
-  PurchaseCorrectionService ..> GoodsInspection
-  PurchaseCorrectionService ..> PurchaseReceipt
-  PurchaseCorrectionService ..> CustodyReceipt
-  PurchaseCorrectionService ..> SupplierReturn
+  GoodsInspectionCorrection ..> GoodsInspectionService
+  GoodsInspectionService ..> PurchaseOrder
+  GoodsInspectionService ..> GoodsArrival
+  GoodsInspectionService ..> GoodsInspection
+  GoodsInspectionService ..> PurchaseReceipt
+  GoodsInspectionService ..> CustodyReceipt
+  GoodsInspectionCorrection ..> GoodsArrival
+  GoodsInspectionCorrection ..> GoodsInspection
+  GoodsInspectionCorrection ..> PurchaseReceipt
+  GoodsInspectionCorrection ..> CustodyReceipt
+  GoodsInspectionCorrection ..> SupplierReturn
   GoodsArrival "0..*" --> "1" PurchaseOrder
-  GoodsInspection "1..*" --> "1" GoodsArrival
+  GoodsInspection "1" --> "1" GoodsArrival
   GoodsInspection "0..*" --> "0..1" GoodsInspection
   PurchaseReceipt "0..*" --> "0..1" GoodsInspection
   CustodyReceipt "0..*" --> "0..1" GoodsInspection
+  PurchaseOrderInspectionRouter ..> GoodsInspectionController
+  InspectionRouter ..> GoodsInspectionController
+  GoodsInspectionController ..> GoodsInspectionService
+  GoodsInspectionController ..> PurchaseReadService
+  GoodsInspectionController ..> GoodsInspectionCorrection
+  GoodsInspectionController ..> PurchaseCore
+  GoodsInspectionService ..> PurchaseCore
+  GoodsInspectionCorrection ..> PurchaseCore
 ```
 
 ##### 1.3.2 Sequence diagrams
@@ -1224,8 +1221,8 @@ Confirming an inspection checks the document versions and ownership decisions. I
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:InspectionFormPage.tsx
-  participant A as RestController<br/>:po-receiving.controller.js
-  participant S as Service<br/>:po-receiving.service.js
+  participant A as RestController<br/>:goods-inspection.controller.js
+  participant S as Service<br/>:goods-inspection.service.js
   participant T as Service<br/>:purchase-order.service.js
   participant D as MongoDB
   X->>U: Open receiving trip
@@ -1306,8 +1303,8 @@ sequenceDiagram
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:InspectionFormPage.tsx
-  participant A as RestController<br/>:po-receiving.controller.js
-  participant S as Service<br/>:po-receiving.service.js
+  participant A as RestController<br/>:goods-inspection.controller.js
+  participant S as Service<br/>:goods-inspection.service.js
   participant D as MongoDB
   X->>U: Save draft inspection changes
   activate U
@@ -1340,8 +1337,8 @@ sequenceDiagram
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:InspectionFormPage.tsx
-  participant A as RestController<br/>:po-receiving.controller.js
-  participant S as Service<br/>:po-receiving.service.js
+  participant A as RestController<br/>:goods-inspection.controller.js
+  participant S as Utility<br/>:purchase-core.js
   participant D as MongoDB
   X->>U: Cancel draft inspection with reason
   activate U
@@ -1375,9 +1372,9 @@ sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:InspectionFormPage.tsx
   participant U2 as UI<br/>:InspectionCorrectionModals.tsx
-  participant A as RestController<br/>:po-receiving.controller.js
-  participant S as Service<br/>:purchase-correction.service.js
-  participant T as Service<br/>:po-receiving.service.js
+  participant A as RestController<br/>:goods-inspection.controller.js
+  participant S as Service<br/>:goods-inspection.correction.js
+  participant T as Service<br/>:goods-inspection.service.js
   participant D as MongoDB
   X->>U: Request correction eligibility
   activate U
@@ -1425,7 +1422,7 @@ sequenceDiagram
 
 ##### 1.4.1 Class Diagram
 
-`goods-receipt.routes.js` dispatches unified and per-kind `/goods-receipts` routes through `GoodsReceiptController` to `GoodsReceiptService` (and `OtherReceiptService`), and mounts `receiptRouter` (backed by `PoReceivingController`) at `/purchase`. Custody endpoints (`/custody-receipts` and `/custody-releases`) also route through `PoReceivingController` to `PoReceivingService`, `PurchaseReadService`, `PurchaseCorrectionService`, and `PurchaseCustodyService`.
+`GoodsReceiptRouter` serves unified queries and mounts `ReceiptRouter` under `/purchase`. Purchase and custody endpoints use `PurchaseReceiptController` and `CustodyController`, respectively. Both controllers use `PurchaseCore` for draft cancellation and `StockReversalService` for reversal preflight and execution. The separate reversal router reads reversal documents. Posting from supplier custody and reversing stock use the shared `CustodyStock` functions.
 
 ```mermaid
 classDiagram
@@ -1438,6 +1435,9 @@ classDiagram
   class CustodyRouters {
     <<router>>
   }
+  class ReversalRouter {
+    <<router>>
+  }
   class GoodsReceiptController {
     <<controller>>
     +listUnified(req, res) void
@@ -1446,15 +1446,7 @@ classDiagram
     +listByKind(path) Handler
     +getByKind(path) Handler
   }
-  class GoodsReceiptService {
-    <<service>>
-    +listGoodsReceipts(user, query) Page
-    +getGoodsReceipt(user, id) Object
-    +listTransferReceipts(user, query) Page
-    +listReceiptsByKind(user, path, query) Page
-    +getReceiptByKind(user, path, id) Object
-  }
-  class PoReceivingController {
+  class PurchaseReceiptController {
     <<controller>>
     +listPurchaseReceipts(req, res) void
     +getPurchaseReceipt(req, res) void
@@ -1463,6 +1455,9 @@ classDiagram
     +changeReceiptDestinations(req, res) void
     +getPurchaseReversalPreflight(req, res) void
     +reversePurchaseReceipt(req, res) void
+  }
+  class CustodyController {
+    <<controller>>
     +listCustodyReceipts(req, res) void
     +getCustodyReceipt(req, res) void
     +postCustodyReceipt(req, res) void
@@ -1476,33 +1471,42 @@ classDiagram
     +getCustodyRelease(req, res) void
     +postCustodyRelease(req, res) void
   }
-  class PoReceivingService {
-    <<service>>
-    +postReceipt(user, id, input) CommandReceipt
-    +postCustodyReceipt(user, id, input) CommandReceipt
-    +cancelDraft(user, id, kind, input) CommandReceipt
-    +changeDestinations(user, id, input) CommandReceipt
-    -intakePortions(item, condition, portions, session) List
+  class StockReversalController {
+    <<controller>>
+    +getReversal(req, res) void
   }
   class PurchaseReadService {
     <<service>>
     +listDocuments(user, kind, query) Page
     +getDocument(user, id, kind) Object
   }
-  class PurchaseCorrectionService {
+  class PurchaseReceiptService {
+    <<service>>
+    +postReceipt(user, id, input) CommandReceipt
+    +changeDestinations(user, id, input) CommandReceipt
+  }
+  class StockReversalService {
     <<service>>
     +reversalPreflight(user, id, kind) Object
     +reverseReceipt(user, id, input, kind) CommandReceipt
     +eligible(receipt, actor, session) Object
+    +getReversal(user, id) Object
   }
-  class PurchaseCustodyService {
+  class CustodyService {
     <<service>>
+    +postCustodyReceipt(user, id, input) CommandReceipt
     +reinspectCustody(user, id, input) CommandReceipt
     +decideCustody(user, id, input) CommandReceipt
     +createCustodyResolution(user, id, input, action) CommandReceipt
-    +postOwnedCustody(receipt, item, po, posting, actor, session) void
     +postCustodyRelease(user, id, input) CommandReceipt
-    +transferCustodyStock(sourceId, target, item, posting, actor, session, preferredIds) void
+  }
+  class GoodsReceiptService {
+    <<service>>
+    +listGoodsReceipts(user, query) Page
+    +getGoodsReceipt(user, id) Object
+    +listTransferReceipts(user, query) Page
+    +listReceiptsByKind(user, path, query) Page
+    +getReceiptByKind(user, path, id) Object
   }
   class StockUtils {
     <<utility>>
@@ -1515,6 +1519,20 @@ classDiagram
     +splitPortions(portions, amount, actorId) Object
     +freeQuantity(balance, session) Decimal
     +verifyCapacity(locations, session) void
+  }
+  class CustodyStock {
+    <<utility>>
+    +postOwnedCustody(receipt, item, po, posting, actor, session) void
+    +transferCustodyStock(sourceId, target, item, posting, actor, session, preferredIds) void
+  }
+  class PurchaseCore {
+    <<utility>>
+    +cancelDraft(user, id, kind, input) CommandReceipt
+  }
+  class PurchaseOrder {
+    <<entity>>
+    +id : DocumentIdentity
+    +workflowStatus : WorkflowStatus
   }
   class PurchaseReceipt {
     <<entity>>
@@ -1549,6 +1567,24 @@ classDiagram
     +custodyDecisionId : ObjectId
     +stockTransactionId : ObjectId
   }
+  class StockReversal {
+    <<entity>>
+    +id : DocumentIdentity
+    +documentNo : String
+    +workflowStatus : WorkflowStatus
+    +originalTransactionId : ObjectId
+    +stockTransactionId : ObjectId
+    +sourceDocument : SourceReference
+  }
+  class StockTransaction {
+    <<entity>>
+    +id : ObjectId
+    +sourceType : String
+    +sourceId : DocumentIdentity
+    +operation : String
+    +reversedTransactionId : ObjectId
+    +movements : List~StockMovement~
+  }
   class InventoryBalance {
     <<entity>>
     +id : ObjectId
@@ -1560,70 +1596,54 @@ classDiagram
     +quantityBase : Decimal
     +packagingPortions : List~Portion~
   }
-  class StockTransaction {
-    <<entity>>
-    +id : ObjectId
-    +sourceType : String
-    +sourceId : DocumentIdentity
-    +operation : String
-    +reversedTransactionId : ObjectId
-    +movements : List~StockMovement~
-  }
   class StockMovement {
     <<embedded>>
     +fromBalanceId : ObjectId
     +toBalanceId : ObjectId
     +quantityBase : Decimal
   }
-  class StockReversal {
-    <<entity>>
-    +id : DocumentIdentity
-    +documentNo : String
-    +workflowStatus : WorkflowStatus
-    +originalTransactionId : ObjectId
-    +stockTransactionId : ObjectId
-    +sourceDocument : SourceReference
-  }
-  class PurchaseOrder {
-    <<entity>>
-    +id : DocumentIdentity
-    +workflowStatus : WorkflowStatus
-  }
-  GoodsReceiptRouter ..> GoodsReceiptController
-  GoodsReceiptRouter ..> ReceiptRouter
-  ReceiptRouter ..> PoReceivingController
-  CustodyRouters ..> PoReceivingController
-  GoodsReceiptController ..> GoodsReceiptService
-  GoodsReceiptService ..> PurchaseReadService
-  PoReceivingController ..> PurchaseReadService
-  PoReceivingController ..> PoReceivingService
-  PoReceivingController ..> PurchaseCorrectionService
-  PoReceivingController ..> PurchaseCustodyService
-  PoReceivingService ..> PurchaseCustodyService
-  PoReceivingService ..> StockUtils
-  PoReceivingService ..> PurchaseReceipt
-  PoReceivingService ..> CustodyReceipt
-  PoReceivingService ..> PurchaseOrder
-  PurchaseCorrectionService ..> StockUtils
-  PurchaseCorrectionService ..> PurchaseCustodyService
-  PurchaseCorrectionService ..> PurchaseOrder
-  PurchaseCorrectionService ..> StockReversal
-  PurchaseCorrectionService ..> StockTransaction
-  PurchaseCustodyService ..> CustodyReceipt
-  PurchaseCustodyService ..> PurchaseReceipt
-  PurchaseCustodyService ..> CustodyRelease
-  PurchaseCustodyService ..> StockUtils
-  StockUtils ..> InventoryBalance
+  PurchaseReceiptService ..> CustodyStock
+  PurchaseReceiptService ..> StockUtils
+  StockReversalService ..> StockUtils
+  StockReversalService ..> CustodyStock
+  CustodyService ..> StockUtils
+  PurchaseReceiptService ..> PurchaseOrder
+  PurchaseReceiptService ..> PurchaseReceipt
+  StockReversalService ..> PurchaseOrder
+  StockReversalService ..> StockReversal
+  StockReversalService ..> StockTransaction
+  CustodyService ..> CustodyReceipt
+  CustodyService ..> PurchaseReceipt
+  CustodyService ..> CustodyRelease
   StockUtils ..> StockTransaction
+  StockUtils ..> InventoryBalance
   PurchaseReceipt "0..*" --> "1" PurchaseOrder
   PurchaseReceipt "0..1" --> "0..1" StockTransaction
   CustodyReceipt "0..1" --> "0..1" StockTransaction
   CustodyRelease "0..1" --> "0..1" StockTransaction
   StockReversal "0..1" --> "1" StockTransaction
   StockReversal "0..1" --> "0..1" StockTransaction
+  GoodsReceiptRouter ..> GoodsReceiptController
+  GoodsReceiptRouter ..> ReceiptRouter
+  ReceiptRouter ..> PurchaseReceiptController
+  CustodyRouters ..> CustodyController
+  GoodsReceiptController ..> GoodsReceiptService
+  GoodsReceiptService ..> PurchaseReadService
+  PurchaseReceiptController ..> PurchaseReadService
+  PurchaseReceiptController ..> PurchaseReceiptService
+  PurchaseReceiptController ..> StockReversalService
+  CustodyController ..> CustodyService
   StockTransaction "1" *-- "0..*" StockMovement
   StockMovement "0..*" --> "0..1" InventoryBalance
   StockMovement "0..*" --> "0..1" InventoryBalance
+  CustodyController ..> PurchaseReadService
+  CustodyController ..> StockReversalService
+  CustodyService ..> CustodyStock
+  CustodyStock ..> StockUtils
+  PurchaseReceiptController ..> PurchaseCore
+  CustodyController ..> PurchaseCore
+  ReversalRouter ..> StockReversalController
+  StockReversalController ..> StockReversalService
 ```
 
 ##### 1.4.2 Sequence diagrams
@@ -1640,8 +1660,8 @@ This endpoint is shown as an API operation. The current purchase receipt UI call
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as API client
-  participant A as RestController<br/>:po-receiving.controller.js
-  participant S as Service<br/>:po-receiving.service.js
+  participant A as RestController<br/>:purchase-receipt.controller.js
+  participant S as Service<br/>:purchase-receipt.service.js
   participant D as MongoDB
   X->>U: Prepare new receiving locations and reason
   activate U
@@ -1651,7 +1671,7 @@ sequenceDiagram
   activate S
   S->>D: Load draft receipt, source quality and locations
   D-->>S: Receipt and location data
-  S->>S: Check draft version and RECEIVING destination
+  S->>S: Check DRAFT and version, then use RECEIVING for GOOD or QUARANTINE for other quality
   alt [Draft and destinations valid]
     S->>D: Save destination changes
     D-->>S: Saved
@@ -1674,8 +1694,8 @@ sequenceDiagram
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:PurchaseReceiptReview.tsx
-  participant A as RestController<br/>:po-receiving.controller.js
-  participant S as Service<br/>:po-receiving.service.js
+  participant A as RestController<br/>:purchase-receipt.controller.js
+  participant S as Utility<br/>:purchase-core.js
   participant D as MongoDB
   X->>U: Cancel draft receipt with reason
   activate U
@@ -1708,9 +1728,9 @@ sequenceDiagram
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:PurchaseReceiptReview.tsx
-  participant A as RestController<br/>:po-receiving.controller.js
-  participant S as Service<br/>:po-receiving.service.js
-  participant T as Service<br/>:purchase-custody.service.js
+  participant A as RestController<br/>:purchase-receipt.controller.js
+  participant S as Service<br/>:purchase-receipt.service.js
+  participant T as Utility<br/>:custody-stock.js
   participant D as MongoDB
   X->>U: Post draft purchase receipt
   activate U
@@ -1729,9 +1749,11 @@ sequenceDiagram
         S->>T: postOwnedCustody() moves SUPPLIER stock to STORE at RECEIVING
       end
     end
-    S->>S: Verify capacity and derive PO status
-    S->>D: Save POSTED receipt, stock transaction and PO
-    D-->>S: Saved
+    S->>S: Verify location capacity
+    S->>D: Save stock transaction and POSTED receipt
+    D-->>S: Stock transaction and receipt saved
+    S->>D: Recalculate and save PO as PARTIAL, COMPLETED or CLOSED
+    D-->>S: PO saved
     S-->>A: posted receipt and transaction
     A-->>U: 200 OK
     U-->>X: Show posted receipt and transaction
@@ -1751,9 +1773,9 @@ sequenceDiagram
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:PurchaseReceiptReverseModal.tsx
-  participant A as RestController<br/>:po-receiving.controller.js
-  participant S as Service<br/>:purchase-correction.service.js
-  participant T as Service<br/>:purchase-custody.service.js
+  participant A as RestController<br/>:purchase-receipt.controller.js
+  participant S as Service<br/>:stock-reversal.service.js
+  participant T as Utility<br/>:custody-stock.js
   participant D as MongoDB
   X->>U: Check reversal eligibility
   activate U
@@ -1781,14 +1803,15 @@ sequenceDiagram
     D-->>S: Stock and both versions
     S->>S: Recheck blockers, stock and versions
     alt [Reversal still eligible]
-      S->>T: Reverse movement with transferCustodyStock()
-      opt [Receipt came from supplier custody]
-        S->>S: Restore supplier-held stock
+      loop [For each original movement, in reverse order]
+        S->>T: transferCustodyStock() with supplier destination for custody-origin lines
       end
+      S->>D: Save stock transaction and REVERSED receipt
+      D-->>S: Stock transaction and receipt saved
       opt [PO is not CLOSED]
         S->>S: Recalculate PO as OPEN or PARTIAL
       end
-      S->>D: Save reversal, REVERSED receipt and PO version
+      S->>D: Save POSTED reversal and PO version
       D-->>S: Saved
       S-->>A: reversal and stock transaction
       A-->>U: 200 OK
@@ -1810,8 +1833,8 @@ sequenceDiagram
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:CustodyDetailPage.tsx
-  participant A as RestController<br/>:po-receiving.controller.js
-  participant S as Service<br/>:po-receiving.service.js
+  participant A as RestController<br/>:custody.controller.js
+  participant S as Utility<br/>:purchase-core.js
   participant D as MongoDB
   X->>U: Cancel draft custody receipt
   activate U
@@ -1844,8 +1867,8 @@ sequenceDiagram
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:CustodyDetailPage.tsx
-  participant A as RestController<br/>:po-receiving.controller.js
-  participant S as Service<br/>:po-receiving.service.js
+  participant A as RestController<br/>:custody.controller.js
+  participant S as Service<br/>:custody.service.js
   participant D as MongoDB
   X->>U: Choose custody locations and post
   activate U
@@ -1879,9 +1902,9 @@ sequenceDiagram
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:CustodyReverseModal.tsx
-  participant A as RestController<br/>:po-receiving.controller.js
-  participant S as Service<br/>:purchase-correction.service.js
-  participant T as Service<br/>:purchase-custody.service.js
+  participant A as RestController<br/>:custody.controller.js
+  participant S as Service<br/>:stock-reversal.service.js
+  participant T as Utility<br/>:custody-stock.js
   participant D as MongoDB
   X->>U: Check custody reversal eligibility
   activate U
@@ -1909,7 +1932,9 @@ sequenceDiagram
     D-->>S: Receipt version and supplier-held stock
     S->>S: Recheck eligibility, location and free stock
     alt [Reversal still eligible]
-      S->>T: Deduct supplier stock with transferCustodyStock()
+      loop [For each original movement, in reverse order]
+        S->>T: transferCustodyStock() to deduct supplier stock
+      end
       S->>D: Save reversal and custody receipt REVERSED
       D-->>S: Saved
       S-->>A: reversal and stock transaction
