@@ -17,7 +17,7 @@ test('purchase PNG and PDF remain private on real storage; signed retrieval and 
       const result = await evidenceStorage.upload(bytes, { public_id: key, resource_type: resourceType, type: 'authenticated', overwrite: false });
       assert.equal(result.public_id, key); assert.equal(result.type, 'authenticated');
       await evidenceStorage.exists(key, resourceType);
-      const signed = evidenceStorage.download(key, format, resourceType, Math.floor(Date.now() / 1000) + 60);
+      const signed = await evidenceStorage.download(key, format, resourceType, Math.floor(Date.now() / 1000) + 60);
       const response = await fetch(signed, { signal: AbortSignal.timeout(20000) });
       assert.equal(response.status, 200, resourceType + ' signed download status');
       assert.ok((await response.arrayBuffer()).byteLength > 0);
