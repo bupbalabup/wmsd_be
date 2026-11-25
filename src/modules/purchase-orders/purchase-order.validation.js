@@ -2,8 +2,18 @@ import { documentIdentifier } from '../../shared/utils/document-id.validation.js
 import { z } from "zod";
 import {
   calendarDateString,
+  decimalStringSchema,
   objectIdString,
 } from "../../shared/utils/domain.js";
+import {
+  commandBody,
+  empty,
+  key,
+  optionalEvidenceIds,
+  qty,
+  reason,
+  schema,
+} from "../../shared/utils/command-validation.js";
 
 const positiveInteger = (fallback, max = Number.MAX_SAFE_INTEGER) =>
   z
@@ -62,3 +72,62 @@ export const listPurchaseOrdersSchema = z.object({
       }
     }),
 });
+
+// Deprecated. Accepted for older clients and unused by PO commands.
+const evaluations = z
+  .array(
+    z
+      .object({
+        lineId: objectIdString,
+        evaluationKey: z.string().min(1).max(200),
+      })
+      .strict(),
+  )
+  .max(100)
+  .optional();
+
+const form = {
+  evaluations,
+  warehouseId: objectIdString,
+  supplierId: objectIdString,
+  currency: z.literal("VND"),
+  expectedOn: z.string().datetime({ offset: true }).optional(),
+  lines: z
+    .array(
+      z
+        .object({
+          id: objectIdString.optional(),
+          rrLineId: objectIdString,
+          approvalId: objectIdString,
+          enteredQty: qty,
+          uomCode: z.string().trim().min(1).max(60).optional(),
+          unitPurchasePrice: decimalStringSchema(),
+          note: z.string().trim().min(1).max(2000).optional(),
+        })
+        .strict(),
+    )
+    .min(1)
+    .max(100),
+};
+
+const action = (fields) => z.object({ ...commandBody, evaluations, ...fields }).strict();
+const closeLines = z
+  .array(z.object({ poLineId: objectIdString, qtyBase: qty }).strict())
+  .min(1)
+  .max(100);
+
+export const createPurchaseOrderSchema = schema(
+  z.object({ ...form, creationKey: key }).strict(),
+  empty,
+);
+export const updatePurchaseOrderSchema = schema(action(form));
+export const confirmPurchaseOrderSchema = schema(action({}));
+export const rescheduleExpectedOnSchema = schema(
+  action({ expectedOn: z.string().datetime({ offset: true }), reason }),
+);
+// Evidence is optional for closing the remainder (user decision 16/11/2026).
+export const closeRemainderSchema = schema(
+  action({ reason, evidenceIds: optionalEvidenceIds, lines: closeLines }),
+);
+export const reopenPurchaseOrderSchema = schema(action({ reason }));
+export const cancelPurchaseOrderSchema = schema(action({ reason }));

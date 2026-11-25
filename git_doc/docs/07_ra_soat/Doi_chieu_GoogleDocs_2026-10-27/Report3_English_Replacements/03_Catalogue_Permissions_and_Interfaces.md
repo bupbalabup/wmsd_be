@@ -1,14 +1,196 @@
-# Report 3 — Actors, 97-use-case catalogue, permissions and interfaces
+# Report 3: 174-use-case catalogue
 
-All replacement content is included below. Do not ask for a baseline file, upload, repository path or external comparison document. Replace the named sections with the English text inside each <replacement_text> block; the wrapper tags are editing markers and must not appear in the report. Preserve the document template and convert Markdown tables into document tables. Preserve existing content outside the specified replacement scope. Do not claim to have changed embedded images or tested software unless those actions were actually completed.
-
-Replace I.4 and I.5 completely. Use the included catalogue and permission matrix directly; do not infer additional rights from an actor association.
-
-Remove UC-23–25, UC-42, UC-59–62, UC-74–78 and UC-106 from active catalogues, permissions, detailed specifications, diagrams and navigation. Remove SC-25–27 from active screen requirements. Preserve the original IDs of the 97 remaining use cases and 28 active screens; do not renumber them. Keep UC-108 external document references and UC-111 external payment-receipt confirmation in scope.
+Replace only section I.4.2, **Use Cases (UC)**, with the English text inside the replacement block. Convert the Markdown table to a document table and omit the wrapper tags. Keep the report template and all other sections. Use UC-01 through UC-174 from the new table. The actor associations, permission matrix, screens, diagrams and specifications in the older prompt set use a different numbering scheme. Their cross-references will need a separate update before they can be used with this catalogue.
 
 ## Replacement content
 
 <replacement_text>
+
+4.2 Use Cases (UC)
+The catalogue contains 174 active use cases across nine features, numbered UC-01 through UC-174. List and detail remain separate operations. In replenishment, purchase ordering and goods inspection, saving a draft and then submitting, issuing or confirming it are steps of the creation use case. Other Goods Receipt keeps its separate submission and review operations. Authorization for review and stock posting follows the relevant operation.
+
+| ID | Name | Feature | State | Description |
+|---|---|---|---|---|
+| UC-01 | View replenishment request list | FE-01 | ACTIVE | Sales and Warehouse Staff view their own/assigned replenishment needs; Owner and Accountant view within responsibility and warehouse scope. |
+| UC-02 | View replenishment request details | FE-01 | ACTIVE | Show requested and available quantities, source demand, pending supply allocations and versioned approval history within authorized scope. |
+| UC-03 | Create Replenishment Request | FE-01 | ACTIVE | Sales Staff and Warehouse Staff create a replenishment request for shortage needs within scope and send it to the Store Owner for approval; an unfinished form may be kept as a draft and completed later within this use case. The form shows server warnings about open requests, incoming purchase orders and available stock. |
+| UC-04 | Update Replenishment Request | FE-01 | ACTIVE | Sales or Warehouse Staff edit only their own request while it is DRAFT or returned by the Store Owner for revision; server warnings are re-evaluated. |
+| UC-05 | Review Replenishment Request | FE-01 | ACTIVE | Store Owner approves, rejects or returns the exact request version for revision in one decision. Requester and approver must be different userIds; no PO before approval. |
+| UC-06 | Cancel Replenishment Request | FE-01 | ACTIVE | Cancel an eligible replenishment request with a reason; a request that already has a purchase order is handled through the PO flow. |
+| UC-07 | View purchase order list | FE-01 | ACTIVE | Filter orders by supplier, date, status, and outstanding quantity. |
+| UC-08 | View purchase order details | FE-01 | ACTIVE | Display purchase order lines, ordered, received, accepted and outstanding quantities, and partial receipt history with links to source receipts. |
+| UC-09 | Create Purchase Order | FE-01 | ACTIVE | Accountant creates a purchase order against approved replenishment lines and issues it to the supplier, making it open for receiving; saving it as a draft first and issuing it later are steps of this use case. Quantities beyond approval require reapproval; does not execute payments. |
+| UC-10 | Update Purchase Order | FE-01 | ACTIVE | Accountant edits a purchase order while it is DRAFT (not yet issued); the source replenishment request cannot be changed and quantities stay within the approved replenishment lines. |
+| UC-11 | Reschedule Purchase Order Expected Date | FE-01 | ACTIVE | Accountant updates the supplier expected delivery date of an open purchase order with a reason, without altering receipt history. |
+| UC-12 | Close Purchase Order | FE-01 | ACTIVE | Accountant closes unreceived purchase order quantities that will not be delivered, with reason and evidence. When no outstanding quantity remains the purchase order becomes CLOSED; past receipts are preserved. |
+| UC-13 | Reopen Purchase Order | FE-01 | ACTIVE | Accountant reopens a CLOSED purchase order after one of its goods receipts was reversed; only the reversed quantity becomes receivable again and short-closed quantities stay closed. |
+| UC-14 | Cancel Purchase Order | FE-01 | ACTIVE | Accountant cancels a DRAFT or issued purchase order that has no linked receiving document, with a reason. |
+| UC-15 | View goods receipt list | FE-01 | ACTIVE | Search deliveries associated with purchase orders and their processing status. |
+| UC-16 | View goods receipt details | FE-01 | ACTIVE | Display delivered, accepted, pending inspection, defective, and rejected quantities. |
+| UC-17 | View product list | FE-02 | ACTIVE | Search products by item code, name, size, and status. |
+| UC-18 | View product details | FE-02 | ACTIVE | Display tile attributes, packaging specifications, and units of measure. |
+| UC-19 | Create Product | FE-02 | ACTIVE | Store Owner creates new product catalog entries with tile attributes and standard units. Does not modify inventory balances. |
+| UC-20 | Update Product Information | FE-02 | ACTIVE | Store Owner updates product master metadata and attributes. Historical transaction snapshots remain preserved and unaltered. |
+| UC-21 | Change Product Status | FE-02 | ACTIVE | Store Owner activates or deactivates products in the catalog without altering inventory balances or active order lines. |
+| UC-22 | Define Packaging Conversion Version | FE-02 | ACTIVE | Store Owner defines versioned BOX/PIECE/M2 conversions. In-use versions and transaction snapshots cannot be overwritten. |
+| UC-23 | Configure Warehouse Stock Policy | FE-02 | ACTIVE | Store Owner configures warehouse stock policy ensuring target >= minimum >= 0; policy changes do not auto-create orders or change stock. |
+| UC-24 | View lot list | FE-02 | ACTIVE | Search lots by product, lot number, tone, and actual calibre. |
+| UC-25 | View lot details | FE-02 | ACTIVE | Display production date, tone, actual calibre, and related transaction history. |
+| UC-26 | Create Product Lot | FE-02 | ACTIVE | Store Owner and Warehouse Staff create new product lot records with lot number, tone, and actual calibre supported by evidence. |
+| UC-27 | Update Product Lot Information | FE-02 | ACTIVE | Store Owner and Warehouse Staff update lot metadata with audit history; lot identity and carton specification cannot change once the lot has documents or stock. |
+| UC-28 | View supplier list | FE-02 | ACTIVE | Search suppliers by code, name, and cooperation status. |
+| UC-29 | View supplier details | FE-02 | ACTIVE | Display contact information and related purchases, receipts, and returns. |
+| UC-30 | Create Supplier | FE-02 | ACTIVE | Accountant creates new supplier profiles with contact details and tax codes under separate operation permissions. |
+| UC-31 | Update Supplier Information | FE-02 | ACTIVE | Accountant maintains and updates supplier contact details, address, and operational information. |
+| UC-32 | Change Supplier Cooperation Status | FE-02 | ACTIVE | Store Owner controls supplier cooperation status (Active/Suspended/Terminated) with dedicated authorization. |
+| UC-33 | View Unit of Measure List | FE-02 | ACTIVE | Authorized users view the code, name and status of units used by products and packaging conversions. |
+| UC-34 | Create Unit of Measure | FE-02 | ACTIVE | Store Owner creates a unit of measure with a unique code and a name for use in products and packaging conversions. |
+| UC-35 | Update Unit of Measure | FE-02 | ACTIVE | Store Owner renames an existing unit of measure. |
+| UC-36 | Change Unit of Measure Status | FE-02 | ACTIVE | Store Owner activates or deactivates a unit of measure. |
+| UC-37 | Create Goods Inspection | FE-03 | ACTIVE | Warehouse Staff inspects a delivery against open PO lines, recording actual counted quantities, lots, quality, evidence and destination locations, then confirms the inspection; saving it as a draft first and confirming it later are steps of this use case. Confirming creates the goods receipt to post (and a custody receipt where applicable) and changes no stock. Owner/Accountant may assist physically and be recorded in evidence; they do not inherit GR posting rights. Torn packaging alone is not damage. |
+| UC-38 | Update Goods Inspection | FE-03 | ACTIVE | Warehouse Staff edits a goods inspection while it is DRAFT (not yet confirmed); stock is not changed. |
+| UC-39 | Cancel Goods Inspection | FE-03 | ACTIVE | Warehouse Staff cancels a DRAFT goods inspection with a reason; no goods receipt is created and stock is not changed. |
+| UC-40 | Post Goods Receipt | FE-03 | ACTIVE | Only Warehouse Staff can post eligible receipts, and each receipt is posted once. For a PURCHASE receipt from a confirmed inspection, post only accepted quantities into owned stock by quality and location. For an OTHER receipt, post the quantities on the version approved by the Store Owner. |
+| UC-41 | Correct Goods Inspection | FE-03 | ACTIVE | Replace a confirmed inspection after correction preflight checks. |
+| UC-42 | Reverse Goods Receipt | FE-03 | ACTIVE | Reverse a posted goods receipt after reversal preflight checks. |
+| UC-43 | Create Other Goods Receipt | FE-03 | ACTIVE | Warehouse Staff creates a non-purchase goods receipt draft. |
+| UC-44 | Update Other Goods Receipt | FE-03 | ACTIVE | Warehouse Staff edits an other goods receipt while it is DRAFT. |
+| UC-45 | Cancel Other Goods Receipt | FE-03 | ACTIVE | Warehouse Staff cancels an other goods receipt in DRAFT with a reason. Cancellation records the outcome without posting stock. |
+| UC-46 | Submit Other Goods Receipt | FE-03 | ACTIVE | Warehouse Staff submits an other goods receipt draft for Store Owner approval. |
+| UC-47 | Review Other Goods Receipt | FE-03 | ACTIVE | Store Owner approves or rejects a submitted other goods receipt in one decision; the approver differs from the creator. |
+| UC-48 | View Custody Receipt List | FE-03 | ACTIVE | View goods held in custody pending inspection resolution. |
+| UC-49 | View Custody Receipt Details | FE-03 | ACTIVE | Show custody lines, reinspection results, decisions and releases. |
+| UC-50 | Post Custody Receipt | FE-03 | ACTIVE | Post goods into custody locations without counting them as owned stock. |
+| UC-51 | Reinspect Custody Goods | FE-03 | ACTIVE | Record reinspection quality results for goods in custody with evidence. |
+| UC-52 | Record Custody Resolution Decision | FE-03 | ACTIVE | Decide to accept or return custody goods with reason and evidence. |
+| UC-53 | Convert Custody Goods to Purchase Receipt | FE-03 | ACTIVE | Create a purchase goods receipt for accepted custody goods. |
+| UC-54 | Post Custody Release | FE-03 | ACTIVE | Release returned custody goods to the supplier recipient. |
+| UC-55 | View Warehouse List | FE-04 | ACTIVE | Search warehouses by code, name and status. |
+| UC-56 | View Warehouse Details | FE-04 | ACTIVE | Display warehouse information, layout and its storage locations by area, aisle, rack and location code. |
+| UC-57 | View storage location details | FE-04 | ACTIVE | Display capacity, status, and lot-level quantities at a location. |
+| UC-58 | Create Warehouse | FE-04 | ACTIVE | Create a store warehouse with its basic information. |
+| UC-59 | Update Warehouse Information | FE-04 | ACTIVE | Update warehouse information and status. |
+| UC-60 | Design Warehouse Layout | FE-04 | ACTIVE | Design the 3D warehouse layout and map storage locations. |
+| UC-61 | Create Storage Location | FE-04 | ACTIVE | Store Owner defines new storage bins and locations with capacity parameters. Does not move inventory or bypass freeze. |
+| UC-62 | Update Storage Location Information | FE-04 | ACTIVE | Store Owner updates location identifiers and physical attributes. Does not move stock or alter inventory balances. |
+| UC-63 | Change Storage Location Status | FE-04 | ACTIVE | Store Owner activates or deactivates storage locations. Locations containing active inventory or pending tasks cannot be deactivated. |
+| UC-64 | View stock by lot, location, and quality status | FE-04 | ACTIVE | Show stock by warehouse/location/lot/quality/ownership, with reserved, available and in-transit quantities separated and restricted by data scope. |
+| UC-65 | View inventory balance details | FE-04 | ACTIVE | Display physical, usable, reserved, available, custody and transit balances with source movements; do not double count staging/reservations. |
+| UC-66 | View Low-Stock Alerts | FE-04 | ACTIVE | View products below their warehouse minimum, with available, minimum and target quantities. The system scans on a schedule (every 15 minutes by default), raises or resolves the alerts and leaves order creation to authorized users. |
+| UC-67 | Scan Low-Stock Alerts | FE-04 | ACTIVE | Store Owner triggers an immediate rescan to refresh low-stock alerts and notifications. |
+| UC-68 | View location movement list | FE-04 | ACTIVE | Search same-warehouse movements by lot and status. |
+| UC-69 | View location movement details | FE-04 | ACTIVE | Display source, destination, and actual transferred quantities. |
+| UC-70 | Create location movement | FE-04 | ACTIVE | Warehouse Staff selects compatible source/destination locations in the same warehouse and checks quantity, reservations and stocktake locks; no Owner approval or inter-warehouse TR. |
+| UC-71 | Update Location Movement | FE-04 | ACTIVE | Edit an unconfirmed location movement. |
+| UC-72 | Cancel Location Movement | FE-04 | ACTIVE | Cancel an unconfirmed location movement with a reason. |
+| UC-73 | Confirm actual location movement | FE-04 | ACTIVE | Confirm actual relocation atomically: source minus q, destination plus q, same lot/quality/owner and total. Carry reservations and block locked locations. |
+| UC-74 | View Opening Stock List | FE-04 | ACTIVE | View opening stock documents by warehouse and status. |
+| UC-75 | View Opening Stock Details | FE-04 | ACTIVE | Show opening stock lines by product, lot, location and quality. |
+| UC-76 | Create Opening Stock Document | FE-04 | ACTIVE | Preview and create an opening stock document for a warehouse. |
+| UC-77 | Post Opening Stock Document | FE-04 | ACTIVE | Store Owner posts a draft opening stock document into inventory balances once. |
+| UC-78 | Cancel Opening Stock Document | FE-04 | ACTIVE | Store Owner cancels a draft opening stock document; no stock is posted. |
+| UC-79 | View warehouse transfer list | FE-05 | ACTIVE | View transfers between the configured warehouses, with request, dispatch, in-transit, receipt and difference status. Sales sees progress for transfers linked to its own demand. |
+| UC-80 | View warehouse transfer details | FE-05 | ACTIVE | Show requested/approved, dispatched, received by quality, in-transit and unresolved quantities with separate dispatch and receipt documents. |
+| UC-81 | Create Transfer Request | FE-05 | ACTIVE | Warehouse Staff requests physical movement between distinct warehouses after considering direct customer dispatch or other compatible sources. For movement within the same warehouse, use UC-70 (Create location movement) and UC-73 (Confirm actual location movement). |
+| UC-82 | Update Transfer Request | FE-05 | ACTIVE | Edit a transfer request before review. |
+| UC-83 | Cancel Transfer Request | FE-05 | ACTIVE | Cancel an eligible transfer request with a reason. |
+| UC-84 | Review Transfer Request | FE-05 | ACTIVE | Store Owner approves/rejects/returns the TR version; requester differs from approver. Approved TR authorizes execution and controlled source reservation; no extra inter-warehouse TO approval. |
+| UC-85 | Create Transfer Dispatch | FE-05 | ACTIVE | Source Warehouse Staff drafts a transfer dispatch from an approved transfer request before picking; creating the draft changes no stock. |
+| UC-86 | Cancel Transfer Dispatch | FE-05 | ACTIVE | Source Warehouse Staff cancels a draft transfer dispatch before picking is confirmed. |
+| UC-87 | Create Transfer Picking Task | FE-05 | ACTIVE | Source Warehouse Staff creates and assigns a picking task for a draft transfer dispatch from compatible source stock. |
+| UC-88 | Confirm Transfer Picking Task | FE-05 | ACTIVE | Source Warehouse Staff confirms actual picked quantities; the dispatch is posted at handover and the quantities move to in-transit. |
+| UC-89 | Post Transfer Receipt | FE-05 | ACTIVE | Destination Warehouse Staff, independent of the dispatcher, records actual received quantities by quality against the posted dispatch and posts the receipt in one step; discrepancies stay open. |
+| UC-90 | Confirm Transfer Put-away Task | FE-05 | ACTIVE | Destination Warehouse Staff confirms put-away of received transfer goods into storage locations; the put-away task is created automatically when the receipt is posted. |
+| UC-91 | Propose Transfer Difference | FE-05 | ACTIVE | Warehouse Staff reports an unresolved quantity difference between a posted transfer dispatch and its receipt, with evidence, for Store Owner review. |
+| UC-92 | Review Transfer Difference | FE-05 | ACTIVE | Store Owner reviews a proposed inter-warehouse difference and decides its resolution without editing posted quantities; unmatched amounts stay open. |
+| UC-93 | Close Transfer Request | FE-05 | ACTIVE | Close a transfer request fully or partially. |
+| UC-94 | View Sales Order List | FE-06 | ACTIVE | Search sales orders within the user's scope by customer, external reference, date and status. View ordered, issued, customer-received, returned and outstanding quantities and the progress toward DELIVERED. |
+| UC-95 | View Sales Order Details | FE-06 | ACTIVE | View the buyer and copied source lines, cancellations, linked goods issues, customer receipt evidence and receipts for undelivered goods. Trace related customer returns through the applicable source issues. Authorized roles can view the copied unit selling price, line amount and price revision. |
+| UC-96 | Create Sales Order | FE-06 | ACTIVE | Sales Staff manually copies an externally verified order, such as a MISA order or paper document, with source order and line references, evidence, customer contact and delivery details, quantities and the agreed unit selling price. WMSD calculates line amounts from the copied price and rejects duplicate source orders or lines. Creation leaves stock unchanged. |
+| UC-97 | Update Eligible Sales Order Remainder | FE-06 | ACTIVE | Sales Staff changes eligible quantities on the original order, including goods received back as undelivered and still available to reissue. The new quantity must cover existing commitments. Sales may revise the copied unit price before any quantity on that line is committed. Record the reason and preserve the price already captured on existing goods issues. |
+| UC-98 | Cancel Eligible Sales Order Remainder | FE-06 | ACTIVE | Sales Staff cancels eligible unissued quantities with a reason. An active issue or unresolved off-site quantity remains committed until the underlying issue or return is resolved. |
+| UC-99 | View goods issue list | FE-06 | ACTIVE | Search goods issues by source, issue date and status within the user's scope. |
+| UC-100 | View goods issue details | FE-06 | ACTIVE | View the source order, lot, location, planning and actual issue quantities as applicable. For direct sales, view customer-received quantity, remaining unconfirmed quantity and receipts for undelivered goods. |
+| UC-101 | Create goods issue | FE-06 | ACTIVE | Warehouse Staff creates a draft sales goods issue from an eligible sales order and selects the actual lot and source location in an assigned warehouse. Warehouse Staff can also create an other goods issue under the relevant permission. Draft creation leaves stock unchanged. |
+| UC-102 | Update goods issue | FE-06 | ACTIVE | Warehouse Staff edits an eligible non-direct draft goods issue before preparation starts. To change the stock source of a direct sales issue, cancel the draft and create a new one. |
+| UC-103 | Cancel Goods Issue | FE-06 | ACTIVE | Warehouse Staff cancels an eligible unposted goods issue with a reason. A direct sales issue can be cancelled while it is in DRAFT. |
+| UC-104 | Post Goods Issue | FE-06 | ACTIVE | Warehouse Staff records the actual handover and posts the issue once, deducting stock. A direct sales issue posts from DRAFT using its selected stock sources. Customer receipt is confirmed separately on the posted issue. |
+| UC-105 | Confirm Customer Delivery with Photo Evidence | FE-06 | ACTIVE | Sales Staff records the actual recipient, receipt time, quantity per line and photo evidence on a posted goods issue. Total customer-confirmed and received-back quantities share the posted quantity limit. The sales order reaches DELIVERED when all active quantities have been confirmed. |
+| UC-106 | Receive Undelivered Goods | FE-06 | ACTIVE | Warehouse Staff receives undelivered goods back against the posted sales issue, recording quantities, quality, location, reason and evidence. Posting restores store stock and makes the returned quantity available to issue again under the original sales order. |
+| UC-107 | View defective goods list | FE-07 | ACTIVE | Filter defect cases by source, product/lot/location, ownership, evidence, unresolved quantity and disposition. |
+| UC-108 | View defective goods details | FE-07 | ACTIVE | Show affected quantity, ownership/custody, inspector, evidence, approval and related outcomes; no duplicate deduction across cases. |
+| UC-109 | Record Defective Goods | FE-07 | ACTIVE | Warehouse Staff records suspect goods with photo evidence; the quantity is held immediately and blocked from allocation without changing inventory balances. |
+| UC-110 | Submit Defective Goods Disposition Proposal | FE-07 | ACTIVE | Warehouse Staff compiles inspection findings and submits formal disposition proposal (destruction, regrade, release, or supplier return) for decision. |
+| UC-111 | Review Defective Goods Disposition | FE-07 | ACTIVE | Store Owner approves or rejects the proposed release, regrade or scrap in one decision, outside stocktake; supplier return uses the supplier return flow without Owner. |
+| UC-112 | Record approved defective goods disposition | FE-07 | ACTIVE | Warehouse executes the approved release, regrade or scrap outside freeze. |
+| UC-113 | View customer return list | FE-07 | ACTIVE | Search customer returns by source, reason and inspection/receipt status. |
+| UC-114 | View customer return details | FE-07 | ACTIVE | View the source issue or verified historical delivery, quantities, condition, assessment history, evidence, acceptance or exception decision, and posted receipt or handback. Historical custody and external references remain visible where applicable. |
+| UC-115 | Create Customer Return Request | FE-07 | ACTIVE | Sales creates a customer return only against a customer-confirmed delivery or a verified historical delivery, within source caps. |
+| UC-116 | Inspect Customer Return | FE-07 | ACTIVE | Warehouse Staff inspects the actual returned goods and records the received quantity, physical condition, policy eligibility and evidence. For new returns this inspection leaves stock unchanged and uses no customer custody location. |
+| UC-117 | Decide Ordinary Customer Return Acceptance | FE-07 | ACTIVE | Sales Staff accepts, rejects, or returns ordinary customer return requests after warehouse inspection, including own created requests within policy limits. |
+| UC-118 | Reassess Customer Return | FE-07 | ACTIVE | Warehouse Staff records a new assessment version with evidence when an inspected return needs correction. Earlier versions remain in the history. A posted receipt or a recorded handback blocks reassessment. |
+| UC-119 | Review Eligible Customer Return Exception | FE-07 | ACTIVE | Store Owner reviews and decides eligible customer return exceptions. Approver must be distinct from requester; cannot override non-negotiable policy exclusions. |
+| UC-120 | Post Customer Return Receipt | FE-07 | ACTIVE | Warehouse Staff posts GR-CR for accepted return lines into designated location/quality under approved return decision. Does not reopen sales demand. |
+| UC-121 | Hand Back Rejected Customer Return | FE-07 | ACTIVE | Warehouse Staff hands rejected returned goods back to the customer and records the actual recipient, quantity and evidence. The handback leaves store-owned stock unchanged. |
+| UC-122 | View supplier return request list | FE-07 | ACTIVE | Search by supplier, lot, reason, agreement and reconciliation status. |
+| UC-123 | View supplier return request details | FE-07 | ACTIVE | Display lot, location, quantity, source receipt, verified supplier agreement, ACK and Accountant reconciliation outcome. |
+| UC-124 | Create Supplier Return Request | FE-07 | ACTIVE | Warehouse proposes a source-linked supplier return (including goods held in custody) and isolates the affected goods. There is no Owner dispatch, variance or closure approval. |
+| UC-125 | Record Supplier Return Agreement | FE-07 | ACTIVE | Accountant records the verified supplier agreement and agreed quantities with evidence before dispatch. |
+| UC-126 | Confirm Supplier Return Dispatch | FE-07 | ACTIVE | Warehouse posts the actual supplier return issue or supplier-custody release within the agreed quantity, without Owner authorization. |
+| UC-127 | Record Supplier Return Acknowledgement | FE-07 | ACTIVE | Accountant records the supplier acknowledgement per line as accepted, rejected or damaged, with evidence. |
+| UC-128 | Close Supplier Return | FE-07 | ACTIVE | Accountant closes the reconciled supplier return without Owner. Unresolved disputes stay open; external financial status is independent. |
+| UC-129 | View stocktake list | FE-08 | ACTIVE | Search stocktakes by warehouse, scope, cutoff time, and status. |
+| UC-130 | View stocktake details | FE-08 | ACTIVE | View the included lots and locations, frozen book quantities, physical count attempts, difference reasons and approved results. For posted adjustments, show the adjustment reference, before and after quantities, approved change and recorded reason where available. |
+| UC-131 | Create Stocktake Session | FE-08 | ACTIVE | Store Owner plans a stocktake session with warehouse, scope and counters. Planning does not take a snapshot or post stock. |
+| UC-132 | Update Stocktake Session | FE-08 | ACTIVE | Store Owner updates the scope, cutoff and counters of a planned stocktake session before activation; no snapshot or stock change. |
+| UC-133 | Activate Stocktake Session | FE-08 | ACTIVE | Warehouse Staff activates stocktake session, capturing immutable inventory snapshot and applying warehouse freeze atomically. |
+| UC-134 | Print Stocktake Count Sheet | FE-08 | ACTIVE | Print the activated session's snapshot-based count sheet by location/lot/quality, with cutoff and space for counts and newly found items. Printing does not post stock. |
+| UC-135 | Record Stocktake Count | FE-08 | ACTIVE | Warehouse Staff records physical counts as separate attempts and explicitly confirms empty locations. If goods are found after an empty confirmation, the counter corrects that confirmation by recording a new count with a reason and evidence. The earlier confirmation remains in the history. |
+| UC-136 | Record Stocktake Difference Reason | FE-08 | ACTIVE | Warehouse Staff selects the reason for each line whose latest count differs from the book quantity; reasons are required before reconciliation. |
+| UC-137 | Reconcile Stocktake Results | FE-08 | ACTIVE | Warehouse Staff hands the counted result over for Owner decision once every line has a count and every difference has a reason; no stock is posted and locks stay in place. |
+| UC-138 | Request Stocktake Recount | FE-08 | ACTIVE | Request a recount for lines with unresolved count differences. |
+| UC-139 | Approve Stocktake Differences | FE-08 | ACTIVE | Store Owner approves selected or all reconciled lines; approval posts the inventory adjustment for nonzero differences in the same transaction. When every line is settled, including sessions without variance, the session is completed and its locations are unlocked. The approver cannot approve lines they counted. |
+| UC-140 | Cancel Stocktake Session | FE-08 | ACTIVE | Cancel an unfinished stocktake session and release locked locations. |
+| UC-141 | View Stocktake Plan List | FE-08 | ACTIVE | View recurring stocktake plans and their status within warehouse scope. |
+| UC-142 | View Stocktake Plan Details | FE-08 | ACTIVE | Show plan scope, schedule, generated stocktake sessions and history. |
+| UC-143 | Create Stocktake Plan | FE-08 | ACTIVE | Define a recurring stocktake plan with warehouse, location scope and schedule. |
+| UC-144 | Update Stocktake Plan | FE-08 | ACTIVE | Update scope and schedule of an active stocktake plan. |
+| UC-145 | Change Stocktake Plan Status | FE-08 | ACTIVE | Store Owner pauses, resumes or ends a stocktake plan with a reason. |
+| UC-146 | Generate Stocktake Session from Plan | FE-08 | ACTIVE | Generate a planned stocktake session from a stocktake plan. |
+| UC-147 | Sign in to the system | FE-09 | ACTIVE | The account holder signs in with a username or email and password. Active accounts can access functions and warehouses within their assigned permissions. |
+| UC-148 | Sign Out | FE-09 | ACTIVE | The signed-in user ends the session and the refresh token is revoked. |
+| UC-149 | View and Update Own Profile | FE-09 | ACTIVE | The signed-in user views own account, role and warehouses and updates personal contact information; role and warehouses cannot be self-changed. |
+| UC-150 | Change Own Password | FE-09 | ACTIVE | The signed-in user changes the password after entering the current password; other sessions are signed out. |
+| UC-151 | Change Own Email with OTP | FE-09 | ACTIVE | The signed-in user changes the registered email after verifying a one-time password sent to the new address. |
+| UC-152 | Reset Own Password by Email | FE-09 | ACTIVE | An account holder requests a one-time password sent to the registered email address and uses it to set a new password. |
+| UC-153 | View account list | FE-09 | ACTIVE | Search and filter accounts by name, role, and active status. |
+| UC-154 | View account details | FE-09 | ACTIVE | Display the selected account's information, assigned role, and status. |
+| UC-155 | Create Staff Account | FE-09 | ACTIVE | Administrator creates a staff account with exactly one role and its assigned warehouses; the initial password is generated and emailed. Inactive accounts cannot sign in. |
+| UC-156 | Update Staff Account Information | FE-09 | ACTIVE | Administrator updates profile, contact information, role and assigned warehouses of a staff account. A change to the account email requires verification of the new address by OTP. |
+| UC-157 | Change Staff Account Status | FE-09 | ACTIVE | Administrator activates or deactivates staff accounts. Inactive accounts are blocked from authentication and maintain single-role integrity. |
+| UC-158 | View Role List | FE-09 | ACTIVE | View default and custom roles with their permissions. |
+| UC-159 | Create Role | FE-09 | ACTIVE | Administrator creates a custom role by selecting existing permissions; a custom role is evaluated by its permissions, never by its name. |
+| UC-160 | Update Role Permissions | FE-09 | ACTIVE | Administrator changes the permissions of a role; changes affect subsequent requests and never rewrite historical actors or decisions. |
+| UC-161 | View Notifications | FE-09 | ACTIVE | Users view in-app notifications within scope, see the unread count and mark notifications as read. WMSD sends configured status emails in the background and records delivery status. An email failure leaves the committed business operation intact. |
+| UC-162 | Quick Search | FE-09 | ACTIVE | Search documents, products, lots and locations by code or name across modules, returning only records within the user's role and warehouse scope. |
+| UC-163 | View Owner Dashboard | FE-09 | ACTIVE | Store Owner views operational counts, pending work, outstanding receipts and issues, inventory warnings and recent activity within scope. |
+| UC-164 | View Operational Reports | FE-09 | ACTIVE | Run authorized reports for physical, available, reserved, custody and in-transit stock, purchases, receipts, issues, sales fulfilment, defects, transfers, returns, stocktakes and posted inventory adjustments. Use the adjustment report to review recorded quantity changes and their stocktake references. |
+| UC-165 | View stock movement log | FE-09 | ACTIVE | Filter movements by product, lot, location, transaction type, and time. |
+| UC-166 | View stock movement details | FE-09 | ACTIVE | Display source document, before/after quantity, operator, time, and reason. |
+| UC-167 | View Audit Log List | FE-09 | ACTIVE | Administrator searches audit logs by user, action, document type and time. |
+| UC-168 | View Audit Log Details | FE-09 | ACTIVE | Display the actor, time, action, target document and changed fields (before/after) of an audit entry. |
+| UC-169 | View and Resolve Error Logs | FE-09 | ACTIVE | Administrator views system error logs and marks an investigated error as resolved with a note. |
+| UC-170 | Manage API Endpoint Permissions | FE-09 | ACTIVE | Administrator synchronizes discovered API routes, maintains endpoint names and descriptions, adds manual entries, and records whether entries are active. |
+| UC-171 | View System Monitor | FE-09 | ACTIVE | Administrator views system health indicators such as service status, background jobs and recent request/error statistics. |
+| UC-172 | Trace a product lot through source documents | FE-09 | ACTIVE | Trace lots across external source, sales order, goods issue and customer delivery confirmation, and linked receipts, movements, returns and adjustments with evidence and user/time history. |
+| UC-173 | Verify Historical Customer Delivery Source | FE-09 | ACTIVE | Accountant verifies historical delivered order and line sources for customer documentation. Does not create POD or execute payments. |
+| UC-174 | Record External Document Reference | FE-09 | ACTIVE | Accountant records external Invoice, Credit Note, refund, or tax references against matched quantities without triggering cash or stock changes. |
+
+</replacement_text>
+
+## Historical reference for the 97-use-case edition
+
+The following actor, permission and system functionality sections reproduce the previous edition. Keep them as reference for the old UC and screen identifiers. Only the replacement block above applies to this edit.
 
 4. User Requirements
 4.1 Actors
@@ -31,108 +213,6 @@ Updated 25 October 2026, baseline 3.1.0 under survey decisions D1–D8. Exactly 
 	5
 	Administrator
 	Accounts, operation permissions and technical configuration; no implied business approval or stock-posting rights.
-
-4.2 Use Cases (UC)
-The current catalogue contains 97 active use cases across nine features. Original use-case identifiers are preserved; gaps in numbering do not represent missing active functionality. List and detail use cases remain separate. UC-105 remains a distinct count-sheet operation.
-| ID | Name | Feature | State | Description |
-|---|---|---|---|---|
-| UC-01 | View replenishment request list | FE-01 | ACTIVE | Sales and Warehouse Staff view their own/assigned replenishment needs; Owner and Accountant view within responsibility and warehouse scope. |
-| UC-02 | View replenishment request details | FE-01 | ACTIVE | Show requested and available quantities, source demand, pending supply allocations and versioned approval history within authorized scope. |
-| UC-03 | Create replenishment request | FE-01 | ACTIVE | Sales Staff raises customer shortages; Warehouse Staff raises stock needs after checking compatible stock, existing PO/transfer supply and minimum levels. Accountant does not originate operational demand. |
-| UC-04 | Approve or reject replenishment request | FE-01 | ACTIVE | Store Owner approves, rejects or returns the exact request version for revision. Requester and approver must be different userIds; no PO before approval. |
-| UC-05 | View purchase order list | FE-01 | ACTIVE | Filter orders by supplier, date, status, and outstanding quantity. |
-| UC-06 | View purchase order details | FE-01 | ACTIVE | Display order lines, supplier confirmations, and partial receipt history. Display ordered, confirmed, received, accepted and outstanding quantities with source receipts. This is read-only, not a separate outstanding-quantity UC. |
-| UC-07 | Manage Purchase Order and Supplier Confirmation | FE-01 | ACTIVE | Accountant creates a PO against approved replenishment lines, records supplier confirmation and tracks partial receipts. Changes beyond approval require reapproval; no supplier payment. |
-| UC-08 | View goods receipt list | FE-01 | ACTIVE | Search deliveries associated with purchase orders and their processing status. |
-| UC-09 | View goods receipt details | FE-01 | ACTIVE | Display delivered, accepted, pending inspection, defective, and rejected quantities. |
-| UC-10 | Create goods receipt from purchase order | FE-01 | ACTIVE | Warehouse Staff records each delivery against PO lines, including actual quantities, discrepancies and evidence; creating the draft does not post inventory. |
-| UC-11 | View product list | FE-02 | ACTIVE | Search products by item code, name, size, and status. |
-| UC-12 | View product details | FE-02 | ACTIVE | Display tile attributes, packaging specifications, and units of measure. |
-| UC-13 | Maintain Product and Packaging | FE-02 | ACTIVE | Maintain versioned BOX/PIECE/M2 conversions and controlled minimum stock parameters. Preserve transaction snapshots; count remaining pieces in open boxes. Torn packaging alone does not mean damaged tiles. |
-| UC-14 | View lot list | FE-02 | ACTIVE | Search lots by product, lot number, tone, and actual calibre. |
-| UC-15 | View lot details | FE-02 | ACTIVE | Display production date, tone, actual calibre, and related transaction history. |
-| UC-16 | Maintain Product Lot | FE-02 | ACTIVE | Maintain product/lot/tone/actual-calibre identity with evidence and history. Do not overwrite transacted identity to conceal shortages. Survey size is not proof of actual-calibre tracking. |
-| UC-17 | View supplier list | FE-02 | ACTIVE | Search suppliers by code, name, and cooperation status. |
-| UC-18 | View supplier details | FE-02 | ACTIVE | Display contact information and related purchases, receipts, and returns. |
-| UC-19 | Maintain Supplier | FE-02 | ACTIVE | Maintain supplier identity/contact data and control supplier availability with separate operation permissions. |
-| UC-20 | View Customer List | FE-02 | ACTIVE | Search delivery/contact references and external MISA customer identifiers within authorized scope; no CRM or commercial account ledger. |
-| UC-21 | View Customer Details | FE-02 | ACTIVE | Read customer delivery/contact and source-document references; no sales pricing or receivables. |
-| UC-22 | Maintain Customer | FE-02 | ACTIVE | Sales Staff maintains basic customer delivery/contact data and external identifiers; no commercial sales or CRM workflow. |
-| UC-26 | Inspect and Post Goods Receipt | FE-03 | ACTIVE | Warehouse Staff inspects each delivered quantity and posts only accepted ownership by quality/location once. Owner/Accountant may assist physically and be recorded in evidence; they do not inherit GR posting rights. Custody is separate; torn packaging alone is not damage. |
-| UC-27 | View warehouse and location list | FE-04 | ACTIVE | Search by warehouse, area, aisle, rack, and location code. |
-| UC-28 | View storage location details | FE-04 | ACTIVE | Display capacity, status, and lot-level quantities at a location. |
-| UC-29 | Maintain Storage Location | FE-04 | ACTIVE | Create, update or deactivate storage locations. |
-| UC-30 | View stock by lot, location, and quality status | FE-04 | ACTIVE | Show stock by warehouse/location/lot/quality/ownership, with reserved, available and in-transit quantities separated and restricted by data scope. |
-| UC-31 | View inventory balance details | FE-04 | ACTIVE | Display physical, usable, reserved, available, custody and transit balances with source movements; do not double count staging/reservations. |
-| UC-32 | Create Put-away Task | FE-04 | ACTIVE | Create or accept a suggested internal put-away task from a posted receipt; no second receiving or approval document. |
-| UC-33 | Confirm Put-away Task | FE-04 | ACTIVE | Warehouse Staff confirms actual placement, preserving total owned quantity and quality. Make accepted stock allocatable only in a suitable location. |
-| UC-34 | View location movement list | FE-04 | ACTIVE | Search same-warehouse movements by lot and status. |
-| UC-35 | View location movement details | FE-04 | ACTIVE | Display source, destination, and actual transferred quantities. |
-| UC-36 | Create location movement | FE-04 | ACTIVE | Warehouse Staff selects compatible source/destination locations in the same warehouse and checks quantity, reservations and stocktake locks; no Owner approval or inter-warehouse TR. |
-| UC-37 | Confirm actual location movement | FE-04 | ACTIVE | Confirm actual relocation atomically: source minus q, destination plus q, same lot/quality/owner and total. Carry reservations and block locked locations. |
-| UC-38 | View warehouse transfer list | FE-05 | ACTIVE | View transfers between the configured warehouses; D4 confirms inter-warehouse movements. Sales sees progress related to its issue requests. |
-| UC-39 | View warehouse transfer details | FE-05 | ACTIVE | Show requested/approved, dispatched, received by quality, in-transit and unresolved quantities with separate dispatch and receipt documents. |
-| UC-40 | Create Transfer Request | FE-05 | ACTIVE | Warehouse Staff requests physical movement between distinct warehouses after considering direct customer dispatch or other compatible sources. Same-warehouse relocation uses UC-36/37. |
-| UC-41 | Review Transfer Request | FE-05 | ACTIVE | Store Owner approves/rejects/returns the TR version; requester differs from approver. Approved TR authorizes execution and controlled source reservation; no extra inter-warehouse TO approval. |
-| UC-43 | Record Transfer Dispatch | FE-05 | ACTIVE | Warehouse drafts TD from approved TR before picking; confirms actual picking TO when staging applies, then posts TD/HO only at handover. No second GI or Owner task approval. |
-| UC-44 | Review Transfer Difference Resolution | FE-05 | ACTIVE | Store Owner reviews inter-warehouse discrepancies from UC-43/104. Resolve through linked documents without editing posted quantities; keep unmatched amounts open. |
-| UC-45 | View Copied Sales Order List | FE-06 | ACTIVE | Read scoped SO source, customer, issued/delivered/outstanding quantities and DELIVERED/COMPLETED progress. |
-| UC-46 | View Copied Sales Order Details | FE-06 | ACTIVE | Read copied source lines, WIR/OD/GI/POD/PAY-CFM history and cancellations; no pricing, invoice or payment calculation. |
-| UC-47 | Create Copied Sales Order | FE-06 | ACTIVE | Sales manually copies a verified external order with source line identity and evidence. Reject duplicate source orders/lines; entry changes no stock. |
-| UC-48 | Update or Cancel Unissued Sales Order Remainder | FE-06 | ACTIVE | Sales changes only unexecuted or posted-GR-FD-received-back, not-redelivered quantity on the original SO. Preserve source and gross ledger; unresolved off-site stock cannot be cancelled. |
-| UC-49 | View Outbound Delivery List | FE-06 | ACTIVE | Read-only outbound delivery search and listing. |
-| UC-50 | View Outbound Delivery Details | FE-06 | ACTIVE | Read-only outbound delivery details. |
-| UC-51 | Create Outbound Delivery | FE-06 | ACTIVE | Sales plans OD within net WIR allowance; redelivery reuses original OD or traceably transfers reopened commitment to replacement OD without new demand. |
-| UC-52 | View Picking Task List | FE-06 | ACTIVE | Read authorized warehouse picking tasks associated with outbound delivery releases. |
-| UC-53 | View Picking Task Details | FE-06 | ACTIVE | Read required lot/location, assigned quantities, reservations, actual picks and shortage/defect evidence. |
-| UC-54 | Create Picking Task | FE-06 | ACTIVE | Warehouse creates picking TO against existing draft GI-S/OD, with compatible stock and FIFO within compatibility; task is execution, not Owner approval. |
-| UC-55 | Confirm Picking Task | FE-06 | ACTIVE | Warehouse Staff confirms actual BOX/PIECE quantities into staging and preserves reservations and total stock. Shortage/damage routes to BF-02/05 or replanning; no silent stock correction. |
-| UC-56 | View goods issue list | FE-06 | ACTIVE | Search by source request, issue date, and status. |
-| UC-57 | View goods issue details | FE-06 | ACTIVE | Display lot, location, prepared quantity, and actual issued quantity by line. |
-| UC-58 | Post Goods Issue | FE-06 | ACTIVE | Warehouse creates/updates GI-S draft before picking, then posts actual confirmed handover once. Draft changes no stock; PGI does not itself mean DELIVERED/COMPLETED. |
-| UC-63 | View defective goods list | FE-07 | ACTIVE | Filter defect cases by source, product/lot/location, ownership, evidence, unresolved quantity and disposition. |
-| UC-64 | View defective goods details | FE-07 | ACTIVE | Show affected quantity, ownership/custody, inspector, evidence, approval and related outcomes; no duplicate deduction across cases. |
-| UC-65 | Inspect Defective Goods and Submit Disposition | FE-07 | ACTIVE | Warehouse immediately blocks suspect stock and records evidence; within B1 freeze record balance-neutral defect_hold without ordinary quality/location posting. |
-| UC-66 | Approve or reject defective goods disposition | FE-07 | ACTIVE | Owner decides scoped destruction/regrade/release outside stocktake; supplier return uses BF-08 without Owner. B1 quality/location approval is UC-92, not duplicate UC-66. |
-| UC-67 | Record approved defective goods disposition | FE-07 | ACTIVE | Warehouse executes approved destruction/regrade/release outside freeze. Supplier return deducts only at UC-82; B1 quality/location posts only in UC-93 batch. |
-| UC-68 | View customer return list | FE-07 | ACTIVE | Search CR/FD by mode, source, reason and inspection/receipt status. |
-| UC-69 | View customer return details | FE-07 | ACTIVE | Show source, custody/ownership, quantity, physical condition, per-line D6 assessment versions/evidence, proper Sales ordinary/Owner exception decision, FD source/receipt/net reopening and external financial-reference status. |
-| UC-70 | Create Customer Return Request | FE-07 | ACTIVE | Sales creates commercial CR only against customer-received POD or verified historical delivery, with D6 terms and source caps. FD requires no Sales CR and uses Warehouse UC-72/73. |
-| UC-71 | Decide Customer Return Acceptance | FE-07 | ACTIVE | C2: Sales accepts/rejects ordinary CR after Warehouse inspection, including own creation. Owner only decides eligible exceptions with distinct requester. Neither overrides D6 exclusions; FD bypasses commercial acceptance. |
-| UC-72 | Inspect Return or Failed-Delivery Intake | FE-07 | ACTIVE | Warehouse distinguishes CR after customer receipt from FD before receipt. CR records customer custody/D6; FD uses posted GI-S/failure evidence and ARR/INS, without D6, fictitious POD, Owner approval or customer custody. |
-| UC-73 | Post Customer Return or Failed-Delivery Receipt | FE-07 | ACTIVE | Warehouse posts GR-CR under proper Sales ordinary/Owner exception decision; FD posts GR-FD from actual eligible GI-linked receipt without commercial approval, atomically reopening exact original net demand. |
-| UC-79 | View supplier return request list | FE-07 | ACTIVE | Search by supplier, lot, reason, agreement and reconciliation status. |
-| UC-80 | View supplier return request details | FE-07 | ACTIVE | Display lot, location, quantity, source receipt, verified supplier agreement, ACK and Accountant reconciliation outcome. |
-| UC-81 | Create Supplier Return Request | FE-07 | ACTIVE | Warehouse proposes source-linked SR and isolates defects/reserves good goods. Accountant verifies supplier agreement; there is no Owner dispatch/variance/closure approval. |
-| UC-82 | Confirm Supplier Return Dispatch | FE-07 | ACTIVE | Warehouse posts actual GI-SR or supplier-custody release within Accountant-verified agreement/source quantity, without Owner authorization. ACK is a later event. |
-| UC-83 | Review Supplier Return Closure | FE-07 | ACTIVE | Accountant reconciles and closes accounted supplier-return warehouse quantity under UC-83/107 without Owner. Unresolved disputes stay open; external financial status is independent. |
-| UC-84 | View stocktake list | FE-08 | ACTIVE | Search stocktakes by warehouse, scope, cutoff time, and status. |
-| UC-85 | View stocktake details | FE-08 | ACTIVE | View included lots/locations, system snapshot, counted quantities, and variances. |
-| UC-86 | Create Stocktake Session | FE-08 | ACTIVE | Store Owner plans monthly or targeted stocktakes, scope and counters. Planning does not take a snapshot or post stock; no new automatic scheduling job. |
-| UC-87 | Perform Stocktake Count and Record Results | FE-08 | ACTIVE | Warehouse activates immutable snapshot/freeze, counts and retains attempts. Defects discovered under B1 produce immediate hold/evidence without balance changes. |
-| UC-88 | Reconcile Stocktake | FE-08 | ACTIVE | Warehouse compares quantity/quality/location; substantiated variance may proceed directly to plan, while unclear/chosen recount repeats Start/Enter Recount. Quality-only B1 still needs resolution. |
-| UC-89 | View inventory adjustment request list | FE-08 | ACTIVE | Search by stocktake, lot, location, variance reason, and approval status. |
-| UC-90 | View inventory adjustment request details | FE-08 | ACTIVE | Display before/after quantities, cause, creator, evidence, and approval decision. |
-| UC-91 | Create Inventory Adjustment Request | FE-08 | ACTIVE | Warehouse proposes B1 stocktake resolution with actual nonzero total delta and separate total-preserving RECLASS/location lines. Quality-only uses ST_RESOLUTION without ADJ=0. |
-| UC-92 | Approve Stocktake Resolution | FE-08 | ACTIVE | Owner approves/returns versioned B1 plan including actual delta, RECLASS and controlled locations with distinct requester; approval never bypasses freeze or posts stock. |
-| UC-93 | Clear Stocktake Difference | FE-08 | ACTIVE | Owner posts one approved B1 closure batch: actual nonzero delta if any plus total-preserving RECLASS/location, after Warehouse execution. Unlock only resolved scope; no ADJ=0. |
-| UC-94 | Sign in to the system | FE-09 | ACTIVE | Access authorized functions according to the assigned account and role. |
-| UC-95 | View account list | FE-09 | ACTIVE | Search and filter accounts by name, role, and active status. |
-| UC-96 | View account details | FE-09 | ACTIVE | Display the selected account's information, assigned role, and status. |
-| UC-97 | Maintain Staff Account | FE-09 | ACTIVE | Create, update, activate or deactivate staff accounts; role assignment remains separately controlled. |
-| UC-98 | Assign roles and operation permissions | FE-09 | ACTIVE | Maintain exactly the existing five roles, operation rights and assigned warehouse scope. No purchasing/delivery role, proxy entry or dynamic delegation workflow is introduced. Each user has exactly one role. Owner approvals still require a different requester, including after a role change. |
-| UC-99 | View Operational Reports | FE-09 | ACTIVE | Run authorized physical/available/reserved/custody/transit, outstanding receipt/issue, customer-received quantities, DELIVERED pending receipt, COMPLETED/cancelled orders, defect, transfer, return and stocktake reports; no revenue/profit reports. |
-| UC-100 | View stock movement log | FE-09 | ACTIVE | Filter movements by product, lot, location, transaction type, and time. |
-| UC-101 | View stock movement details | FE-09 | ACTIVE | Display source document, before/after quantity, operator, time, and reason. |
-| UC-102 | Trace a product lot through source documents | FE-09 | ACTIVE | Trace lots across external source → SO → WIR → OD → GI-S → POD → PAY-CFM and linked receipts, reservations, movements, returns and adjustments with evidence and user/time history. |
-| UC-103 | View and Select Shortage Fulfilment Options | FE-06 | ACTIVE | Sales/Warehouse compares compatible available stock by warehouse and selects direct dispatch, physical transfer or replenishment. Link BF-01/04/06; suggestions do not automatically order or post. |
-| UC-104 | Inspect and Post Transfer Receipt | FE-05 | ACTIVE | Destination Warehouse Staff independently verifies actual quantities against dispatch lines and posts MWTR by quality. Move received quantities from transit to destination, retain demand allocation, put away and keep discrepancies open. |
-| UC-105 | Export or Print Stocktake Count Sheet | FE-08 | ACTIVE | Warehouse Staff/Owner obtains the activated session's snapshot-based list by location/lot/quality, with cutoff and space for counts and newly found items. Printing does not post stock. |
-| UC-107 | Record Supplier Agreement and Receipt Acknowledgement | FE-07 | ACTIVE | Accountant verifies pre-dispatch agreement and separately records later ACK, reconciles variances and closes through UC-83 without Owner approval. |
-| UC-108 | Record External Document References | FE-09 | ACTIVE | Accountant verifies historical delivered sources and records external Invoice/Credit Note/refund/reconciliation kind, number/date, purchase/GI-SR source, matched quantity, evidence and status independently of warehouse closure. |
-| UC-109 | Manage Linked Warehouse Issue Request | FE-06 | ACTIVE | Sales manages original SO-linked WIR and net reopened demand after posted GR-FD. Reuse original SO/WIR and source versions; replacement OD commitment is transferred, not new demand. |
-| UC-110 | Confirm Customer Delivery with Photo Evidence | FE-06 | ACTIVE | Assigned Warehouse confirms actual customer receipt against valid posted GI-S with photo. Share source cap with FD/GR-FD; received quantity uses CR for later return. |
-| UC-111 | Confirm Full External Payment Receipt | FE-06 | ACTIVE | Only Sales confirms full money receipt outside WMSD after rechecking current-version DELIVERED. Reference/evidence/note and user/time are required; atomically set COMPLETED without stock or payment execution. |
 
 4.3 Use Case Actor Associations
 The following associations derive from operation-level rights. Viewing a record does not authorize confirmation or posting.
@@ -288,5 +368,3 @@ No MISA, Zalo, payment or tax-authority API in selected scope.
 5.3 Background Job Inventory
 JOB-01 processes committed warehouse-notification outbox: event key, delivery/failure/attempts/retry. Deduplicate events and do not deliberately resend recorded success. SMTP uncertain timeout requires reconciliation; end-to-end exactly-once email delivery cannot be assumed. Notification retry never repeats inventory.
 Finite minimum-stock evaluation occurs on authorized query or committed balance/reservation changes; no automatic PO or duplicate proposal. Monthly stocktake manually planned by Owner; no auto-session job.
-
-</replacement_text>

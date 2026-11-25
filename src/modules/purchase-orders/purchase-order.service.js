@@ -52,10 +52,10 @@ const financial=user=>['OWNER','ACCOUNTANT'].includes(currentRole(user)?.code);
 export async function getPurchaseOrder(user,id){
   requirePermission(user,'purchase_order:read');const po=await findPurchase(id,user,null,{kind:'PO',readOnly:true});
   const quantities=await purchaseOrderQuantities(po);
-  const arrivals=await GoodsArrival.find({'header.purchaseOrderId':id}).lean();
-  const receipts=await PurchaseReceipt.find({'header.purchaseOrderId':id}).lean();
-  const history=await AuditLog.find({subjectType:'purchase_orders',subjectId:id}).sort({occurredAt:-1}).lean();
-  const approvals=await ApprovalHistory.find({subjectType:'purchase_orders',subjectId:id}).lean();
+  const arrivals=await GoodsArrival.find({'header.purchaseOrderId':po._id}).lean();
+  const receipts=await PurchaseReceipt.find({'header.purchaseOrderId':po._id}).lean();
+  const history=await AuditLog.find({subjectType:'purchase_orders',subjectId:po._id}).sort({occurredAt:-1}).lean();
+  const approvals=await ApprovalHistory.find({subjectType:'purchase_orders',subjectId:po._id}).lean();
 
   const warehouse = po.header?.warehouseId ? await Warehouse.findById(po.header.warehouseId).lean() : null;
   const mappedWarehouse = warehouse

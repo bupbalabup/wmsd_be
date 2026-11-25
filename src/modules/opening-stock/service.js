@@ -205,6 +205,25 @@ async function resolveRows(user, input, session, persist = false) {
   }
   return { rows, errors, locations };
 }
+const ROW_LABELS = {
+  sku: 'SKU', manufacturerCode: 'Hãng', color: 'Màu', name: 'Tên sản phẩm',
+  categoryCode: 'Mã nhóm', baseUnit: 'Đơn vị gốc', lengthMm: 'Dài sản phẩm',
+  widthMm: 'Rộng sản phẩm', heightMm: 'Cao sản phẩm', manufacturerLot: 'Mã lô',
+  tone: 'Tone', calibre: 'Calibre', piecesPerCarton: 'Số viên/thùng',
+  cartonLengthMm: 'Dài thùng', cartonWidthMm: 'Rộng thùng', cartonHeightMm: 'Cao thùng',
+  enteredQty: 'Số lượng tồn',
+};
+export function previewRowErrors(user, issues) {
+  allowed(user, 'opening_stock:create');
+  return {
+    valid: false,
+    rows: [],
+    errors: issues.map(issue => ({
+      rowNumber: Number(issue.path[1]) + 2,
+      message: `Thiếu hoặc sai cột ${ROW_LABELS[issue.path[2]] || issue.path[2] || 'dữ liệu'}: ${issue.message}`,
+    })),
+  };
+}
 export async function preview(user, input) {
   allowed(user, 'opening_stock:create');
   const result = await resolveRows(user, input);

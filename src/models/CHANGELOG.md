@@ -1,3 +1,14 @@
+## 25/11/2026 — Optional customer return order reference
+
+Adds `customer_returns.header.salesOrderReference` as optional plain text. No Sales Order relationship, index, migration or backfill is needed.
+
+## 25/11/2026 — Bỏ năm trường sao chép trên chứng từ
+
+Theo quyết định người dùng ngày 25/11/2026, gỡ `tenLoaiPhieu`, `maDonVi`, `kyDanhSo`, `soThuTu`, `trangThaiTiengViet` khỏi `addDocumentIndexesAndRules` (mọi chứng từ và chứng từ nhúng dùng hàm này) và khỏi `StocktakePlan`, cùng hai hook đồng bộ nhãn. Không đổi index, quan hệ hay mã phiếu.
+
+- Dữ liệu cũ còn các trường này vẫn đọc và sửa được; dựng lại bằng `new Model(dữ liệu cũ)` (ví dụ `validateTarget` khi verify DB) sẽ báo `StrictModeError` cho tới khi dọn.
+- Dọn: `node scripts/drop-vietnamese-document-fields.mjs` (xem trước), thêm `--apply` để ghi; chỉ localhost. Ảnh chụp trong `approval_histories` giữ nguyên.
+
 ## 25/11/2026 — Delivery schedule
 
 Adds one delivery_schedules record per new sales order, with embedded deliveries, lines and allocations. Preserves existing SalesOrder source and evidence fields, and adds schedule references to delivery orders.

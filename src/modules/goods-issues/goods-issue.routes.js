@@ -20,7 +20,7 @@ const router = Router();
 router.use(authenticate);
 const listQuery = validateIssue({ query: schemas.listQuery });
 router.get('/direct-options', checkPermission('goods_issue:create'), listQuery, controller.directOptions);
-router.get('/options', checkPermission('goods_issue:create'), listQuery, controller.options);
+router.get('/options', checkPermission('goods_issue:create'), validateIssue({ query: schemas.optionsQuery }), controller.options);
 router.get('/', checkPermission('goods_issue:read'), listQuery, controller.list);
 router.post('/', checkPermission('goods_issue:create'), validateIssue({ body: schemas.createBody }), controller.create);
 router.get('/:id', checkPermission('goods_issue:read'), validateIssue({ params: detailParams }), controller.detail);

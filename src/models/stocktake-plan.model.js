@@ -16,19 +16,9 @@ export function createStocktakePlanSchema() {
       note: text(2000, { required: false }),
       header: { type: createStocktakePlanHeaderSchema(), required: true },
       updatedBy: ref("User", false),
-      tenLoaiPhieu: { type: String, maxlength: 160 },
-      maDonVi: { type: String, maxlength: 80 },
-      kyDanhSo: { type: String, match: /^[0-9]{6}$/ },
-      soThuTu: { type: Number, min: 1, validate: Number.isSafeInteger },
-      trangThaiTiengViet: { type: String, maxlength: 160 },
     },
     options("stocktake_plans"),
   );
-  schema.pre("validate", function () {
-    if (!this.tenLoaiPhieu) return;
-    const labels = { ACTIVE: "Đang áp dụng", PAUSED: "Tạm dừng", ENDED: "Đã kết thúc" };
-    this.trangThaiTiengViet = labels[this.workflowStatus] || this.trangThaiTiengViet;
-  });
   schema.index({ workflowStatus: 1, "header.nextDueAt": 1 });
   schema.index({ "header.warehouseId": 1, workflowStatus: 1 });
   return schema;

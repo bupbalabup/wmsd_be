@@ -7,7 +7,7 @@ import { escapeRegex } from '../../shared/utils/domain.js';
 import { exact } from '../../models/model-utils.js';
 import { same } from '../../shared/utils/document-command.js';
 import { enrichLineItems } from '../../shared/utils/document-items.js';
-import { findPurchase, purchaseModels, purchaseWarehouseFilter as warehouseFilter } from './purchase-core.js';
+import { findPurchase, purchaseModels, purchaseOrderRef, purchaseWarehouseFilter as warehouseFilter } from './purchase-core.js';
 import { getPurchaseOrder } from '../purchase-orders/purchase-order.service.js';
 import { redactPrices } from '../sales-orders/sales-read.service.js';
 const financial=u=>['OWNER','ACCOUNTANT'].includes(currentRole(u)?.code);
@@ -193,6 +193,7 @@ export async function listDocuments(user,kind,query){
   if (query.q) filter.documentNo = { $regex: escapeRegex(query.q), $options: 'i' };
   if (kind === 'CUSTODY_RECEIPT') filter['header.ownerType'] = 'SUPPLIER';
   if (query.purchaseOrderId) {
+    query = { ...query, purchaseOrderId: await purchaseOrderRef(query.purchaseOrderId) };
     if (['INSPECTION', 'CUSTODY_RECEIPT'].includes(kind)) {
       const scope = warehouseFilter(user, query.warehouseId);
       const arrivals = await GoodsArrival.find({
@@ -228,10 +229,10 @@ function receivingDocument(kind, document, poLineId) {
 }
 export async function receivingSummary(user, id) {
   const po = await getPurchaseOrder(user, id);
-  const arrivals = await GoodsArrival.find({ 'header.purchaseOrderId': id }).select('items._id items.purchaseOrderItemId');
+  const arrivals = await GoodsArrival.find({ 'header.purchaseOrderId': po.id }).select('items._id items.purchaseOrderItemId');
   const [inspections, receipts] = await Promise.all([
     GoodsInspection.find({ 'header.arrivalId': { $in: arrivals.map(a => a._id) } }),
-    PurchaseReceipt.find({ 'header.purchaseOrderId': id }),
+    PurchaseReceipt.find({ 'header.purchaseOrderId': po.id }),
   ]);
   const arrivalsById = new Map(arrivals.map(arrival => [String(arrival._id), arrival]));
   const custody = await CustodyReceipt.find({ ...fromInspections(inspections.map(d => d._id)), 'header.ownerType': 'SUPPLIER' });
@@ -263,7 +264,7 @@ export async function receivingSummary(user, id) {
   };
   return financial(user) ? summary : redactPrices(summary);
 }
-export async function receivingTrips(user,id,query){await findPurchase(id,user,null,{kind:'PO',readOnly:true});return listDocuments(user,'INSPECTION',{...query,purchaseOrderId:id});}
+export async function receivingTrips(user,id,query){const po=await findPurchase(id,user,null,{kind:'PO',readOnly:true});return listDocuments(user,'INSPECTION',{...query,purchaseOrderId:String(po._id)});}
 export async function receivingQueue(user,query){
   const kind = query.stage === 'AWAITING_POST' ? 'GR_PURCHASE' : 'INSPECTION';
   if (query.stage !== 'CORRECTION') {

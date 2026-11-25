@@ -26,6 +26,10 @@ Mốc schema 23/11/2026: 61 collection = 58 collection nghiệp vụ + 3 collect
 
 [Từ điển dữ liệu](docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Data_Dictionary.md) · [Rà trường từng bảng](docs/03_thiet_ke/DB_Rebuild_Review/38_Ra_soat_truong_58_bang.md) · [Phiếu duyệt](docs/03_thiet_ke/DB_Rebuild_Review/01_Danh_muc_duyet.md)
 
+## 25/11/2026 — Bỏ năm trường sao chép trên chứng từ
+
+Chứng từ và chứng từ nhúng không còn `tenLoaiPhieu`, `maDonVi`, `kyDanhSo`, `soThuTu`, `trangThaiTiengViet`. Mã phiếu giữ ở `_id`/`documentNo`, nhãn trạng thái tính lúc đọc từ `workflowStatus`. Dọn dữ liệu cũ trên localhost bằng `scripts/drop-vietnamese-document-fields.mjs`.
+
 ## Excel and opening stock — 16 November 2026
 
 [Current contract](docs/08_api/EXCEL_AND_OPENING_STOCK.md): opening_stocks uses its existing document/item relationships. New optional item packagingState and measuredVolumeMm3 preserve physical packaging for opening imports; a unique partial index on header.warehouseId for POSTED enforces one initialization per warehouse. warehouses.stockOperationVersion (integer, default zero) serializes shared stock commands and location edits against opening posting without changing catalogue updatedAt. No collection or relationship was added. Legacy data needs the additive [local setup](docs/09_phat_trien/EXCEL_OPENING_SETUP.md) before exposing the feature. No remote rollout was performed.
@@ -112,7 +116,7 @@ receipts without an ITR use the explicit legacy open-task command. See [BF04 API
 | `stock_adjustments` | Phiếu điều chỉnh số lượng theo phần thiếu/thừa được duyệt khi chốt kiểm kê. | [stock-adjustment.model.js](../src/models/stock-adjustment.model.js) |
 | `failed_deliveries` | Phần hàng đã xuất nhưng khách không nhận, gồm lý do, lượng và người đang giữ. | [failed-delivery.model.js](../src/models/failed-delivery.model.js) |
 | `stock_quality_changes` | Phiếu chuyển lượng giữa trạng thái chất lượng; tổng lượng và vị trí không tự thay đổi. | [stock-quality-change.model.js](../src/models/stock-quality-change.model.js) |
-| `customer_returns` | Yêu cầu trả sau khi khách đã nhận; có kết quả kiểm và quyết định theo từng phần. New DIRECT inspection portions retain optional packaging state, measured volume and a verified carton snapshot. Existing records do not need backfill. | [customer-return.model.js](../src/models/customer-return.model.js), [return-inspection-portions.schema.js](../src/models/return-inspection-portions.schema.js) |
+| `customer_returns` | Yêu cầu trả sau khi khách đã nhận; có kết quả kiểm và quyết định theo từng phần. Optional `header.salesOrderReference` is plain text, not a relationship. New DIRECT inspection portions retain optional packaging state, measured volume and a verified carton snapshot. Existing records do not need backfill. | [customer-return.model.js](../src/models/customer-return.model.js), [return-inspection-portions.schema.js](../src/models/return-inspection-portions.schema.js) |
 | `supplier_returns` | Đề nghị trả NCC và thỏa thuận được Accountant xác minh theo dòng. | [supplier-return.model.js](../src/models/supplier-return.model.js) |
 | `supplier_return_issues` | Phiếu thực xuất trả phần thuộc cửa hàng theo lượng đã thống nhất với NCC. | [supplier-return-issue.model.js](../src/models/supplier-return-issue.model.js) |
 | `stock_discrepancies` | Hồ sơ thiếu/thừa/sai/hỏng và chứng từ giải quyết; không tự xóa lượng chưa rõ. | [stock-discrepancy.model.js](../src/models/stock-discrepancy.model.js) |

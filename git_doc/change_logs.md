@@ -26,6 +26,279 @@ Theo yêu cầu người dùng: bản vẽ Kho 3D và danh sách vị trí phả
 
 Email production dẫn vào trang đăng nhập FE Tân Thương, kể cả khi cấu hình cũ còn URL localhost. Đăng nhập nhận username hoặc một email khớp duy nhất. Ghi hash khi cấp lại và hoàn tác khi lỗi gửi thư đều có điều kiện để tránh ghi đè lần đổi mật khẩu khác. Bổ sung bài test HTTP từ gửi mật khẩu đến đăng nhập bằng username và email cùng với bài test hoàn tác. Không đổi schema hoặc dữ liệu production. Xem [luồng tài khoản](docs/08_api/USER_ACCESS_STATUS.md) và [cấu hình Workers](docs/09_phat_trien/CLOUDFLARE_WORKERS.md).
 
+## 25/11/2026 — Warehouse-first other goods issues
+
+- Add a read-only warehouse availability option to the [Goods Issue contract](docs/08_api/GOODS_ISSUES.md). The frontend checks the selected warehouse before adding or reviewing draft rows. There is no schema or stock-write change.
+
+## 25/11/2026 — Customer returns without a Sales Order screen
+
+- Restore customer return and linked receipt screens without restoring Sales Order screens or changing return permissions.
+- The create API and `CustomerReturn` header accept an optional plain-text `salesOrderReference`. Existing records remain valid without migration. Source, lot, claim and stock rules do not change. See [Return Workflows](docs/08_api/RETURN_WORKFLOWS_NATIVE.md).
+
+## 25/11/2026 — Đồng bộ thiết kế BF-01 với code nhận mua hiện hành
+
+- Report 4 §II.0–1 mô tả thứ tự xác thực, kiểm quyền tĩnh, validation và controller, cùng ngoại lệ phân quyền theo chứng từ và cách phân giải mã lịch sử sang _id. Ba class diagram PO, Inspection và Receipt trong draw.io theo tuyến gọi mới. Quan hệ ghi tồn đi qua StockMovement nhúng và hai đầu tham chiếu số dư.
+- Đồng bộ sequence xác nhận kiểm nhận, đổi vị trí nhập, post phiếu nhập mua và post giữ hộ. Phân biệt phạm vi API giải quyết giữ hộ với thao tác tạo đề nghị trả NCC từ màn hình giữ hộ. Report 3 cập nhật luồng BF-01, các đoạn liên quan của UC-37/40, vai trò và BR-08 theo xử lý hiện hành: RR chỉ duyệt hoặc từ chối, kế toán đóng phần PO còn thiếu trong một lệnh, chuyển hàng nhập mua qua BF-03.
+- Kiểm tra: render 26 khối Mermaid của pipeline và BF-01, xuất đủ 25 trang draw.io, xem trực tiếp 7 trang đã chỉnh, đối chiếu 400 thông điệp sequence và các quan hệ trên 3 trang class đã chỉnh. Ba bài test trong refactor-regression.integration.test.js và purchase-evidence.local.test.js qua với MongoDB rs0 cục bộ. Thay đổi thuộc tài liệu trong repo.
+
+## 25/11/2026 — Sửa 3 lỗi A1–A3 và đưa 4 module mua/nhận/tồn đầu về kiến trúc `routes → controller → service`
+
+- **Lý do & quyết định nguồn:** Quyết định người dùng ngày 25/11/2026: khắc phục 3 lỗi thực tế (`GET /api/opening-stocks/abc` trả `500`, lặp `authenticate` / `User.findById` 2–3 lần trên các prefix gắn nhiều router, và truy vấn bằng `id` thô từ URL thay vì `_id` chuẩn của chứng từ lịch sử) và chuẩn hóa 4 module (`po-receiving`, `purchase-orders`, `opening-stock`, `goods-receipts`) về mô hình `routes → controller → service` kèm `checkPermission` ở tầng route cho các route có quyền tĩnh. Giữ nguyên hợp đồng API (path, payload, `{ data }`, HTTP `200` cho `POST /purchase-orders`).
+- **Hành vi trước / sau:**
+  - **A1 (Opening-stock `:id`):** trước gọi `databaseId(req.params.id)` trực tiếp làm `GET/POST /opening-stocks/abc` ném `CastError` → `500`; nay chặn ở route bằng `documentIdentifier` → `400` cho ID sai định dạng, `404` cho ID đúng định dạng nhưng không tồn tại (không đổi `errorHandler.js` toàn cục để tránh nuốt `CastError` nội bộ). Body của `preview`/`create`/`post`/`cancel` giữ parse trả thông báo tiếng Việt sạch không có tiền tố `body:`; nhánh lỗi dòng Excel ở `POST /preview` chuyển sang `service.previewRowErrors(user, issues)` kiểm `allowed(user, 'opening_stock:create')` trực tiếp (bỏ mẹo gọi `service.options()` gây 4 truy vấn DB thừa).
+  - **A2 (Chống lặp `authenticate`):** thêm `Symbol` private `AUTHENTICATED` trong `src/middlewares/auth.js` (chỉ gắn sau khi JWT, tài khoản `isActive` và `currentRole` hợp lệ) và gộp router lệnh PO vào `purchase-order.routes.js`. Mỗi request trên `/purchase-orders`, `/goods-receipts/purchase`, `/warehouse-transfers` chỉ nạp `User.findById` 1 lần (vẫn nạp lại actor trong `command()` cho transaction/replay).
+  - **A3 (`id` thô → `_id` chứng từ):** sau `findPurchase`/`getPurchaseOrder`/`parent`, dùng `_id` đã phân giải trong `getPurchaseOrder` (4 truy vấn liên kết), `receivingSummary` (`po.id`), `receivingTrips` (`String(po._id)`), `receivingOperation` (cả 3 phép so sánh), và `purchase-evidence.service.js` (`listEvidence`, `downloadEvidence`, `attachEvidence` ngoài & trong transaction, đồng thời giữ nguyên `targetId` truyền vào `command()` để không vỡ `requestHash` khi replay).
+  - **Kiến trúc & `checkPermission`:** thêm `respondWithData` ở `src/shared/utils/catchAsync.js` và tách Zod primitives dùng chung ra `src/shared/utils/command-validation.js`; tách `validation`/`controller`/`routes` (và `goods-receipt.service.js`) cho 4 module; xóa `purchase-order.commands.routes.js`. Các route quyền tĩnh trả `403` trước `400` validation; route cần 2 quyền (preflight/reverse) gắn đủ 2 middleware `checkPermission`; route quyền động (`/purchase-documents/:id/evidence*`, unified `GET /goods-receipts`, `GET /goods-receipts/:id`) giữ kiểm quyền trong service.
+- **File code thay đổi:**
+  - Shared/middleware: `src/middlewares/auth.js`, `src/shared/utils/catchAsync.js`, `src/shared/utils/command-validation.js` (mới), `src/routes.js`.
+  - `po-receiving`: `po-receiving.validation.js` (mới), `po-receiving.controller.js` (mới), `po-receiving.routes.js`, `po-receiving.service.js`, `purchase-read.service.js`, `purchase-evidence.service.js`.
+  - `purchase-orders`: `purchase-order.validation.js`, `purchase-order.controller.js`, `purchase-order.routes.js`, `purchase-order.service.js`, xóa `purchase-order.commands.routes.js`.
+  - `opening-stock`: `validation.js`, `controller.js` (mới), `routes.js`, `service.js`.
+  - `goods-receipts`: `goods-receipt.validation.js` (mới), `goods-receipt.controller.js` (mới), `goods-receipt.service.js` (mới), `goods-receipt.routes.js`.
+  - Test mới: `test/refactor-regression.integration.test.js`.
+- **Tài liệu cập nhật:** `git_doc/docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md`, `git_doc/docs/08_api/GOODS_RECEIPTS.md`, `git_doc/docs/08_api/EXCEL_AND_OPENING_STOCK.md`, `git_doc/docs/01_bao_cao/WMSD_Report4_Draft.md` (mục 1.2.1, 1.3.1, 1.4.1; giữ nguyên toàn bộ phần chỉnh sửa khác), `git_doc/change_logs.md`. Không đổi model, schema DB hay migration.
+- **Kiểm chứng thực tế (MongoDB local `rs0` cổng `27017`):**
+  - BE không cần DB: `opening-stock-setup.test.js`, `purchase-evidence.test.js`, `purchase-evidence.local.test.js`, `receiving-custody-policy.test.js`, `public-routing.test.js` — pass 12/12.
+  - BE tích hợp MongoDB local (`RUN_NATIVE_API_TESTS=1`, `RUN_GOODS_RECEIPT_TESTS=1`, `RUN_OPENING_TESTS=1`): `refactor-regression.integration.test.js` (2/2), `opening-stock.test.js`, `goods-receipt.integration.test.js`, `backend-permissions.integration.test.js`, `replenishment-warnings.integration.test.js`, `native-api.integration.test.js` — tổng pass 61/61, 0 lỗi.
+  - FE: `npx vitest run src/features/opening-stock/OpeningStockPage.test.tsx` — pass 7/7.
+  - Docs: `npm run docs:check` — đạt.
+  - Sửa thêm cùng loại A3 (yêu cầu người dùng 25/11/2026): bộ lọc `?purchaseOrderId=` trong `listDocuments` (danh sách kiểm nhận, nhập mua, giữ hộ, hàng đợi nhận hàng) và danh sách gộp `GET /goods-receipts` trước so khớp giá trị thô nên PO lịch sử có `_id` ObjectId gọi bằng `documentNo` trả rỗng; nay phân giải qua `purchaseOrderRef` trong `po-receiving/purchase-core.js` (dùng chung bộ lọc `_id`/`documentNo` với `findPurchase`). Test: 4 đường danh sách trong `refactor-regression.integration.test.js` (2/2), `goods-receipt.integration` 1/1, `native-api.integration` + `backend-permissions` 42/42, `purchase-evidence` + `public-routing` 3/3.
+  - Review lại cùng ngày: bổ sung vào `refactor-regression.integration.test.js` kiểm tra `403` trước `400` cho các route một quyền tĩnh (lệnh PO, tạo/xác nhận kiểm nhận, ghi phiếu nhập mua, quyết định giữ hộ, tạo phiếu nhập khác, ghi tồn đầu). Chạy lại trên MongoDB local `rs0`: `refactor-regression` 2/2, `goods-receipt.integration` 1/1, `native-api.integration` 35/35, `backend-permissions` + `replenishment-warnings` 21/21, `opening-stock` 2/2 (`MONGODB_TEST_PORT=27017`, `MONGODB_TEST_REPLICA_SET=rs0`), `purchase-evidence.local` 1/1. FE các thư mục `opening-stock`, `purchase-orders`, `receipts`, `inspections`, `custody`: 159/160; lỗi duy nhất ở `ReceiptCreatePage.test.tsx` (nhận hàng điều chuyển, không tìm thấy combobox "Chất lượng") thuộc FE dùng mock MSW, không liên quan thay đổi BE này.
+- **Giới hạn / chưa chạy:** Không chạy toàn bộ suite `npm test` ngoài phạm vi thay đổi và không ghi DB remote; không commit/push tự động.
+- **Rà lại hướng dẫn code RR → nhập → cất hàng (cùng ngày):** đối chiếu toàn bộ [HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md](docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md) với code sau đợt tách. Sửa: dòng đối chiếu code đầu tài liệu; mục 2.0 thêm khung `authenticate → checkPermission → validate → controller → service`, `respondWithData`, `command-validation.js` và cờ `AUTHENTICATED` của `authenticate`; ghi chú bảng route 2B.1 (403 trước 400, route nào còn kiểm quyền trong service); `purchaseOrderRef` và quy ước dùng `_id` đã phân giải ở 2.7, 2B.1, 2B.3.6, 2B.4.2, 2B.4.5, 2B.7; số dòng lệch của `purchase-core.js`, `purchase-read.service.js`, `purchase-evidence.service.js`, `po-receiving.validation.js`, `auth.js`; Phần 3 điểm 20 chuyển thành đã sửa; Phần 4 thêm lượt chạy 25/11/2026; Phụ lục thêm file controller/validation và test hồi quy. Không đổi code. Test chạy lại trên MongoDB local `rs0`: `refactor-regression.integration`, `goods-receipt.integration`, `backend-permissions.integration`, `purchase-evidence`, `public-routing`, `receiving-custody-policy` — 19/19 đạt.
+
+## 25/11/2026 — Report 3: đưa lại thay đổi của `efb9819` (FE-08, FE-09, BF-05) theo catalogue 174 use case
+
+- **Lý do**: mục "Bỏ năm trường tiếng Việt" ngày 25/11 ghi các thay đổi Report 3 của `efb9819` (minhbach-03) chưa có trong file sau merge `5e7456e`. Ghi chú đó hết hiệu lực từ mục này; mục cũ được giữ làm lịch sử. Người dùng chọn catalogue 174 UC ở mục I.4.2 làm chuẩn đánh số.
+- **Đã đưa vào** [Report 3](docs/01_bao_cao/WMSD_Report3_Fix.docx.txt): đặc tả FE-08 (UC-129…UC-146, trừ UC-132) thay cho các mục kiểm kê và giải quyết chênh lệch cũ; đặc tả FE-09 tài khoản và vai trò (UC-147, UC-152…UC-160) cùng UC-175; BF-05 viết lại; dòng `Project tracking: UC-xxx` giữ nguyên số của `Project_Tracking.xlsx`; ghi chú `Former`/`Formerly UC-…` giữ số cũ; tham chiếu ở BF-01…BF-08, EX-04, sơ đồ dữ liệu, bảng thực thể, DR, BR, bảng màn hình, mục III (SC-01, SC-02, SC-09…SC-31), IV và V đổi sang số mới. Đặc tả UC-164…UC-174 đã mang số mới từ trước.
+- **Giữ nguyên**: mục I.4.2, I.4.3, I.4.4, đặc tả mua hàng và nhập kho (II.1, II.3, trừ bốn tiêu đề khách hàng đã bỏ thêm chữ `Former`), SC-06…SC-08 và hai dòng SC-07/SC-08 ở bảng màn hình, bảng Change Log trong báo cáo.
+- **Sửa thêm số cũ mà `efb9819` bỏ sót** trong các dòng nó đã chạm (và dòng Historical GB mapping: UC-113 → UC-164): BF-01-A3; thực thể Party/User, Document, RR/PO, Reservation, Arrival/GR, Notification; DR-03, DR-14; BR-07, BR-08, BR-25. Tham chiếu tới hai use case cất hàng đã bỏ và bước Submit RR cũ được gỡ.
+- **Chờ người dùng chốt**: "Confirm Full External Payment Receipt" và "Initiate User Password Reset as Administrator" không có tên tương ứng trong catalogue 174. Tạm đánh UC-176 và UC-175 (số kế tiếp ngoài catalogue, theo cách `efb9819` dùng UC-161/UC-160, vì hai số này trong catalogue là View Notifications và Update Role Permissions). Chưa thêm vào catalogue hay ma trận quyền.
+- **Ghép theo tên gần đúng**: ba mục "View/Create Copied Sales Order…" ghép với UC-94…UC-96 "View/Create Sales Order…"; tiêu đề vẫn giữ chữ "Copied".
+- **Còn lệch, chưa sửa**: mục I.4.3 dùng bộ số khác I.4.2 (ví dụ Administrator ghi UC-145…UC-152); UC-132 Update Stocktake Session không có đặc tả riêng (nội dung sửa phiên PLANNED nằm trong UC-131) và không có ở SC-14; SC-19 chưa liệt kê UC-125, UC-127; một số use case khác trong catalogue chưa có đặc tả chi tiết ở mục II. Tài liệu ngoài Report 3 (PROJECT_GUIDE, RTM, Report 4) chưa đối chiếu số.
+- **File**: `git_doc/docs/01_bao_cao/WMSD_Report3_Fix.docx.txt`, `git_doc/change_logs.md`. Không đổi code, model, quyền hay dữ liệu; không commit.
+- **Kiểm chứng**: script so tiêu đề mục II với catalogue: không còn số trùng, mọi tham chiếu `UC-` ngoài bảng Change Log của báo cáo và các ghi chú số cũ (`Former`, `Formerly`, `retired`, `Project tracking`) là số có trong catalogue hoặc UC-175/UC-176; I.4.2, I.4.3, I.4.4, SC-06…SC-08 và Change Log trùng từng dòng với bản trước. `npm run docs:check` đạt. Chưa xuất lại `.docx`, chưa đối chiếu Google Docs, chưa đọc soát lại từng đặc tả so với code.
+
+**Bảng đối chiếu số theo tên use case** (cột "Trước trong file": số ở tiêu đề trước lần sửa này; "—": chưa có hoặc không đánh số). Use case không có trong bảng giữ nguyên số. Tiêu đề đã bỏ ghi `Former UC-…`: 33–36, 62–68, 85, 87, 117–119, 124–128.
+
+| Use case (tiêu đề hiện hành) | `efb9819` | Trước trong file | Nay |
+|---|---|---|---|
+| Post Goods Receipt | UC-39 | UC-40 | UC-40 |
+| View Warehouse List | UC-54 | UC-55 | UC-55 |
+| View storage location details | UC-56 | UC-57 | UC-57 |
+| Create Storage Location | UC-60 | UC-61 | UC-61 |
+| Update Storage Location Information | UC-61 | UC-62 | UC-62 |
+| Change Storage Location Status | UC-62 | UC-63 | UC-63 |
+| View stock by lot, location, and quality status | UC-63 | UC-64 | UC-64 |
+| View inventory balance details | UC-64 | UC-65 | UC-65 |
+| View location movement list | UC-65 | UC-68 | UC-68 |
+| View location movement details | UC-66 | UC-69 | UC-69 |
+| Create location movement | UC-67 | UC-70 | UC-70 |
+| Confirm actual location movement | UC-70 | UC-73 | UC-73 |
+| View warehouse transfer list | UC-76 | UC-79 | UC-79 |
+| View warehouse transfer details | UC-77 | UC-80 | UC-80 |
+| Create Transfer Request | UC-78 | UC-81 | UC-81 |
+| Review Transfer Request | UC-81 | UC-84 | UC-84 |
+| Create Transfer Dispatch (trước: Record Transfer Dispatch) | UC-82 | UC-85 | UC-85 |
+| Post Transfer Receipt (trước: Inspect and Post Transfer Receipt) | UC-86 | UC-120 | UC-89 |
+| Review Transfer Difference (trước: Review Transfer Difference Resolution) | UC-89 | UC-56 | UC-92 |
+| View Copied Sales Order List | UC-91 | UC-94 | UC-94 |
+| View Copied Sales Order Details | UC-92 | UC-58 | UC-95 |
+| Create Copied Sales Order | UC-93 | UC-59 | UC-96 |
+| Update Eligible Sales Order Remainder | UC-94 | UC-60 | UC-97 |
+| Cancel Eligible Sales Order Remainder | UC-95 | UC-98 | UC-98 |
+| View goods issue list | UC-96 | UC-99 | UC-99 |
+| View goods issue details | UC-97 | UC-100 | UC-100 |
+| Create goods issue | UC-98 | UC-71 | UC-101 |
+| Update goods issue | UC-99 | UC-72 | UC-102 |
+| Confirm Customer Delivery with Photo Evidence (trước: Record Customer Receipt Evidence on Goods Issue) | UC-105 | UC-129 | UC-105 |
+| View defective goods details | UC-108 | UC-74 | UC-108 |
+| Record Defective Goods (trước: Record Defect Inspection and Immediate Hold) | UC-109 | UC-75 | UC-109 |
+| Submit Defective Goods Disposition Proposal | UC-110 | UC-76 | UC-110 |
+| Review Defective Goods Disposition (trước: Approve or reject defective goods disposition) | UC-111 | UC-77 | UC-111 |
+| Record approved defective goods disposition | UC-112 | UC-78 | UC-112 |
+| Decide Ordinary Customer Return Acceptance | UC-117 | UC-82 | UC-117 |
+| Review Eligible Customer Return Exception | UC-118 | UC-83 | UC-119 |
+| Post Customer Return Receipt | UC-119 | UC-86 | UC-120 |
+| View supplier return request list | UC-120 | UC-122 | UC-122 |
+| View supplier return request details | UC-121 | UC-123 | UC-123 |
+| Create Supplier Return Request | UC-122 | UC-124 | UC-124 |
+| Confirm Supplier Return Dispatch | UC-124 | UC-126 | UC-126 |
+| Close Supplier Return | UC-126 | UC-128 | UC-128 |
+| View stocktake list | UC-127 | UC-93 | UC-129 |
+| View stocktake details | UC-128 | UC-130 | UC-130 |
+| Create Stocktake Session | UC-129 | UC-95 | UC-131 |
+| Activate Stocktake Session | UC-130 | UC-96 | UC-133 |
+| Print Stocktake Count Sheet | UC-131 | — | UC-134 |
+| Record Stocktake Count | UC-132 | — | UC-135 |
+| Record Stocktake Difference Reason | UC-133 | — | UC-136 |
+| Reconcile Stocktake Results | UC-134 | UC-137 | UC-137 |
+| Request Stocktake Recount | UC-135 | — | UC-138 |
+| Approve Stocktake Differences | UC-136 | — | UC-139 |
+| Cancel Stocktake Session | UC-137 | — | UC-140 |
+| View Stocktake Plan List | UC-138 | — | UC-141 |
+| View Stocktake Plan Details | UC-139 | — | UC-142 |
+| Create Stocktake Plan | UC-140 | — | UC-143 |
+| Update Stocktake Plan | UC-141 | — | UC-144 |
+| Change Stocktake Plan Status | UC-142 | — | UC-145 |
+| Generate Stocktake Session from Plan | UC-143 | — | UC-146 |
+| Sign in to the system | UC-144 | UC-106 | UC-147 |
+| Reset Own Password by Email | UC-145 | UC-131 | UC-152 |
+| View account list | UC-146 | UC-153 | UC-153 |
+| View account details | UC-147 | UC-108 | UC-154 |
+| Create Staff Account | UC-148 | UC-109 | UC-155 |
+| Update Staff Account Information | UC-149 | UC-110 | UC-156 |
+| Change Staff Account Status | UC-150 | UC-111 | UC-157 |
+| View Role List | UC-151 | — | UC-158 |
+| Create Role | UC-152 | — | UC-159 |
+| Update Role Permissions | UC-153 | — | UC-160 |
+| View Operational Reports | UC-154 | UC-164 | UC-164 |
+| View stock movement log | UC-155 | UC-165 | UC-165 |
+| View stock movement details | UC-156 | UC-166 | UC-166 |
+| Trace a product lot through source documents | UC-157 | UC-172 | UC-172 |
+| Verify Historical Customer Delivery Source | UC-158 | UC-173 | UC-173 |
+| Record External Document Reference | UC-159 | UC-174 | UC-174 |
+| Initiate User Password Reset as Administrator | UC-160 | UC-132 | UC-175 |
+| Confirm Full External Payment Receipt | UC-161 | — | UC-176 |
+
+## 25/11/2026 — Bỏ năm trường tiếng Việt sao chép trên chứng từ
+
+- **Lý do**: người dùng quyết định ngày 25/11/2026. `tenLoaiPhieu`, `maDonVi`, `kyDanhSo`, `soThuTu`, `trangThaiTiengViet` lặp lại dữ liệu đã có ở `documentKind`, `documentNo`, `workflowStatus`; nhãn trạng thái đã lưu còn bị cũ khi sang trạng thái thiếu trong bảng nhãn (ví dụ `SUBMITTED` vẫn hiện "Nháp").
+- **File**: `src/models/document-helpers.js`, `src/models/stocktake-plan.model.js`, `src/shared/utils/document-number.js` (`nextDocumentFields` và `pairedDocumentFields` chỉ trả `_id`, `documentNo`; lịch giao suy mã từ `documentNo` của đơn bán), `src/modules/search/search.service.js`, `src/modules/stocktake-closure/stocktake-reconciliation.service.js`, `scripts/drop-vietnamese-document-fields.mjs` (mới), `scripts/generate-db-overview.mjs` (thêm `delivery_schedules` vào bố cục), test `document-number` và `system-admin`.
+- **Hành vi**: định dạng và cách cấp mã phiếu không đổi. Response API không còn năm trường (FE trong `fe/src` không dùng). Tìm kiếm nhanh vẫn trả nhãn trạng thái tiếng Việt, tính lúc đọc.
+- **Tài liệu**: MODEL_MAP, `src/models/CHANGELOG.md`, từ điển và `schema.json` mốc 12/11 (sinh lại), DOCUMENT_IDENTITIES, STOCKTAKE_PLANS, SYSTEM_ADMIN, HIEUDT_ITERATIONS_NATIVE, HUONG_DAN_CODE_RR_NHAP_CAT_HANG; sinh lại hai file draw.io, bảng quan hệ và xuất lại ảnh (hai ảnh tổng quan/toàn bộ), ảnh tab "Phê duyệt và nhật ký" chỉ cập nhật dữ liệu sơ đồ nhúng. Sơ đồ được thêm `delivery_schedules` (62 collection). Từ điển 09/11 giữ nguyên làm lịch sử.
+- **Dữ liệu**: không ghi Atlas `wmsd_database`. DB local `wmsd_demo_tile_shop_v9` không có bản ghi cần dọn. Xem trước (chỉ đọc) thấy còn dữ liệu cũ ở `sep491` (11), `wmsd_reopen_check` (9), `wmsd_ui_check_261116` (8); chưa dọn. Con số là số cặp bản ghi/đường dẫn script tìm thấy. Cách dọn một DB local: đặt `MONGODB_URI=mongodb://127.0.0.1:27017/<db>` rồi chạy script với `--apply`.
+- **Kiểm chứng**: `npm test` mốc trước khi sửa 441 ca, 302 đạt, 139 bỏ qua, 0 lỗi. Bảy suite tích hợp (document-number, native-api, hieudt-iterations, stocktake-lifecycle, stocktake-resolution, goods-issues, direct-sales) trên replica local tạm 27018: trước khi sửa 54/64 đạt, sau khi sửa 55/65 đạt; 10 ca lỗi đều thuộc `hieudt-iterations`, trùng tên và nội dung lỗi ở hai lần chạy. Script dọn thử trên DB tạm: xóa đúng trường, giữ dữ liệu khác và ảnh chụp phê duyệt. Chưa kiểm trên trình duyệt.
+- **Gộp main trước khi sửa**: commit local `fc9eb94`, gộp `origin/main` (`410c1b1`) thành `5e7456e`. `change_logs.md` giữ cả hai bên. Theo lựa chọn của người dùng, `WMSD_Report3_Fix.docx.txt` giữ nguyên bản local: các thay đổi Report 3 của commit `efb9819` (minhbach-03, FE-08, FE-09, BF-05, đánh lại số) **chưa có trong file** dù mục nhật ký 24/11 bên dưới mô tả chúng; cần đưa lại sau.
+
+## 25/11/2026 — Hướng dẫn đọc code RR: giải thích kiểm quyền ở route và trong service
+
+**Yêu cầu.** User, 25/11/2026: giải thích vì sao một số chỗ trong module RR không dùng middleware `checkPermission` mà kiểm quyền trong service, và ghi vào [HUONG_DAN_CODE_RR_NHAP_CAT_HANG](docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md) đầy đủ từng hàm, lý do và cách kiểm chứng. Chỉ sửa tài liệu; không đổi code, quyền hay dữ liệu.
+
+**Thay đổi.** Thêm mục "Kiểm quyền: middleware `checkPermission` và hàm `requirePermission` trong service" trong Phần 2.0: tám lớp kiểm tra của một request RR kèm mã lỗi, ba hàm lõi (`hasPermission`, `checkPermission`, `requirePermission`), bốn lý do kiểm trong service (quyền phụ thuộc input, `command()` kiểm lại trong transaction, service được gọi từ nhiều nơi, điều kiện cần đọc bản ghi), bảng từng hàm RR, ví dụ Sales bị gỡ quyền `:create`, quy tắc khi thêm route và cách kiểm chứng. Thêm Phần 3 mục 3.6 (điểm 35–38): `canAccessWarehouse` có hai bản khác nhau khi `warehouseId` null, `replenishmentScope` tự kiểm quyền và bỏ qua `isActive`, tham số `roles` không dùng, quyền `replenishment_request:evaluate` có trong seed nhưng BE không kiểm.
+
+**Kiểm tra.** Đối chiếu code nhánh `minhtd` commit `5e7456e`. MongoDB local `rs0`: `RUN_NATIVE_API_TESTS=1 node --test --test-concurrency=1 --test-name-pattern="HTTP permission scope" test/backend-permissions.integration.test.js`: 6 test, 6 đạt. `npm run docs:check`. Chưa có test HTTP cho `POST /replenishments/evaluate` và `POST /replenishments/:id/cancel` khi thiếu quyền; chưa chạy test FE.
+
+## 25/11/2026 — Report 4 §II.1: tách sequence diagram BF-01 theo thao tác
+
+- Tách bốn sơ đồ tổng hợp thành 21 sơ đồ trong [Report 4](docs/01_bao_cao/WMSD_Report4_Draft.md) và đồng bộ 21 trang sequence trong [tệp draw.io BF-01](docs/04_so_do/WMSD_BF01_Diagrams.drawio). Giữ bốn trang class diagram. Các bước gửi RR, phát hành PO và xác nhận kiểm hàng nằm trong UC Create tương ứng theo Report 3 §4.2.
+- Đối chiếu 29 route API với route đăng ký và kiểm tra các lệnh nghiệp vụ tương ứng, gồm tạo phiếu nháp khi xác nhận kiểm, ghi tồn theo chủ sở hữu, hủy phiếu nháp, đảo tồn và trạng thái PO sau ghi hoặc đảo phiếu. Cập nhật dòng tham chiếu BF-01 trong bảng tổng hợp Report 4 theo các mục mới.
+- Mermaid parse 46 khối của báo cáo và render đủ 21 sơ đồ mới. Xuất 25 trang từ draw.io, rà bố cục 21 trang sequence và đối chiếu nhãn message, guard giữa hai bản. npm run docs:check đạt. Phạm vi kiểm tra là tài liệu và sơ đồ. Không chạy test ứng dụng.
+
+## 25/11/2026 — Report 4 Draft: cập nhật mục Database Design theo mẫu và 10 tab Draw.io (61 collection)
+
+**Yêu cầu.** User, 25/11/2026: chỉnh sửa mục `I.3 Database Design` trong [WMSD_Report4_Draft.md](docs/01_bao_cao/WMSD_Report4_Draft.md) theo cấu trúc bản mẫu Report 4 và sơ đồ tổng + 10 tab trong [WMSD_DB_Design_Overview.drawio](docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_DB_Design_Overview.drawio). Chỉ sửa tài liệu; không đổi code, model hay dữ liệu.
+
+**Thay đổi.**
+- Thay các bảng liệt kê cột dài và sơ đồ Mermaid 58 bảng cũ bằng sơ đồ tổng (`WMSD_DB_Design_Overview.drawio.png`) và 10 tiểu mục `3.1`–`3.10` khớp 1:1 với 10 tab nghiệp vụ của `WMSD_DB_Design_Overview.drawio`, cập nhật mục lục tương ứng (không sửa bảng Change Log trong report theo quy tắc tài liệu).
+- Mỗi tiểu mục gồm mô tả ngắn nhóm nghiệp vụ, tham chiếu tab Draw.io tương ứng và bảng `Table Descriptions` (`No | Collection | Description` kèm `Primary keys` và `Foreign keys`), đánh số liên tục `01`–`61` phủ đủ 61 collection hiện hành (58 nghiệp vụ + 3 quản trị hệ thống `app_settings`, `api_endpoints`, `error_logs`; đã có `stocktake_plans`, không còn `replenishment_locks`), giữ ghi chú tương thích cho các collection lịch sử (`customers`, `warehouse_issue_requests`, `delivery_orders`, `failed_deliveries`, `sales_invoices`, `supply_allocations`).
+
+**Kiểm tra.** Chạy `npm run docs:check` tại `be/`. Lưu ý: 10 tab con chưa xuất ảnh PNG riêng nên các mục `3.1`–`3.10` đang trỏ tới tên tab trong `WMSD_DB_Design_Overview.drawio`; mục `I.1 Software Architecture` vẫn giữ con số `58 collections` cũ ngoài phạm vi lượt sửa này.
+
+## 24/11/2026 — Hướng dẫn đọc code RR → nhập → cất hàng: đối chiếu lại code và viết đầy đủ luồng phụ
+
+**Yêu cầu.** User, 24/11/2026: cập nhật [HUONG_DAN_CODE_RR_NHAP_CAT_HANG](docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md) theo code hiện tại, kiểm các thay đổi và nhánh mới của quy trình, trình bày luồng phụ theo cùng khuôn luồng chính, chạy test để xác nhận. Chỉ sửa tài liệu; không đổi code, model hay dữ liệu.
+
+**Đối chiếu.** Nhánh `minhtd` commit `e251fb0`; `origin/main` không có commit mới chạm `replenishments`, `purchase-orders`, `po-receiving`, `location-movements`, `goods-receipts` hay `shared/utils` của luồng.
+
+**Sửa nội dung sai so với code.** Phiếu nhập ghi hết phần còn lại của PO có dòng chốt thiếu thì PO về `CLOSED` (không phải `COMPLETED`); lập kiểm nhận "chạm" `updatedAt` của PO để tranh chấp với hủy PO; bỏ các câu còn nói về kiểm kê mù (đã gỡ 22/11/2026); `moveStock` có thêm kiểm "Tồn đã được giữ hoặc lập lệnh khác"; `availableStock` được export cho cảnh báo tồn thấp và dashboard; cập nhật 33 số dòng lệch trong liên kết tới `po-receiving.service.js`, `stock.js`, `location-movement.service.js`, `purchase-order.*`, `replenishment.*`, `purchase-evidence.service.js`.
+
+**Bổ sung.** Mã chứng từ `PXGH` (`CustodyRelease`) và `PĐN` (`StockReversal`), vai trò theo seed quyền, bản đồ nhánh rẽ khỏi luồng chính, bảng API BF03. Phần 2B viết lại theo khuôn luồng chính cho: dữ liệu form/nguồn/xem trước/danh sách RR, rút-hủy RR, nhánh từ chối RR, sửa PO, đổi ngày giao, chốt thiếu, mở lại PO, hủy PO, đọc PO, dữ liệu form kiểm nhận, tra theo khóa thao tác, hủy nháp, đổi bãi, màn hình đọc nhận hàng, sửa kết quả kiểm, đảo phiếu, bằng chứng, toàn bộ nhánh giữ hộ (ghi, tái kiểm, quyết định, lập chứng từ, ghi phiếu nhập từ giữ hộ, trả NCC), đọc lệnh chuyển, đối soát, cảnh báo tồn thấp và quy tắc thông báo. Phần 3 thêm 5 giới hạn đã biết (điểm 30–34) và sửa điểm 28 (sau hủy PO, `openRequests` tính lại toàn bộ lượng duyệt của RR). Thêm Phần 4 ghi kết quả test.
+
+**Kiểm thử.** MongoDB local `rs0`: `RUN_NATIVE_API_TESTS=1 RUN_RELOCATION_PARTIAL_TESTS=1 node --test --test-concurrency=1` trên 9 file test của luồng: 79 ca, 78 đạt, 1 lỗi môi trường (`location-movement-partial.integration.test.js` cần replica set `hieudt-test` cổng 27018, máy không có). `npm run docs:check` đạt. Chưa chạy toàn bộ suite, test FE hay trình duyệt.
+
+## 24 November 2026 — Report 3 (Google Doc & local): RR, PO, inspection and receiving alignment
+
+User request (24/11/2026): compare Google Doc `WMSD_Report3_Fix` against `docs/01_bao_cao/WMSD_Report3_Fix.docx.txt` (local baseline) for §§II and III (RR, PO, goods inspection, goods receipt), update the Google Doc accordingly, strip `SC-` prefixes from §III screen headings (leaving screen names only), fix the stray sample name `Trần Minh`, and ensure descriptions remain requirement-level rather than code-copied. Documentation only; no code or database changed.
+
+- Local [Report 3](docs/01_bao_cao/WMSD_Report3_Fix.docx.txt): fixed the `Creator / submitter` row in `SC-06.3` from placeholder `Trần Minh` to `Text, read-only | Scoped user names of the creator and submitter.`
+- Google Doc `WMSD_Report3_Fix` (`1vrL-4sV2Rx9AofjiBE7MC3I1i26OUsJk2NH1HUnllCs`):
+  - §II.1 (`1. Replenishment, Purchasing and Receipt Tracking (FE-01)`): updated section heading, intro, `UC-01`, `UC-02`, `UC-03` (draft source-version refresh and whole-piece area rounding), `UC-07`, `UC-08`, `UC-09` (`Open order` terminology and whole-carton allowance), `UC-15`, `UC-16` to match the local baseline.
+  - §II.3 (`3. Goods Inspection and Goods Receipt (FE-03)`): updated `UC-37` (actual verified lot acceptance, custody flow `UC-50`–`UC-54`, custody draft on held lines), `UC-40` (direct `Post`, volume estimation rule, approved Other receipt branch `UC-47`, postconditions), and `UC-41` (`UC-124`–`UC-128` reference); added full 6×4 UC tables for `UC-43`–`UC-54` (Other goods receipt and custody receipt workflows).
+  - §III: removed `SC-xx:` / `SC-xx.y:` prefixes from all screen headings in §III (`1.1.1` through `22.1`); rewrote §III.4 and §III.5 (`4.1.1`–`5.2.2`, preserving existing screenshot `image24` in `4.1.1`) using local's 3-column requirement tables (`Field Name | Data Type / Required | Description`) and clickable Figma wireframe links without route paths, internal node IDs, or `Image to be inserted.` placeholders, and added `5.1.5 Goods Receipt Entry`, `5.2.1 Custody Receipt List`, and `5.2.2 Custody Receipt Detail`.
+- Verification: `gdocs readonly read --json` and `readonly export --format md` confirmed 0 remaining `SC-` prefixes in §III headings, 0 occurrences of `Trần Minh`, 0 route-path dumps, and preserved `image24`; `npm run docs:check` passed in `be/`. Note: pre-existing UC-number collisions outside §II.1/§II.3 (e.g. `UC-11`–`UC-16` in §II.2, `UC-37`–`UC-54` in §II.4–§II.6) and the native Google Docs TOC refresh were not modified.
+
+## 24 November 2026 - Report 3 purchasing and receiving specifications
+
+- Revised §§II and III of [Report 3](docs/01_bao_cao/WMSD_Report3_Fix.docx.txt). Purchase receiving ends at POSTED. Accountants open the PO for warehouse receiving and may order the smallest whole-carton quantity that covers the approval. Inspection records the actual verified lot, including a different lot of the same product. The Warehouse Staff Post action posts directly.
+- Added purchase and receipt read cases, Other receipt and custody cases, and the referenced supplier-return agreement and acknowledgement. Aligned the affected UC headings, permission entries and screen links with the catalogue.
+- Rewrote SC-06 to SC-08 as screen specifications with layout and field type, required condition and description. Updated 14 existing Figma frames and checked that all 19 visible tables have labelled headers and populated example rows. Archived the superseded purchase posting dialog.
+- Verification covers the documentation checks, unique detailed UC identifiers, screen links, and Figma table content and bounds. The earlier business-flow diagram remains historical. No application or database changes.
+
+## 24 November 2026 — Report 4 BF-01 Mermaid syntax fixes
+
+- Fixed two message labels in §II.1.3.2 and §II.1.4.2 by replacing semicolons within the labels. Mermaid 12.2.0 reproduced both reported errors before the fix, parsed all 32 Mermaid blocks afterward, and rendered the eight BF-01 diagrams and the purchasing ERD as SVG.
+
+## 24 November 2026 — Report 4 §II.1 (BF-01): UML design-level redraw of class and sequence diagrams
+
+User request (24/11/2026): review and redraw all BF-01 diagrams (`docs/01_bao_cao/WMSD_Report4_Draft.md` §§II.1.1–1.4) at the design/specification UML level and align with the current backend source, then export a consolidated multi-page draw.io file (`docs/04_so_do/WMSD_BF01_Diagrams.drawio`). Documentation only; no code or data changed.
+
+- Class diagrams (`1.1.1`, `1.2.1`, `1.3.1`, `1.4.1`): replaced file-path, collection-name, and runtime-status stereotypes with standard UML stereotypes (`<<controller>>`, `<<router>>`, `<<service>>`, `<<entity>>`, `<<interface>>`, `<<utility>>`); formatted attributes as `+name : Type` and operations with clean UML method signatures; split `ReplenishmentSource` (`<<interface>>`) realized by `SalesOrder`, `WarehouseIssueRequest`, and `Stocktake` and removed the `StockAndPurchaseData` bag; added `PurchaseOrderController`, `PurchaseReadService`, `CustodyRelease`, `PATCH /:id/destinations` (`changeDestinations`), custody resolution routes on `CustodyRouter`/`PurchaseCustodyService`, and `CLOSED` status on `CustodyReceipt`.
+- Corrected stored-reference direction and multiplicities: `ApprovalHistory "0..*" --> "1" ReplenishmentRequest` (`subjectId`) alongside `latestDecisionId` (`0..1`), `PurchaseOrder "0..1" --> "0..1" ReplenishmentRequest`, `GoodsInspection "1..*" --> "1" GoodsArrival`, `CustodyReceipt "0..*" --> "0..1" GoodsInspection`, and `StockReversal "0..1" --> "0..1" StockTransaction` (`stockTransactionId`).
+- Sequence diagrams (`1.1.2`, `1.2.2`, `1.3.2`, `1.4.2`): restored strict caller/callee message and return symmetry across `FE` ↔ `API` ↔ services (`ReplenishmentCommands`, `ReplenishmentEvaluation`, `PurchaseOrderCommands`, `PoReceivingService`, `PurchaseCorrectionService`, `StockUtils`), added actor triggers in `opt` blocks, added `GET /goods-inspections/:id/correction-preflight` and `PATCH /goods-receipts/purchase/:id/destinations`, and aligned route/command names with the codebase.
+- Draw.io output: created `docs/04_so_do/WMSD_BF01_Diagrams.drawio` containing 8 tabs (`1.1.1`–`1.4.2`) built with native draw.io UML containers and sequence lifelines/fragments; exported all 8 pages via draw.io CLI (`draw.io.exe`) to PNG and visually inspected them for overlaps.
+- Verification: `npm run docs:check` passed (3 identical instruction files, 61 collections, 1087 local links, change-log signals). Not checked: runtime application tests (unchanged code).
+
+## 24 November 2026 — Report 3 (Google Doc): screen notes moved to §III, §II format cleanup
+
+User request (24/11/2026): the Google Doc `WMSD_Report3_Fix` was edited by the user and showed format errors; screen notes must live in §III only. Edited the Google Doc directly through the Docs API; documentation only, no code or data changed.
+
+- §II FE-01 and FE-03 (UC-01..16, UC-37..42): deleted the 22 italic `Screen(s): ...` paragraphs and the `Feature: ...; Screen: ...` line in each Description cell; removed the stray empty Heading 2 paragraph between each UC heading and its table.
+- §III SC-06.1–SC-08.4: removed the stray empty Heading 2 before each field table, added a blank spacer paragraph after each table, restored the bold "Field Description" label, and added a "Use-case screens" line under each Wireframe note that maps every UC to its Figma frame and dialog nodes (04b: 46:6198–46:7053; 05b: 46:7117–46:7478).
+- §II 7.22–7.29 (UC-119, 125, 127, 118, 121, 172, 173, 174): the labels and values were Heading 2 paragraphs; rebuilt each as the standard 6x4 UC table (merged value cells, reference column widths and borders, 8 pt text, one paragraph per step) with the original wording; the `Tracker UC-xxx:` prefix and `FE-07; SC-xx.` suffix were dropped from Description.
+- Not done: the local mirror `docs/01_bao_cao/WMSD_Report3_Fix.docx.txt` was not re-exported and is now older than the Google Doc; table cell paragraph indentation of the 22 FE-01/FE-03 tables was not changed to the reference 4.55 pt; other §II blocks and the empty headings elsewhere in the document were not touched; the rendered Doc was not viewed.
+
+## 24 November 2026 — Report 4 §II.1: RR, PO, goods inspection and goods receipt diagrams checked against code
+
+User request (24/11/2026): check the §II class and sequence diagrams for RR, PO, goods inspection (ARR+INS) and purchase goods receipt against the code. Three read-only audits compared the diagrams with `src/modules/{replenishments,purchase-orders,po-receiving,goods-receipts}`, `shared/utils/stock.js` and the models.
+
+- `docs/01_bao_cao/WMSD_Report4_Draft.md` §II.1.1–1.4 corrected, documentation only: collection `approval_history`; `availableStock()` is public; the trigger comes from `source.triggerType` instead of being derived; `approvedRevision` is saved on APPROVE only and REJECT stores `approvedQtyBase = 0`; 409 on review; permissions of RR cancel and evaluate; controller layer and `GET /:id/submissions/:version`.
+- PO: full PUT body, `operationKey`/`expectedVersion` on close-remainder, create checks, expected-on date rule, cancel side effects, new `reopen` step, `receivingStatus` and `reopenable`.
+- Inspection and receipt: purchase GET routes belong to `receiptRouter`; custody routes completed; `PurchaseCustodyService` added; PO becomes CLOSED instead of COMPLETED after a short-closed line; correction blockers include a live replacement inspection and supplier returns; missing `operationKey`/`arrivedAt` fields; `changeDestinations` call.
+- A note under §II.1 explains that `RR-/PO-/ARR-/INS-/GR-` ids are placeholders for the Vietnamese type codes.
+- Not checked: frontend, tests, role-to-permission seed. No code or data changed. Mermaid blocks were not rendered.
+
+## 24 November 2026 — Report 4 BF-01 application flows and purchasing ERD
+
+- Updated Report 4 §§I.3 and II.1 to match the current application. Separated RR draft edit and submission, documented the whole-carton approval limit for PO, and gated draft receipt creation on the inspection decisions.
+- Documented purchase and supplier custody receipt posting, cancellation and reversal. Linked supplier returns to BF-08. The BF-01 application diagrams omit custody-to-purchase ownership acceptance and purchase receipt destination edits, which are API-only.
+- Corrected ARR–INS cardinality in the ERD and traced transfer receipt PUTAWAY through the BF-04 requirement. Purchase receipt relocation points to BF-03.
+- Verification used current FE and BE source, Mermaid 12.2.0 SVG rendering for all eight BF-01 diagrams and the purchasing ERD, and npm run docs:check. Application integration tests were outside this documentation check. The change affects report text and diagrams only.
+
+## 24 November 2026 — MongoDB design overview
+
+The [editable overview](docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_DB_Design_Overview.drawio) and its PNG now show all 61 collections in the backend registry. The design removes `replenishment_locks` and adds `app_settings`, `api_endpoints`, and `error_logs`. Cards resize to fit their top-level fields, and each title divider spans the full card width. Embedded objects and arrays are collapsed to one line per field.
+
+- After reviewing seven disconnected cards, the overview shows 59 edges. It connects system administration to users, approval and operation records to the audit log, return quantity claims to their request lines, and source locks to sales issue lines. The [relationship table](docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Overview_Relationships.md) records other verified targets, including audit subjects and alternate source-lock document types.
+- All overview connectors now use the same solid line and omit text labels. The generated diagram follows the saved layout without a title or legend block.
+- The separate [full relationship diagram](docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_DB_Design_Full_Relationships.drawio) and its PNG cover 488 directed collection pairs across 61 collections. The diagram groups 1,580 reference rows by pair and lists their field paths on hover. Nine connector layers include a layer for pairs declared only by shared embedded variants. The 633 context-dependent rows without a specific target remain in the relationship table. Run `node scripts/generate-db-overview.mjs --full` to regenerate the full diagram.
+- `node scripts/generate-db-overview.mjs --check` verifies that the editable diagram and table match the generated output. The follow-up layout check confirmed a connector for each of the seven cards and zero crossings through unrelated cards. The PNG was inspected at full size and contains the editable graph. The validator reported 21 connector crossings, shown with line jumps in the render.
+- This update changes documentation and its generator. The registry inspection ran offline, without database access, migration, or data writes.
+- Later on 24 November, at the user's request and following the subject-area split of the reference Software Design Document, the editable overview gained ten tabs after the unchanged "Tổng quan thiết kế CSDL" tab: Phân quyền và quản trị hệ thống, Phê duyệt và nhật ký, Danh mục hàng hóa, Kho và tồn kho, Kiểm kê và điều chỉnh, Xử lý hàng lỗi, Mua hàng và nhập kho, Bán hàng và xuất kho, Trả hàng, Điều chuyển kho. Each collection appears in full on exactly one tab. A collection from another tab appears as a key-only card when one of the 59 overview connectors reaches it. The generator asserts both rules. The overview tabs keep the Helvetica font of the saved file, and the full relationship diagram keeps its fonts. Before the split, the generated fields, connectors and cardinalities matched the saved diagram and the current 61-collection registry, so no model change was needed. `--check` and `--full --check` pass, and each new tab was exported with draw.io Desktop and inspected. No new PNG was exported into the repository. The existing PNG shows the first tab.
+- After the split, the user asked to connect the cards that had no overview connector. The overview and group tabs now show 66 connectors. The seven new ones come from existing schema references: `customers` → `sales_orders` (`header.customerId`, 0..1 ↔ 0..n), `customers` → `sales_invoices` (`customerId`, 1 ↔ 0..n), `delivery_orders` → `sales_goods_issues` (`header.deliveryOrderId`, 0..1 ↔ 0..n), `warehouses` → `opening_stocks` (`header.warehouseId`, 0..1 ↔ 0..n) and `supplier_returns` → `custody_releases` (`acknowledgements[].header.supplierReturnId`, 0..n ↔ 0..n). The two compatibility links `sales_orders` → `warehouse_issue_requests` and `warehouse_issue_requests` → `delivery_orders` are required in the header schema, so they are drawn 1 ↔ 0..n. The generator asserts each Mongoose cardinality against its schema. At the user's follow-up request, `users` → `attachments` (`uploadedBy`, 1 ↔ 0..n) was added, which brings the total to 67 connectors. The "Phân quyền và quản trị hệ thống" tab now places `attachments` beside `api_endpoints`, so connectors do not share segments. The incoming `evidenceIds` links from about 31 collections and the `replacesAttachmentId` self-reference stay off the diagram and remain in the relationship table. `system_events` has no fixed target, because the meaning of `sourceId` depends on `sourceType`. The "Mua hàng và nhập kho" and "Bán hàng và xuất kho" tabs were rearranged to avoid overlapping lines. The relationship table marks the new rows as drawn. The overview PNG was re-exported from the first tab at the same size, with the diagram embedded. `--check`, `--full --check` and docs:check pass, and the changed tabs were inspected after export.
+
+## 24 November 2026 — Report 3 §II and §III: RR, PO, goods inspection and goods receipt
+
+User request (24/11/2026): complete the use case specifications (§II) and functional requirements (§III) for the replenishment request, purchase order, goods inspection and goods receipt flows, in the Report 3 template format. Decisions: core use cases only (read-only use cases refer to §III); follow the code where it differs from the older SRS text; PO remainder closure is one step by the Accountant.
+
+- `docs/01_bao_cao/WMSD_Report3_Fix.docx.txt` §II: replaced the old UC-01–UC-16 blocks (FE-01) and the old UC-37 block with template-format specifications using the §4.2 numbering: UC-03, 04, 05, 06, 09, 10, 11, 12, 13, 14 (FE-01) and a new "3. Goods Inspection and Goods Receipt (FE-03)" section with UC-37, 38, 39, 40, 41, 42. Other §II blocks keep the old numbering and are unchanged.
+- §III: SC-06, SC-07 and SC-08 rewritten as screen sections (SC-06.1–SC-08.4) with a description mapped to UCs and a field table. Wireframe images are not inserted; each block names the Figma frame (node id) to use.
+- §4.2 and §4.4: UC-04, UC-05, UC-12 wording aligned with the code (draft-only update, approve or reject without return, one-step PO closure with optional evidence).
+- Code facts used: replenishment `REVISE`/return removed 22/11/2026, purchase put-away removed 17/11/2026, PO close-request/approval/execution commands removed (single `close-remainder`), no discrepancy record in the receiving modules, PO becomes CLOSED instead of COMPLETED when a line was short-closed.
+- Not changed and now stale against these specifications: BF-01 main flow steps 5–9 and the 01.X table (put-away, discrepancy record, Owner approval of closure), §4.3, §5.1 SC-08 linked UCs, other §II blocks with the old numbering.
+- Figma (file 5e8V5HPezbC53OEUnbKhIU): created 18 dialog wireframes in two new sections, 04b (12 dialogs for RR and PO, node 46:7112) and 05b (6 dialogs for goods inspection and goods receipt, node 46:7537). Their node ids are cited in the `Screen(s)` notes of §II and the wireframe notes of §III. Existing frames are unchanged.
+- Validation: manual comparison of UC IDs and names with §4.2; `npm run docs:check` result is recorded in the task report.
+
+## 24 November 2026: Report 3 English prompt catalogue (174 UCs)
+
+The user approved a 174-UC catalogue for [the English prompt set](docs/07_ra_soat/Doi_chieu_GoogleDocs_2026-10-27/03_Prompts_Report3.md). Section 4.2 of [English replacement part 03](docs/07_ra_soat/Doi_chieu_GoogleDocs_2026-10-27/Report3_English_Replacements/03_Catalogue_Permissions_and_Interfaces.md#replacement-content) now contains 174 active UCs, numbered by feature using WBS order. The catalogue retains 155 of the 158 baseline UCs and adds 19 confirmed WBS operations.
+
+- Direct sales keeps all five Sales Order UCs. UC-94 to UC-96 use the Excel names. UC-97 and UC-98 keep distinct update and cancellation operations. Sales confirms receipt on the posted issue, and the order reaches DELIVERED. Sales picking, old goods issue approval and external payment confirmation are outside this catalogue. Transfer picking stays.
+- The catalogue incorporates scheduled low-stock scans, automatic notification emails, empty-location count corrections and adjustment reads in the relevant UC descriptions. UC-170 retains the WBS name Manage API Endpoint Permissions. Its description reflects the current API endpoint catalogue maintenance operation.
+- The new replacement block applies only to section 4.2. Actor associations, permissions, system functionality and detailed specifications still use the historical 97-UC numbering and need a separate update before they can accompany the 174-UC table. This documentation update changes no behaviour or data.
+- Applied the same 174 UC names, descriptions and numbering to [Report 3 section 4.2](docs/01_bao_cao/WMSD_Report3_Fix.docx.txt), using its existing four-column layout. Report 3 sections 4.3 and 4.4 and the detailed specifications retain their previous identifiers.
+- Validation: checked 174 unique sequential IDs, feature counts, the agreed additions and removals, Sales Order names, in-table references, local links, the replacement boundary and preservation of historical content. `npm run docs:check` and `git diff --check` passed.
+
 ## 25/11/2026 — Tách controller cho chuyển kho và chuyển vị trí
 
 Theo yêu cầu người dùng, hai luồng dùng Route → Controller → Service → Model. BF04 chuyển các handler đọc và ghi từ route sang một controller chung. Gộp route, service và validation đọc/ghi thành một file mỗi lớp. Tập trung schema chênh lệch trong validation, giữ nghiệp vụ chênh lệch, kiểm tồn và hoàn tất trong các file riêng theo chức năng. Kiểm tra sau khi gộp qua 19 test, 20 handler và 6 request HTTP với model giả lập. Các test MongoDB vẫn chưa bật. Gỡ file dẫn BF04_API.md trùng trong module và cập nhật các liên kết tài liệu thiết kế hiện hành về hợp đồng chính. BF03 gọi trực tiếp service từ controller, bỏ file xuất lại hàm lifecycle. URL, payload, quyền, nghiệp vụ và model giữ nguyên. Không cần migration. Xem [BF04](docs/08_api/transfers/BF04_API.md) và [BF03](docs/08_api/location-movements/README.md).
@@ -2312,6 +2585,14 @@ FE tạo TR chỉ chọn kho nguồn/kho đích, sản phẩm, lô và đơn v�
 ## 23/11/2026 — Gỡ Dockerfile backend
 
 Theo yêu cầu người dùng, gỡ Dockerfile của BE và cập nhật hướng dẫn chạy bằng `npm run dev`.
+
+## 25 November 2026 — Database design descriptions and diagram corrections
+
+- Reason: the user asked to correct the differences found between Report 4 §I.3, the ten group tabs of the MongoDB overview and the current schemas and services.
+- Report 4 §§3.4–3.10: 25 table rows corrected. Fixed the transfer request warehouse field names; limited stock discrepancies to transit shortages; stated that a quality change can move stock to another location; corrected the opening stock uniqueness scope, goods issue states, requirement-to-Transfer Order cardinality, goods-issue picking tasks and the `header.planId` target; added missing warehouse and business foreign keys. The lists still omit some user, product, batch and embedded-line references; the relationship table remains the full list.
+- Diagram: `scripts/generate-db-overview.mjs` now draws `internal_transfer_requirements` → `transfer_orders` as 0..1 ↔ 0..1 (partial unique index) and adds `stock_transactions` → `operation_records`, `approval_history` → `operation_records` and `sales_goods_issues` → `failed_deliveries`, for 70 connectors. The "Kho và tồn kho" tab gains an `operation_records` key card. Regenerated the overview diagram and relationship table; re-exported the overview PNG (3258×4787, diagram embedded).
+- No model, API, permission or data change.
+- Checks: `node scripts/generate-db-overview.mjs --check` and `--full --check` pass; a read-only script found every checked foreign key path of the 61 table rows in the Mongoose schemas; the changed group tabs and the overview PNG were inspected; `npm run docs:check` was run. Application tests were not run.
 
 ## 24/11/2026 — Khôi phục Docker dev cho BE và FE, tách riêng, không nginx
 

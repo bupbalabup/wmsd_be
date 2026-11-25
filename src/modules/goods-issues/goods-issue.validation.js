@@ -10,6 +10,7 @@ const note = z.string().trim().max(2000);
 const rows = (schema, key) => z.array(schema.strict()).min(1).max(100)
   .refine(lines => new Set(lines.map(line => line[key])).size === lines.length, 'Duplicate source lines');
 export const listQuery = outboundQuery.safeExtend({ deliveryOrderId: documentIdentifier.optional(), sourceRequest: z.string().trim().min(1).max(100).optional() });
+export const optionsQuery = listQuery.safeExtend({ warehouseId: objectId.optional() });
 const legacyCreateBody = operation.extend({ deliveryOrderId: documentIdentifier, note: note.optional(),
   lines: rows(z.object({ reservationId: objectId, qtyBase: qty }), 'reservationId'),
 }).strict();

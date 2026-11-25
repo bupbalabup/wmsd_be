@@ -616,9 +616,9 @@ export async function receivingOperation(user, id, key) {
       readOnly: true,
     });
     if (
-      same(subject._id, id) ||
-      same(subject.header.purchaseOrderId, id) ||
-      subject.sources?.some((link) => same(link.documentId, id))
+      same(subject._id, po._id) ||
+      same(subject.header.purchaseOrderId, po._id) ||
+      subject.sources?.some((link) => same(link.documentId, po._id))
     )
       return serialize(operation);
   }

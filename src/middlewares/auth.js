@@ -9,7 +9,12 @@ const unauthenticated = (message) =>
 const JWT_SECRET =
   process.env.JWT_SECRET || "wmsd_default_super_secret_jwt_key_2026";
 
+const AUTHENTICATED = Symbol("authenticated");
+
 export const authenticate = async (req, _res, next) => {
+  if (req[AUTHENTICATED] && req.user) {
+    return next();
+  }
   try {
     let token = null;
     const authHeader = req.headers.authorization;
@@ -37,6 +42,7 @@ export const authenticate = async (req, _res, next) => {
     }
 
     req.user = user;
+    req[AUTHENTICATED] = true;
     next();
   } catch (_err) {
     next(unauthenticated("Phiên đăng nhập không hợp lệ hoặc đã hết hạn"));
