@@ -14,6 +14,10 @@ Nguồn yêu cầu: [Report 3, phạm vi và BF-06/BF-07](docs/01_bao_cao/WMSD_R
 
 The runtime contract below describes the direct-sales implementation before customer-catalogue removal; current functional scope is defined above. Sales Order → direct Goods Issue; Sales confirms evidenced customer receipt; Warehouse receives undelivered goods inline. New CR inspection records facts only, acceptance authorizes receipt, and only receipt posts STORE stock. Legacy mode markers are absent and retain original ledgers. Optional issue header/order/customer/sourceBalance and embedded customerReceipts, CR intakeMode/handbacks, and FAILED_DELIVERY receipt goodsIssueId add no collection. See [current contract](docs/08_api/GOODS_ISSUES.md) for permissions, exact caps, schema, compatibility and setup.
 
+## Current sales and returns — 18 November 2026
+
+Customer Return may start from a posted SALE Goods Issue with or without a Sales Order. SO-linked issue lines require recorded, evidence-backed customer receipt before becoming return sources; standalone sale issue lines use posted quantity less undelivered receipts and outstanding claims. Each return uses one source document. Warehouse inspection records facts, Sales accepts or rejects, and Warehouse receipt posts accepted stock. See [current contract](docs/08_api/GOODS_ISSUES.md).
+
 17/11/2026 — Kho 3D [lớp pallet](docs/10_Kho3D/STAGE3_PALLET_LAYERS.md): nhập mã/lô/số thùng như phương án; không tạo balance/chứng từ. Cao đo phần hàng cộng đế; giữ nghĩa actualHeight lịch sử. Vượt giới hạn khu/kho chỉ cảnh báo, không chặn lưu/áp dụng theo quyết định trực tiếp người dùng.
 
 17/11/2026 — Người dùng duyệt BF03 chuyển nhiều lần trên cùng lệnh: OPEN → PARTIAL → CONFIRMED; mỗi lần chỉ ghi lượng thực chuyển của các dòng chọn. Lượng còn lại tính từ ledger, hủy chỉ phần chưa chuyển, giữ lịch sử và tồn đã chuyển. Chưa có chuyến mới được sửa kế hoạch; không tự mở thùng. Hợp đồng: docs/08_api/location-movements/README.md.

@@ -4,7 +4,6 @@ import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import * as m from '../src/models/runtime.js';
 import { PERMISSION_CATALOGUE, ROLE_PERMISSIONS } from '../src/seeds/data/permissions.data.js';
-import { createSalesOrder } from '../src/modules/sales-orders/sales-create.service.js';
 import * as sales from '../src/modules/sales-orders/sales-execution.service.js';
 import * as issues from '../src/modules/goods-issues/goods-issue.service.js';
 import { remainingReservation } from '../src/shared/utils/stock.js';
@@ -47,11 +46,11 @@ test('UC69–72: source-backed GI create/update/cancel, picking and once-only po
     const point = await m.StockHoldingPoint.create({ type: 'LOCATION', locationId: storage._id });
     const balance = await m.InventoryBalance.create({ holdingPointId: point._id, batchId: batch._id, ownerType: 'STORE', qualityStatus: 'GOOD', quantityBase: '16', version: 1,
       packagingPortions: [{ packagingState: 'SEALED', sealedPackCount: 4, quantityBase: '16', packagingSnapshot: { packageUnit: 'BOX', baseUnitsPerPackage: '4', outerLengthMm: '620', outerWidthMm: '620', outerHeightMm: '50' }, createdBy: worker._id }] });
-    const customer = await m.Customer.create({ code: 'CUS', name: 'GI customer', phone: '0900000000' });
-    const evidenceReceipt = jwt.sign({ actorId: String(seller._id), storageKey: 'sep490/sales-source/test', checksum: 'a'.repeat(64), mediaType: 'image/png', sizeBytes: 12, originalName: 'source.png' }, process.env.JWT_SECRET, { audience: 'sales-source-evidence', expiresIn: '1h' });
-    const createdOrder = await createSalesOrder(seller, { idempotencyKey: key(), customerId: String(customer._id), neededOn: '2026-12-01T00:00:00Z', deliveryAddress: 'Test address', currencyCode: 'VND', evidenceReceipt,
-      source: { sourceSystem: 'PAPER', referenceNo: 'GI-TEST-SO' }, lines: [{ sourceLineKey: '1', productId: String(product._id), lotId: String(batch._id), enteredUnit: 'PIECE', quantity: '16', unitSellingPrice: '1000' }] });
-    const so = await m.SalesOrder.findById(createdOrder.id);
+    const so = await m.SalesOrder.create({ documentNo: 'ĐBH-KD-LEGACY-' + key(), workflowStatus: 'OPEN', version: 1, createdBy: seller._id,
+      header: { externalReferenceId: new mongoose.Types.ObjectId(), neededOn: new Date('2026-12-01T00:00:00Z'), deliveryAddressSnapshot: 'Test address' },
+      items: [{ _id: new mongoose.Types.ObjectId(), lineNo: 1, lineKind: 'SALES_ORDER', productId: product._id, lotId: batch._id, enteredUnit: 'PIECE', baseUnitSnapshot: 'PIECE', baseUnitsPerUnit: '1',
+        packagingSnapshot: { packageUnit: 'Thùng', baseUnitsPerPackage: '4', outerLengthMm: '620', outerWidthMm: '620', outerHeightMm: '50' }, enteredQty: '16', qtyBase: '16', productNameSnapshot: product.name,
+        unitSellingPrice: '1000', lineAmount: '16000', priceRevision: 1, details: { externalReferenceId: new mongoose.Types.ObjectId(), externalLineId: new mongoose.Types.ObjectId() } }], orderAmount: '16000', currencyCode: 'VND' });
     const request = await sales.createIssueRequest(seller, so._id, { idempotencyKey: key(), expectedVersion: so.version, warehouseId: String(warehouse._id), neededOn: '2026-12-01T00:00:00Z', lines: [{ lineId: String(so.items[0]._id), qtyBase: '16' }] });
     const wir = await m.WarehouseIssueRequest.findById(request.id);
     const madeDelivery = await sales.createDelivery(seller, { idempotencyKey: key(), expectedVersion: wir.version, issueRequestId: String(wir._id), warehouseId: String(warehouse._id), plannedOn: '2026-12-01T00:00:00Z', recipientName: 'Customer', recipientPhone: '0900000000', deliveryAddress: 'Test address',

@@ -77,6 +77,9 @@ export const rules = {
   AGREEMENT_SR: ({ op }) => op.resultCode === 'READY'
     ? [send('Phiếu trả nhà cung cấp chờ xuất', 'supplier_return:dispatch')] : [],
   DISPATCH_SR: () => [send('Đã xuất hàng trả nhà cung cấp, chờ biên nhận', 'supplier_return:record_agreement')],
+  ACK_SR: ({ doc }) => [requester('Nhà cung cấp đã phản hồi phiếu trả hàng', doc)],
+  CLOSE_SR: ({ op, doc }) => op.resultCode === 'COMPLETED'
+    ? [requester('Phiếu trả nhà cung cấp đã đóng', doc)] : [],
 };
 
 export async function resolveSource(event, op) {

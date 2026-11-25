@@ -1,12 +1,19 @@
+import 'dotenv/config';
 import mongoose from 'mongoose';
 import { pathToFileURL } from 'node:url';
-import { requireLoopbackMongoUri } from '../src/config/local-mongo.js';
+import { isLoopbackMongoUri } from '../src/config/local-mongo.js';
 import { PERMISSION_CATALOGUE } from '../src/seeds/data/permissions.data.js';
 
-export async function setupOpeningStock(uri, { apply = false } = {}) {
-  requireLoopbackMongoUri(uri);
-  const database = decodeURIComponent(new URL(uri).pathname.slice(1));
-  if (!database || ['admin', 'local', 'config'].includes(database)) throw new Error('Name the local application database explicitly.');
+export function openingStockTarget(uri, { allowRemote = false } = {}) {
+  if (!uri || !/^mongodb(?:\+srv)?:\/\//.test(uri)) throw new Error('Set MONGODB_URI to the intended MongoDB application database.');
+  if (!allowRemote && !isLoopbackMongoUri(uri)) throw new Error('Use --allow-remote to install opening stock on Atlas or another remote database.');
+  const database = decodeURIComponent(uri.match(/^mongodb(?:\+srv)?:\/\/[^/]+\/([^?]*)/)?.[1] || '');
+  if (!database || ['admin', 'local', 'config'].includes(database)) throw new Error('Name the application database explicitly.');
+  return database;
+}
+
+export async function setupOpeningStock(uri, { apply = false, allowRemote = false } = {}) {
+  const database = openingStockTarget(uri, { allowRemote });
   const connection = await mongoose.createConnection(uri, { serverSelectionTimeoutMS: 5000 }).asPromise();
   try {
     const db = connection.db;
@@ -43,5 +50,6 @@ export async function setupOpeningStock(uri, { apply = false } = {}) {
   } finally { await connection.close(); }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  setupOpeningStock(process.argv[2], { apply: process.argv.includes('--apply') }).then(result => console.log(JSON.stringify(result, null, 2))).catch(error => { console.error(error.message); process.exitCode = 1; });
+  const uri = process.argv.slice(2).find(arg => !arg.startsWith('--')) || process.env.MONGODB_URI;
+  setupOpeningStock(uri, { apply: process.argv.includes('--apply'), allowRemote: process.argv.includes('--allow-remote') }).then(result => console.log(JSON.stringify(result, null, 2))).catch(error => { console.error(uri ? error.message.replaceAll(uri, '[MONGODB_URI]') : error.message); process.exitCode = 1; });
 }

@@ -1,3 +1,11 @@
+## 25/11/2026 — Let Sales return goods from a Warehouse-issued standalone sale
+
+Sales can create a customer-return request from a posted standalone SALE Goods Issue created by Warehouse when it has an external reference and is in the selected warehouse. This source path uses the posted issue quantity and outstanding return claims; it does not require a Sales Order or a customer-receipt confirmation. Other source, warehouse and quantity checks remain enforced. A focused integration test reproduces the Warehouse-created source and verifies Sales can select it and create the request in an isolated database.
+
+## 25/11/2026 — Notify the requester about supplier acknowledgement and closure
+
+`ACK_SR` now notifies the original supplier-return requester after the Accountant records the supplier response; `CLOSE_SR` sends a final notice when the return completes. The existing worker enforces source-read and warehouse scope and deduplicates each event per recipient. Regression coverage verifies both notices in the isolated supplier lifecycle without changing stock behavior. No schema, index, permission or shared-database change.
+
 ## 25/11/2026 — Sales order and delivery schedule
 
 New sales orders keep customer name and phone, external-source evidence and pricing. Creation writes the order, predicted deliveries and FIFO reservations together. Existing direct sales and legacy permissions remain available for historical workflows. See [Sales delivery schedule](docs/08_api/SALES_DELIVERY_SCHEDULE.md).
@@ -807,6 +815,12 @@ BE test mặc định có 237 ca đạt, 123 ca skip và một ca TODO. FE có 4
 ## 17 November 2026 — preserve historical opening-stock documents
 
 Backend CI exposed existing fixtures and historical seed data with multiple POSTED opening documents for a warehouse. A unique index across every POSTED opening document prevented those databases from starting. The one-time rule now applies to POSTED file imports identified by `header.openingImportSource=FILE`; the service still blocks importing into any warehouse already initialized. The local setup replaces only the known earlier index after checking for duplicate file imports. No store data was changed.
+
+## 18 November 2026 — customer returns from Goods Issue
+
+Per the user's decision, a Customer Return can use a posted SALE Goods Issue without a Sales Order, so the return demo does not require the separate Sales Order flow. If the issue has no customer snapshot, the requester supplies `customerName`. SO-linked issues keep their confirmed-received cap; standalone issues use effective posted issue quantity less posted undelivered receipts, outstanding failed-delivery claims and CR claims. The existing inspection → Sales decision → Warehouse receipt flow is unchanged; no schema or migration was added. Confirmed supplier custody as the alternate return path: non-GOOD purchase items must use CUSTODY; unused GOOD items may also be explicitly kept supplier-owned in CUSTODY. Accountant agreement → Warehouse CustodyRelease dispatch → Accountant ACK/close already works; already STORE-owned stock uses the regular Supplier Return flow.
+
+Validation at the time: FE return workflow tests 23/23, TypeScript check, changed-file ESLint, backend standalone/source lookup unit checks and `npm run docs:check` passed. The transaction integration test was skipped because its required local replica set was unavailable. No Atlas write.
 
 ## 17 November 2026 — direct sales and no-custody customer returns
 
@@ -2242,3 +2256,4 @@ Theo yêu cầu người dùng, gỡ Dockerfile của BE và cập nhật hướ
   - Report 3: viết lại BF-05 (luồng chính và bảng nhánh) theo luồng kế hoạch/phiếu/lý do/đếm lại/duyệt chênh lệch hiện hành; thay các tham chiếu tới use case giải quyết chênh lệch cũ (UC-93…UC-105, UC-121) và tài khoản cũ (UC-109…UC-111) trong BF-02/03, sơ đồ dữ liệu, bảng thực thể, DR-02/08/09/14, BR-03/05/19/21/22/23/24/25/30 và các mục hàng lỗi UC-76…UC-78, SC-11 bằng số mới; mục lục ghi 159 use case của catalogue cùng UC-160/UC-161 chờ đưa vào catalogue. Sau lần review thứ ba: năm mục WIR đã retired ghi "Former UC-124…128"; nhãn khóa của `STOCKTAKE_RESOLUTION` trong sơ đồ dữ liệu ghi là lịch sử (đã ngừng 22/11/2026); BR-05 nêu đúng quy tắc người đếm không được tự duyệt chênh lệch.
 - **Kiểm chứng bổ sung**: `node --check` các file đổi; kiểm tra ad-hoc bằng stub (không DB) ghi đúng 2 bản audit (người thực hiện, đối tượng `roles`, quyền trước/sau); `node --test test/system-admin.test.js` 7/7 đạt; `npm run docs:check` đạt; không còn tiêu đề use case trùng số trong Report 3.
 - **Hạn chế còn lại**: các mục chi tiết và tham chiếu của nhóm khác vẫn dùng số cũ khác với catalogue (ví dụ customer return UC-79…UC-86, defect UC-73…UC-78, supplier return UC-88…UC-92, stock movement UC-114…UC-116, UC-117…UC-120, UC-122/123), nên nhiều dòng BF/DR/BR đang trộn số cũ và số mới; không còn trùng tiêu đề nhưng cần một đợt đánh số lại toàn bộ phần chi tiết theo catalogue; kế hoạch kiểm kê, hủy phiên, `GET/POST /users`, `POST /roles`, `PUT /roles/:code/permissions` và chọn lý do chênh lệch (FE) vẫn chưa có test tự động theo quyết định không tạo test mới; không chạy test cần MongoDB.
+25/11/2026 — Customer Return sources from posted Goods Issues expose the actual active issue lots and per-lot remaining claim. Sales can split one source across those lots; the backend validates and retains each lot through receipt. Add an explicit private local evidence provider for isolated demos with no Cloudinary credentials; Cloudinary remains the default. Current contracts: `docs/08_api/GOODS_ISSUES.md`, `docs/08_api/RETURN_WORKFLOWS_NATIVE.md`.

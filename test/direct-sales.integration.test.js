@@ -165,6 +165,63 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
    await assert.rejects(returns.receiveCustomerReturn(worker,rd._id,{...handback,idempotencyKey:key(),expectedVersion:rd.version},true));
    if(!legacy)await assert.rejects(returns.inspectCustomerReturn(worker,rd._id,{...inspection,idempotencyKey:key(),expectedVersion:rd.version},true));
  }
+ thirdIssue=await m.SalesGoodsIssue.findById(thirdIssue._id);
+ thirdIssue.header.fulfillmentMode=undefined;thirdIssue.header.salesOrderId=undefined;thirdIssue.header.customerId=undefined;thirdIssue.header.issueKind='SALE';thirdIssue.header.referenceNo='LEGACY-MANUAL-SALE';thirdIssue.items[0].lotId=undefined;thirdIssue.customerReceipts=[];thirdIssue.createdBy=worker._id;
+ await thirdIssue.save();
+ const standaloneSources=await lookup(seller,{kind:'sources',purpose:'customer-returns',warehouseId:String(warehouse._id),documentId:String(thirdIssue._id),page:1,limit:10});
+ assert.equal(standaloneSources.items[0]?.availableQty,'4','Sales can use a warehouse-created standalone SALE issue as the return source');
+ assert.deepEqual(standaloneSources.items[0]?.sourceLots?.map(lot=>({lotId:lot.lotId,quantityBase:lot.quantityBase,availableQty:lot.availableQty})),[{lotId:String(batch._id),quantityBase:'4',availableQty:'4'}]);
+ await assert.rejects(returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),customerName:'Goods issue customer',lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),lotId:String(storage._id),qtyBase:'1',reason:'Wrong lot'}]}));
+ await assert.rejects(returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),customerName:'Goods issue customer',lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),lotId:String(batch._id),qtyBase:'5',reason:'Above source lot'}]}));
+ const standaloneReturn=await returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),customerName:'Goods issue customer',lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),qtyBase:'3',reason:'No Sales Order'}]});
+ const standaloneDoc=await m.CustomerReturn.findById(standaloneReturn.id);
+ assert.equal(standaloneDoc.header.customerName,'Goods issue customer');assert.equal(standaloneDoc.header.customerId,undefined);
+ assert.equal(String(standaloneDoc.items[0].lotId),String(batch._id),'Customer Return retains the lot from the posted Goods Issue stock movement');
+ const standaloneEvidence=await attach(standaloneDoc);
+ await returns.inspectCustomerReturn(worker,standaloneDoc._id,{idempotencyKey:key(),expectedVersion:standaloneDoc.version,evidenceIds:[String(standaloneEvidence._id)],lines:[{returnLineId:String(standaloneDoc.items[0]._id),qtyReceived:'3',packagingCondition:'LOOSE',installationStatus:'UNUSED',damageCause:'NONE',deadlineStatus:'WITHIN',deadlineReference:'Verified return policy',assessmentReason:'Goods Issue lot checked'}]});
+ let standaloneReviewed=await m.CustomerReturn.findById(standaloneDoc._id);
+ await returns.decideCustomerReturn(seller,standaloneReviewed._id,{idempotencyKey:key(),expectedVersion:standaloneReviewed.version,decision:'APPROVE',reason:'Eligible Goods Issue return',lines:[{lineId:String(standaloneReviewed.items[0]._id),qtyBase:'3'}]});
+ standaloneReviewed=await m.CustomerReturn.findById(standaloneReviewed._id);
+ const quantityBeforeStandaloneReceipt=String((await m.InventoryBalance.findById(balance._id)).quantityBase);
+ await returns.receiveCustomerReturn(worker,standaloneReviewed._id,{idempotencyKey:key(),expectedVersion:standaloneReviewed.version,evidenceIds:[String(standaloneEvidence._id)],lines:[{lineId:String(standaloneReviewed.items[0]._id),qtyBase:'3',locationId:String(storage._id),qualityCode:'GOOD'}]});
+ const standaloneReceipt=await m.CustomerReturnReceipt.findOne({'header.returnId':standaloneReviewed._id,workflowStatus:'POSTED'});
+ assert.equal(String(standaloneReceipt.items[0].lotId),String(batch._id));
+ assert.equal(String((await m.InventoryBalance.findById(balance._id)).quantityBase),String(Number(quantityBeforeStandaloneReceipt)+3));
+ const secondBatch=await m.ProductBatch.create({productId:product._id,manufacturerLot:'GI-LOT-2',identificationStatus:'VERIFIED',piecesPerCarton:4,cartonLengthMm:'620',cartonWidthMm:'620',cartonHeightMm:'50'});
+ const secondBalance=await m.InventoryBalance.create({holdingPointId:point._id,batchId:secondBatch._id,ownerType:'STORE',qualityStatus:'GOOD',quantityBase:'4',version:1,
+  packagingPortions:[{packagingState:'SEALED',sealedPackCount:1,quantityBase:'4',packagingSnapshot:{packageUnit:'BOX',baseUnitsPerPackage:'4',outerLengthMm:'620',outerWidthMm:'620',outerHeightMm:'50'},createdBy:worker._id}]});
+ const manualIssueResult=await issues.createIssue(worker,{idempotencyKey:key(),issueKind:'SALE',warehouseId:String(warehouse._id),referenceNo:'MANUAL-MULTI-LOT',lines:[{productId:String(product._id),qtyBase:'6'}]});
+ let manualIssue=await m.SalesGoodsIssue.findById(manualIssueResult.id);
+ assert.equal(manualIssue.items[0].lotId,undefined,'warehouse-created manual issue line is not assigned one lot');
+ const manualPickingResult=await issues.createIssuePicking(worker,manualIssue._id,{idempotencyKey:key(),expectedVersion:manualIssue.version,allocations:[
+  {lineId:String(manualIssue.items[0]._id),sourceBalanceId:String(balance._id),qtyBase:'4',locationId:String(staging._id)},
+  {lineId:String(manualIssue.items[0]._id),sourceBalanceId:String(secondBalance._id),qtyBase:'2',locationId:String(staging._id)},
+ ]});
+ let manualPicking=await m.TransferOrder.findById(manualPickingResult.id);
+ await sales.confirmPicking(worker,manualPicking._id,{idempotencyKey:key(),expectedVersion:manualPicking.version,lines:manualPicking.items.map(item=>({lineId:String(item._id),qtyBase:String(item.qtyBase)}))});
+ manualIssue=await m.SalesGoodsIssue.findById(manualIssue._id);
+ await issues.postIssue(worker,manualIssue._id,{idempotencyKey:key(),expectedVersion:manualIssue.version,recipientName:'Customer'});
+ manualIssue=await m.SalesGoodsIssue.findById(manualIssue._id);
+ const manualSources=await lookup(seller,{kind:'sources',purpose:'customer-returns',warehouseId:String(warehouse._id),documentId:String(manualIssue._id),page:1,limit:10});
+ assert.deepEqual(manualSources.items[0].sourceLots.map(lot=>[lot.manufacturerLot,lot.quantityBase,lot.availableQty]),[['GI-LOT','4','4'],['GI-LOT-2','2','2']]);
+ const multiLotReturn=await returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),customerName:'Multi lot customer',lines:[
+  {salesIssueLineId:String(manualIssue.items[0]._id),lotId:String(batch._id),qtyBase:'2',reason:'First batch'},
+  {salesIssueLineId:String(manualIssue.items[0]._id),lotId:String(secondBatch._id),qtyBase:'1',reason:'Second batch'},
+ ]});
+ let multiLotDoc=await m.CustomerReturn.findById(multiLotReturn.id);
+ assert.deepEqual(multiLotDoc.items.map(item=>String(item.lotId)),[String(batch._id),String(secondBatch._id)]);
+ const multiLotEvidence=await attach(multiLotDoc);
+ await returns.inspectCustomerReturn(worker,multiLotDoc._id,{idempotencyKey:key(),expectedVersion:multiLotDoc.version,evidenceIds:[String(multiLotEvidence._id)],lines:multiLotDoc.items.map(item=>({returnLineId:String(item._id),qtyReceived:String(item.qtyBase),packagingCondition:'LOOSE',installationStatus:'UNUSED',damageCause:'NONE',deadlineStatus:'WITHIN',deadlineReference:'Verified return policy',assessmentReason:'Lot identity matched'}))});
+ multiLotDoc=await m.CustomerReturn.findById(multiLotDoc._id);
+ await returns.decideCustomerReturn(seller,multiLotDoc._id,{idempotencyKey:key(),expectedVersion:multiLotDoc.version,decision:'APPROVE',reason:'Eligible multi-lot return',lines:multiLotDoc.items.map(item=>({lineId:String(item._id),qtyBase:String(item.qtyBase)}))});
+ multiLotDoc=await m.CustomerReturn.findById(multiLotDoc._id);
+ const beforeMultiLotReceipt=[String((await m.InventoryBalance.findById(balance._id)).quantityBase),String((await m.InventoryBalance.findById(secondBalance._id)).quantityBase)];
+ await returns.receiveCustomerReturn(worker,multiLotDoc._id,{idempotencyKey:key(),expectedVersion:multiLotDoc.version,evidenceIds:[String(multiLotEvidence._id)],lines:multiLotDoc.items.map(item=>({lineId:String(item._id),qtyBase:String(item.qtyBase),locationId:String(storage._id),qualityCode:'GOOD'}))});
+ const multiLotReceipt=await m.CustomerReturnReceipt.findOne({'header.returnId':multiLotDoc._id,workflowStatus:'POSTED'});
+ assert.deepEqual(multiLotReceipt.items.map(item=>String(item.lotId)),[String(batch._id),String(secondBatch._id)]);
+ assert.deepEqual([String((await m.InventoryBalance.findById(balance._id)).quantityBase),String((await m.InventoryBalance.findById(secondBalance._id)).quantityBase)],[String(Number(beforeMultiLotReceipt[0])+2),String(Number(beforeMultiLotReceipt[1])+1)]);
+ await assert.rejects(returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),customerName:'Multi lot customer',lines:[{salesIssueLineId:String(manualIssue.items[0]._id),lotId:String(batch._id),qtyBase:'3',reason:'Exceeds remaining first lot'}]}),/Vượt lượng đã xuất còn lại của lô/);
+ await assert.rejects(returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),customerName:'Goods issue customer',lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),qtyBase:'2',reason:'Over remaining issue quantity'}]}),/Vượt lượng khách đã nhận còn được trả/);
  const {default:app}=await import('../src/app.js');
  server=app.listen(0,'127.0.0.1'); await new Promise(resolve=>server.once('listening',resolve));
  const http=async(actor,path)=>{const response=await fetch('http://127.0.0.1:'+server.address().port+'/api'+path,{headers:{authorization:'Bearer '+jwt.sign({userId:String(actor._id)},process.env.JWT_SECRET)}});return {status:response.status,body:await response.json()};};
