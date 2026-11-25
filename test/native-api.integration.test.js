@@ -1471,6 +1471,37 @@ run('posting the balance after a partial short closure closes the PO', async () 
  assert.equal(closed.quantities[0].outstandingQtyBase, '0');
 });
 
+run('RR list and detail identify the Owner who cancelled a request created by Warehouse Staff', async () => {
+ const { listReplenishments, getReplenishment } = await import('../src/modules/replenishments/replenishment.service.js');
+ const body = { creationKey: key(), action: 'SUBMIT', warehouseId: String(warehouse._id), neededOn: '2026-12-01', triggerReason: 'Test RR cancellation',
+  lines: [{ productId: String(product._id), enteredUnit: 'PIECE', enteredQty: '8', reasonNote: 'Test' }] };
+ await acknowledgeIndependentNeed(body);
+ const created = await rr.createReplenishment(worker, body);
+ const submitted = await m.ReplenishmentRequest.findById(created.id);
+ const approved = await rr.reviewReplenishment(owner, created.id, { ...input(), expectedVersion: submitted.version, decision: 'APPROVE', reason: 'Confirmed need',
+  lines: [{ lineId: String(submitted.items[0]._id), approvedQtyBase: '8' }] });
+ const cancellerAccount = await m.User.create({ username: 'rr-canceller', fullName: 'Cancelling Owner', passwordHash: 'test-only-unused', roleId: owner.roleId._id });
+ const canceller = await m.User.findById(cancellerAccount._id).populate({ path: 'roleId', populate: { path: 'permissionIds' } });
+
+ const readBoth = async () => {
+  const list = await listReplenishments(owner, { page: 1, limit: 10, search: created.id });
+  const summary = list.items.find(row => row.id === created.id);
+  assert.ok(summary, 'Expected the request in the list');
+  return [summary, await getReplenishment(owner, created.id)];
+ };
+ for (const result of await readBoth()) {
+  assert.equal(result.workflowStatus, 'APPROVED');
+  assert.equal(Object.hasOwn(result, 'cancelledByUser'), false);
+ }
+
+ await rr.cancelReplenishment(canceller, created.id, { ...input(), expectedVersion: approved.version, reason: 'Stock no longer needed' });
+ for (const result of await readBoth()) {
+  assert.equal(result.workflowStatus, 'CANCELLED');
+  assert.deepEqual(result.createdByUser, { id: String(worker._id), fullName: worker.fullName });
+  assert.deepEqual(result.cancelledByUser, { id: String(canceller._id), fullName: canceller.fullName });
+ }
+});
+
 run('cancelling a PO frees its RR for a new PO and the RR list joins only live POs', async () => {
  const { listReplenishments, getReplenishment } = await import('../src/modules/replenishments/replenishment.service.js');
  const body = { creationKey: key(), action: 'SUBMIT', warehouseId: String(warehouse._id), neededOn: '2026-12-01', triggerReason: 'Cancel PO',
