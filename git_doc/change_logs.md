@@ -1,3 +1,10 @@
+## 25/11/2026 — Sửa 404 chi tiết hàng lỗi của Owner và gom truy vấn tồn khả dụng
+
+- **Lý do:** Kiểm tra bản deploy: `GET /api/defects/:id` trả 404 "Không xác định được kho của hồ sơ" với hồ sơ `DEFECT_CASE-202610-002` (Owner thấy trong danh sách nhưng không mở được chi tiết); `GET /api/stock-alerts` và `GET /api/dashboard/owner` mất khoảng 7,9 giây vì mỗi cặp sản phẩm × kho chạy lần lượt khoảng 6 truy vấn cho mỗi số dư.
+- **Hành vi:** `scoped()` (`return-workflows/native.shared.js`) cho Owner đọc hồ sơ hàng lỗi không xác định được kho, khớp phạm vi danh sách của Owner; vai trò khác vẫn nhận 404. Thêm `freeQuantities()` (`shared/utils/stock.js`) và `availableStocks()` (`replenishments/replenishment.evaluation.js`) tính tồn khả dụng cho nhiều số dư bằng số truy vấn cố định; `evaluateThresholds()` dùng chúng. `freeQuantity`/`availableStock` giữ nguyên cho luồng ghi.
+- **Dữ liệu:** không migration, không đổi API contract hay phân quyền.
+- **Kiểm chứng:** `test/stock-availability-bulk.test.js` (mock model) xác nhận kết quả gom bằng kết quả từng số dư; `test/system-admin.test.js` đạt. Chưa đo lại trên bản deploy; test tích hợp cần MongoDB bị bỏ qua.
+
 ## 25/11/2026 — Đồng bộ sơ đồ BF-01 sau khi tách module nhận mua
 
 - Rà lại 25 trang, cập nhật trang 1 và 13–25 của [sơ đồ BF-01](docs/04_so_do/WMSD_BF01_Diagrams.drawio). Cập nhật đường gọi kiểm nhận, nhập mua, giữ hộ và đảo phiếu theo module mới. Làm rõ loại vị trí theo chất lượng, thứ tự ghi phiếu và tính lại PO, vòng lặp đảo biến động gốc và bội số RR–quyết định, ARR–INS.
