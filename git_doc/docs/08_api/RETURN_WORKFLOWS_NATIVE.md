@@ -1,3 +1,5 @@
+Backend sequence diagrams: the workflow router applies authentication, permissions and validation before calling the [return workflow controller](../../../src/modules/return-workflows/workflow.controller.js). The controller calls the existing read or write service and formats the HTTP response. Customer and supplier return commands, evidence handling, stock effects and response contracts are unchanged.
+
 ## Customer details on documents — 18 November 2026
 
 User decision: customers are not managed as catalogue records. New sales orders require `customerName` (1–160 characters) and allow `customerPhone` (up to 30 characters); the delivery address remains on the order. Creating an order does not query or create a Customer. Sales options return an empty compatibility `customers` array.

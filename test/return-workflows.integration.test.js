@@ -149,6 +149,11 @@ run('HTTP routes enforce authentication, validation and native DTOs',async()=>{
  process.env.JWT_SECRET='isolated-returns-http-secret';const {default:app}=await import('../src/app.js');const {default:jwt}=await import('jsonwebtoken');const {once}=await import('node:events');const server=app.listen(0,'127.0.0.1');await once(server,'listening');const url=`http://127.0.0.1:${server.address().port}/api`;
  try{assert.equal((await fetch(url+'/defects')).status,401);const headers={Authorization:'Bearer '+jwt.sign({userId:users.WAREHOUSE.id},process.env.JWT_SECRET)};
   const response=await fetch(url+'/return-workflows/options',{headers});assert.equal(response.status,200);const options=await response.json();assert.ok(options.data.holdingPoints);assert.ok(options.data.permissions.includes('defect:create'));assert.equal(options.data.conversions,undefined);
+  for(const resource of ['customer-returns','supplier-returns']){
+   const list=await fetch(url+`/${resource}?limit=1`,{headers});assert.equal(list.status,200);const body=await list.json();assert.ok(Array.isArray(body.data));assert.equal(body.meta.limit,1);
+  }
+  const invalidDispatch=await fetch(url+`/supplier-returns/${id()}/dispatch`,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:'{}'});
+  assert.equal(invalidDispatch.status,400);
   assert.equal((await fetch(url+'/defects?page=0',{headers})).status,400);const trace=await fetch(url+`/lots/${batch.id}/trace`,{headers});assert.equal(trace.status,200);const data=await trace.json();assert.ok(data.data.movements);assert.equal(JSON.stringify(data.data).includes('unitSellingPrice'),false);
  }finally{await new Promise(resolve=>server.close(resolve));server.closeAllConnections();}
 });

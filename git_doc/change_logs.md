@@ -1,3 +1,7 @@
+## 25/11/2026 — Add the return workflows controller layer
+
+The shared workflow router delegates HTTP handling for customer returns, supplier returns and shared endpoints to a controller. Existing routes, permissions, validation, evidence cleanup and stock behavior are unchanged. No schema or data migration.
+
 ## 25/11/2026 — Add the Goods Issue controller layer
 
 Goods Issue and picking confirmation now delegate HTTP response handling to a controller. Existing routes, validation, permissions, service calls and stock transactions are unchanged. No schema or data migration.
