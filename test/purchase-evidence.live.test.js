@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 import { PNG } from 'pngjs';
 import { PDFDocument } from 'pdf-lib';
 import { cloudinary } from '../src/config/cloudinary.js';
-import { evidenceStorage } from '../src/modules/po-receiving/purchase-evidence.service.js';
+import { evidenceStorage } from '../src/shared/utils/evidence-storage.js';
 
 test('purchase PNG and PDF remain private on real storage; signed retrieval and cleanup work', {
   skip: process.env.LIVE_PURCHASE_EVIDENCE_TEST !== 'true', timeout: 90000,

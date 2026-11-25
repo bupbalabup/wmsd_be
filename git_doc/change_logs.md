@@ -1,3 +1,44 @@
+## 25/11/2026 — Tách module `po-receiving` theo loại chứng từ (BE + FE)
+
+- **Lý do & quyết định nguồn:** Thực hiện [PLAN_tach_module_po_receiving.md](../../PLAN_tach_module_po_receiving.md) đã chốt ngày 25/11/2026: tách module `po-receiving` quá lớn thành các module theo loại chứng từ, bỏ phụ thuộc vòng giữa `purchase-orders` ↔ `po-receiving` và nội bộ `po-receiving`. Refactor thuần: giữ nguyên URL, permission, payload request/response, tên command trong audit và hành vi transaction.
+- **Hành vi trước / sau:**
+  - **BE shared (`src/shared/utils/`):** tách `purchase-core.js` (thêm `activePo`, `cancelDraft`; xóa alias `commitments`), `intake-packaging.js` (`intakePortions`, `checkPackagingLines`), `evidence-storage.js` (`evidenceStorage`, `inspectFile`, `MAX_BYTES`), `purchase-validation.js` (schema Zod dùng chung). Không file nào trong `shared/utils/` import `modules/`.
+  - **BE modules mới & di chuyển:**
+    - `src/modules/goods-inspections/`: `goods-inspection.service.js`, `goods-inspection.correction.js`, `goods-inspection.controller.js`, `goods-inspection.validation.js`, `goods-inspection.routes.js` (`inspectionRouter`, `purchaseOrderInspectionRouter`).
+    - `src/modules/custody/`: `custody-stock.js`, `custody.service.js`, `custody.controller.js`, `custody.validation.js`, `custody.routes.js` (`custodyRouter`, `custodyReleaseRouter`).
+    - `src/modules/stock-reversals/`: `stock-reversal.service.js`, `stock-reversal.controller.js`, `stock-reversal.validation.js`, `stock-reversal.routes.js` (`reversalRouter`).
+    - `src/modules/goods-receipts/`: thêm `purchase-receipt.service.js`, `purchase-receipt.controller.js`, `purchase-receipt.validation.js`, `purchase-receipt.routes.js`; `goods-receipt.routes.js` và `other-receipt.service.js` cập nhật import.
+    - `src/modules/po-receiving/`: chỉ giữ tầng đọc (`purchase-read.service.js` nhận thêm `receivingOperation`, `purchase-evidence.service.js`, `purchase-reconciliation.js`, `po-receiving.routes/controller/validation.js`); xóa `purchase-core.js`, `po-receiving.service.js`, `purchase-correction.service.js`, `purchase-custody.service.js`.
+  - **FE (`fe/src/`):** tạo `shared/api/apiResponse.ts` (re-export từ `purchaseOrdersApi.ts`), tạo `features/receiving/` (`api/receivingApi.ts`, `api/receivingMappers.ts`, `api/receivingMappers.test.ts`, `components/PurchaseEvidenceField.tsx`), chuyển `PurchaseReceiptReverseModal.tsx` vào `features/receipts/detail/`, xóa thư mục trống `purchase-orders/detail/components/receiving/`, cập nhật toàn bộ import.
+  - **Script & test:** cập nhật `scripts/generate-db-overview.mjs` và các test (`native-api.integration.test.js`, `receiving-custody-policy.test.js`, `purchase-evidence*.test.js`, `refactor-regression.integration.test.js`).
+- **Tài liệu cập nhật:** `git_doc/docs/08_api/GOODS_RECEIPTS.md`, `git_doc/docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md`, `git_doc/docs/01_bao_cao/WMSD_Report4_Draft.md`, `git_doc/docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Overview_Relationships.md` (sinh lại bằng `generate-db-overview.mjs`), `git_doc/docs/04_so_do/WMSD_BF01_Diagrams_Review.md`, `git_doc/change_logs.md`. Không đổi model, schema DB hay migration.
+- **Kiểm chứng thực tế:**
+  - Đối chiếu route trước/sau tách BE: `discoverRoutes(app)` 307/307 route và 257/257 cặp `(method, path, checkPermission...)` khớp tuyệt đối (0 diff).
+  - BE unit tests (`purchase-evidence.test.js`, `purchase-evidence.local.test.js`, `receiving-custody-policy.test.js`): 9/9 pass.
+  - BE integration tests trên MongoDB local `rs0` (`native-api.integration.test.js`, `refactor-regression.integration.test.js`, `goods-receipt.integration.test.js`): 38/38 pass.
+  - FE: `npx tsc --noEmit` và `npm run build` pass (0 lỗi); `vitest` cho `purchase-orders`, `receiving`, `inspections`, `receipts`, `custody` đạt 146/148 pass (2 fail duy nhất thuộc `CUSTOMER_RETURN` bị ẩn bởi `salesVisibility` có sẵn trên nhánh `minhtd`, không liên quan refactor).
+  - Chưa merge `origin/main` vào `minhtd` theo yêu cầu người dùng do `git_doc/change_logs.md` có thay đổi local chưa commit.
+
+## 25/11/2026 · Sơ đồ RR Class dùng trực tiếp các model nguồn
+
+- Theo yêu cầu người dùng, bỏ hộp `ReplenishmentSource` và các đường nối qua hộp này. Thêm ba đường phụ thuộc đọc từ `ReplenishmentEvaluation` đến `SalesOrder`, `WarehouseIssueRequest` và `Stocktake` theo `resolveSource()`.
+- Đồng bộ ảnh trang 1, báo cáo đối chiếu, sơ đồ Mermaid trong Report 4 và hướng dẫn đọc code RR. Kiểm 16 đường nối của trang RR Class, xuất và xem ảnh trang 1. Thay đổi thuộc tài liệu, không cần migration.
+
+## 25/11/2026 · Báo cáo đối chiếu 25 sơ đồ BF-01
+
+- Thêm [báo cáo Markdown](docs/04_so_do/WMSD_BF01_Diagrams_Review.md) theo yêu cầu giải thích từng hình. Báo cáo nhúng 25 ảnh xuất từ draw.io, giải thích 90 đường nối lớp và ghi lại 400 thông điệp tuần tự. Kết quả gồm 20 hình khớp ở mức thiết kế, 4 khớp một phần và 1 cần chỉnh điều kiện vị trí.
+- Kiểm ảnh, thứ tự trang, đích liên kết và mã nguồn hiện hành. BE qua 27 test đã chọn, trong đó 17 test dùng DB tạm trên replica set cục bộ. FE qua 78 test đã chọn. Browser và môi trường triển khai nằm ngoài phạm vi. Thay đổi chỉ thuộc tài liệu, không cần migration.
+
+## 25/11/2026 — Bỏ nhãn mô tả trên đường nối class diagram BF-01
+
+- Bỏ 87 nhãn trên đường nối của bốn class diagram trong draw.io và Report 4. Giữ đầu nối, kiểu quan hệ, bội số UML và toàn bộ sequence diagram.
+
+## 25/11/2026 — Ghi tên file thực thi trên sequence diagram BF-01
+
+- Đồng bộ 21 sequence BF-01 trong Report 4 và WMSD_BF01_Diagrams.drawio. Mỗi lifeline UI, RestController và Service ghi tên file triển khai. Các bước gửi RR đã lưu, phát hành PO và xác nhận sửa kiểm nhận đi qua file UI riêng. Những bước đánh giá RR, tính lượng PO, chuẩn bị lại kiểm nhận và xử lý tồn giữ hộ hiển thị lời gọi giữa các service.
+- Luồng PATCH đổi vị trí phiếu nhập mua bắt đầu từ API client vì chưa có đường gọi từ màn hình phiếu nhập hiện tại.
+- Kiểm tra 400 thông điệp và đầu mút giữa hai bản, render 26 khối Mermaid, xuất đủ 25 trang draw.io và xem các trang đại diện.
+
 ## 25/11/2026 — Đồng bộ thiết kế BF-01 với code nhận mua hiện hành
 
 - Report 4 §II.0–1 mô tả thứ tự xác thực, kiểm quyền tĩnh, validation và controller, cùng ngoại lệ phân quyền theo chứng từ và cách phân giải mã lịch sử sang _id. Ba class diagram PO, Inspection và Receipt trong draw.io theo tuyến gọi mới. Quan hệ ghi tồn đi qua StockMovement nhúng và hai đầu tham chiếu số dư.

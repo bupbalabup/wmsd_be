@@ -38,10 +38,10 @@ Tất cả có tiền tố `/api` ([app.js](../../../src/app.js), [routes.js](..
 | 3 | `POST /replenishments/:id/review` | `reviewReplenishment` | [replenishment.commands.js:463](../../../src/modules/replenishments/replenishment.commands.js) |
 | 4 | `POST /purchase-orders` | `createPurchaseOrder` | [purchase-order.commands.js:142](../../../src/modules/purchase-orders/purchase-order.commands.js) |
 | 5 | `POST /purchase-orders/:id/confirm` | `confirmPurchaseOrder` | [purchase-order.commands.js:230](../../../src/modules/purchase-orders/purchase-order.commands.js) |
-| 6 | `POST /purchase-orders/:id/inspections` | `createInspection` | [po-receiving.service.js:162](../../../src/modules/po-receiving/po-receiving.service.js) |
-| 6b | `PUT /goods-inspections/:id` | `updateInspection` | [po-receiving.service.js:210](../../../src/modules/po-receiving/po-receiving.service.js) |
-| 7 | `POST /goods-inspections/:id/confirm` | `confirmInspection` | [po-receiving.service.js:248](../../../src/modules/po-receiving/po-receiving.service.js) |
-| 8 | `POST /goods-receipts/purchase/:id/post` | `postReceipt` | [po-receiving.service.js:387](../../../src/modules/po-receiving/po-receiving.service.js) |
+| 6 | `POST /purchase-orders/:id/inspections` | `createInspection` | [goods-inspection.service.js](../../../src/modules/goods-inspections/goods-inspection.service.js) |
+| 6b | `PUT /goods-inspections/:id` | `updateInspection` | [goods-inspection.service.js](../../../src/modules/goods-inspections/goods-inspection.service.js) |
+| 7 | `POST /goods-inspections/:id/confirm` | `confirmInspection` | [goods-inspection.service.js](../../../src/modules/goods-inspections/goods-inspection.service.js) |
+| 8 | `POST /goods-receipts/purchase/:id/post` | `postReceipt` | [purchase-receipt.service.js](../../../src/modules/goods-receipts/purchase-receipt.service.js) |
 | 9a | `GET /goods-receipts/purchase/:id` | `getDocument` → `enriched` | [purchase-read.service.js:136](../../../src/modules/po-receiving/purchase-read.service.js), [enriched:61](../../../src/modules/po-receiving/purchase-read.service.js) |
 | 9b | `GET /location-movements/options?warehouseId=…` | `locationMovementOptions` | [location-movement.service.js:103](../../../src/modules/location-movements/location-movement.service.js) |
 | 9 | `POST /location-movements` | `createLocationMovement` | [location-movement.service.js:71](../../../src/modules/location-movements/location-movement.service.js) |
@@ -359,7 +359,7 @@ const line = z.object({ id: oid.optional(), poLineId: oid, lotId: oid, enteredQt
 
   *Tại sao:* đọc cả `operation_records` để một phiếu đã bị xóa không bị cấp lại số (biên nhận vẫn giữ mã cũ). `session.documentNumbers` giúp một giao dịch cấp nhiều phiếu cùng loại (vd hai phiếu) không trùng số nhau. Với chứng từ **nhúng** (`embeddedPath`, vd phương án xử lý) hàm quét cả `_id` lẫn `documentNo` của phần tử nhúng; chứng từ gốc trong luồng này (RR, PO, HĐK, PKN, PNM, LCV) vẫn chỉ quét `_id`.
 
-- `newBusinessDocument(Model, user, header, items, status)` ([document-number.js:73](../../../src/shared/utils/document-number.js)) gói lại: lấy `warehouseId` từ header, gọi `nextDocumentFields`, tạo `new Model({ ..., workflowStatus: status, version: 1, createdBy, occurredAt, header, items })`. `newDocument()` trong [purchase-core.js:8](../../../src/modules/po-receiving/purchase-core.js) là bí danh cho các chứng từ mua hàng.
+- `newBusinessDocument(Model, user, header, items, status)` ([document-number.js:73](../../../src/shared/utils/document-number.js)) gói lại: lấy `warehouseId` từ header, gọi `nextDocumentFields`, tạo `new Model({ ..., workflowStatus: status, version: 1, createdBy, occurredAt, header, items })`. `newDocument()` trong [purchase-core.js:8](../../../src/shared/utils/purchase-core.js) là bí danh cho các chứng từ mua hàng.
 
 ### Hàm: `checkVersion(document, expectedVersion)` và `saveVersion(document, previousVersion, session)`
 
@@ -762,7 +762,7 @@ Chưa kiểm: không thấy test HTTP gọi `POST /evaluate` hoặc `POST /:id/c
 
 #### Các hàm phụ của `evaluateLines`
 
-- **`resolveSource(line, warehouseId, user, session)`** ([evaluation.js:49](../../../src/modules/replenishments/replenishment.evaluation.js)): `MANUAL_OTHER` (mặc định khi không gửi `source`) và `STOCK_THRESHOLD` trả nguyên; `SALES_SHORTAGE` đọc `WarehouseIssueRequest` → `SalesOrder`, kiểm còn hiệu lực, cùng sản phẩm, gắn `version` hiện tại; `STOCKTAKE_LOW_STOCK` đọc `Stocktake` phải `COMPLETED/CLOSED` cùng kho, sản phẩm phải nằm trong phạm vi kiểm kê (dòng kiểm kê hoặc `StocktakeSnapshot`).
+- **`resolveSource(line, warehouseId, user, session)`** phân nhánh theo `triggerType` và `documentType`. `MANUAL_OTHER` (mặc định khi thiếu `source`) và `STOCK_THRESHOLD` trả nguyên nguồn. Với `SALES_SHORTAGE`, hàm đọc trực tiếp `SalesOrder` nếu nguồn là đơn bán. Nếu nguồn là `WarehouseIssueRequest`, hàm kiểm yêu cầu xuất rồi lần về `SalesOrder` và dòng hàng tương ứng. Cả hai đường kiểm sản phẩm và trạng thái, rồi lấy phiên bản hiện tại để bước đánh giá so khớp khi cần. Với `STOCKTAKE_LOW_STOCK`, hàm đọc `Stocktake` đã chốt cùng kho và kiểm sản phẩm thuộc dòng kiểm kê hoặc `StocktakeSnapshot`. Ba đường nét đứt ở RR Class biểu thị ba model được đọc theo nhánh. Tham chiếu chứng từ nguồn được lưu theo từng dòng RR. [Mã `resolveSource()`](../../../src/modules/replenishments/replenishment.evaluation.js#L49), [sơ đồ RR Class và phân tích](../04_so_do/WMSD_BF01_Diagrams_Review.md#yeu-cau-bo-sung).
 - **`availableStock(productId, warehouseId, lotId, session)`** ([evaluation.js:217](../../../src/modules/replenishments/replenishment.evaluation.js)) — định nghĩa "tồn khả dụng":
 
   ```js
@@ -1082,7 +1082,7 @@ return {lineId, orderedQtyBase, receivedQtyBase, cancelledQtyBase, outstandingQt
 
 ## 2.7. Bước 6 — Hàng đến & lập phiếu kiểm nhận: `createInspection(user, id, input)`
 
-[po-receiving.service.js:162](../../../src/modules/po-receiving/po-receiving.service.js). Route `POST /api/purchase-orders/:id/inspections`, quyền `goods_receipt_inspection:create` (`checkPermission` ở route, kiểm lại trong `command()`). `:id` là mã PO.
+[goods-inspection.service.js](../../../src/modules/goods-inspections/goods-inspection.service.js). Route `POST /api/purchase-orders/:id/inspections`, quyền `goods_receipt_inspection:create` (`checkPermission` ở route, kiểm lại trong `command()`). `:id` là mã PO.
 
 - **Vai trò nghiệp vụ:** ghi nhận xe hàng đến và kết quả đếm/kiểm từng lô — **chưa tác động tồn kho**.
 - **Từ điển biến:**
@@ -1123,17 +1123,17 @@ return {lineId, orderedQtyBase, receivedQtyBase, cancelledQtyBase, outstandingQt
 
 ### Hàm: `activePo(user, id, expectedVersion, session)`
 
-[po-receiving.service.js:44](../../../src/modules/po-receiving/po-receiving.service.js) — `findPurchase(kind 'PO')` + `checkVersion` + PO phải `OPEN` hoặc `PARTIAL`.
+[purchase-core.js](../../../src/shared/utils/purchase-core.js) — `findPurchase(kind 'PO')` + `checkVersion` + PO phải `OPEN` hoặc `PARTIAL`.
 
 ### Hàm: `findPurchase(id, user, session, { kind, readOnly })`
 
-[purchase-core.js:24](../../../src/modules/po-receiving/purchase-core.js) — tìm theo `_id` hoặc `documentNo` trong model ứng với `kind` (`PO`, `INSPECTION`, `GR_PURCHASE`, `TO`, …); kiểm kho, riêng Kế toán ở chế độ chỉ đọc thì xem mọi kho. Bộ lọc `_id`/`documentNo` nằm ở `purchaseIdFilter` ([purchase-core.js:18](../../../src/modules/po-receiving/purchase-core.js)), dùng chung với `purchaseOrderRef` (2B.1).
+[purchase-core.js:24](../../../src/shared/utils/purchase-core.js) — tìm theo `_id` hoặc `documentNo` trong model ứng với `kind` (`PO`, `INSPECTION`, `GR_PURCHASE`, `TO`, …); kiểm kho, riêng Kế toán ở chế độ chỉ đọc thì xem mọi kho. Bộ lọc `_id`/`documentNo` nằm ở `purchaseIdFilter` ([purchase-core.js:18](../../../src/shared/utils/purchase-core.js)), dùng chung với `purchaseOrderRef` (2B.1).
 
 *Quy ước từ 25/11/2026:* sau khi `findPurchase` trả chứng từ, các truy vấn liên kết dùng `_id` đã phân giải (`po._id`, `document._id`), không dùng `id` thô từ URL. Lý do: PO lịch sử có `_id` là ObjectId; nếu client gọi bằng `documentNo`, so `header.purchaseOrderId` hay `ownerDocumentId` với chuỗi `documentNo` sẽ không khớp và màn hình trả rỗng.
 
 ### Hàm: `prepare(po, input, actor, session, arrival, inspection)`
 
-[po-receiving.service.js:62](../../../src/modules/po-receiving/po-receiving.service.js) — dùng chung cho tạo và sửa kiểm nhận.
+[goods-inspection.service.js](../../../src/modules/goods-inspections/goods-inspection.service.js) — dùng chung cho tạo và sửa kiểm nhận.
 
 - **Vai trò:** dựng cặp dòng song song: `arrival.items[k]` (thực nhận) và `inspection.items[k]` (kết quả kiểm, `lineKind: 'INSPECTION'`).
 - **Từ điển biến:**
@@ -1203,13 +1203,13 @@ return {lineId, orderedQtyBase, receivedQtyBase, cancelledQtyBase, outstandingQt
 
 ## 2.8. Bước 6b — Sửa kiểm nhận: `updateInspection(user, id, input)`
 
-[po-receiving.service.js:210](../../../src/modules/po-receiving/po-receiving.service.js)
+[goods-inspection.service.js](../../../src/modules/goods-inspections/goods-inspection.service.js)
 
-- `inspectionSource()` ([dòng 52](../../../src/modules/po-receiving/po-receiving.service.js)) đọc kiểm nhận + hàng đến. Cả hai phải `DRAFT`. PO phải còn mở, đúng `expectedPoVersion`. Gọi lại `prepare()` (thay toàn bộ dòng), cập nhật header hàng đến, `saveVersion` cả hai.
+- `inspectionSource()` ([goods-inspection.service.js](../../../src/modules/goods-inspections/goods-inspection.service.js)) đọc kiểm nhận + hàng đến. Cả hai phải `DRAFT`. PO phải còn mở, đúng `expectedPoVersion`. Gọi lại `prepare()` (thay toàn bộ dòng), cập nhật header hàng đến, `saveVersion` cả hai.
 
 ## 2.9. Bước 7 — Xác nhận kiểm nhận: `confirmInspection(user, id, input)`
 
-[po-receiving.service.js:248](../../../src/modules/po-receiving/po-receiving.service.js). Route `POST /api/goods-inspections/:id/confirm`, quyền `goods_receipt_inspection:update` (`checkPermission` ở route, kiểm lại trong `command()`).
+[goods-inspection.service.js](../../../src/modules/goods-inspections/goods-inspection.service.js). Route `POST /api/goods-inspections/:id/confirm`, quyền `goods_receipt_inspection:update` (`checkPermission` ở route, kiểm lại trong `command()`).
 
 - **Vai trò nghiệp vụ:** chốt kết quả kiểm; tách hàng được nhận mua và hàng giữ hộ thành hai chứng từ riêng.
 - **Từ điển biến:**
@@ -1283,13 +1283,13 @@ return {lineId, orderedQtyBase, receivedQtyBase, cancelledQtyBase, outstandingQt
 
 - Dòng `REJECT` (hàng `GOOD` bị từ chối tại cửa) **không** đi vào phiếu nhập hay giữ hộ; chỉ còn lại trên phiếu kiểm như bằng chứng.
 
-- Trước khi ghi tồn, có thể đổi bãi tiếp nhận bằng `PATCH /goods-receipts/purchase/:id/destinations` → `changeDestinations()` ([po-receiving.service.js:525](../../../src/modules/po-receiving/po-receiving.service.js)), chỉ khi phiếu nhập còn `DRAFT`.
+- Trước khi ghi tồn, có thể đổi bãi tiếp nhận bằng `PATCH /goods-receipts/purchase/:id/destinations` → `changeDestinations()` ([purchase-receipt.service.js](../../../src/modules/goods-receipts/purchase-receipt.service.js)), chỉ khi phiếu nhập còn `DRAFT`.
 
 ---
 
 ## 2.10. Bước 8 — Ghi tồn phiếu nhập mua: `postReceipt(user, id, input)`
 
-[po-receiving.service.js:387](../../../src/modules/po-receiving/po-receiving.service.js). Route `POST /api/goods-receipts/purchase/:id/post`, quyền `goods_receipt_inspection:post` (`checkPermission` ở route, kiểm lại trong `command()`).
+[purchase-receipt.service.js](../../../src/modules/goods-receipts/purchase-receipt.service.js). Route `POST /api/goods-receipts/purchase/:id/post`, quyền `goods_receipt_inspection:post` (`checkPermission` ở route, kiểm lại trong `command()`).
 
 - **Vai trò nghiệp vụ:** thời điểm **hàng chính thức thành tồn kho của cửa hàng** (tại bãi tiếp nhận).
 - **Từ điển biến:**
@@ -1418,7 +1418,7 @@ return await InventoryBalance.findOne(fields).session(session) ??
 
 ### Hàm: `intakePortions(item, condition, portions, session)`
 
-[po-receiving.service.js:130](../../../src/modules/po-receiving/po-receiving.service.js)
+[intake-packaging.js](../../../src/shared/utils/intake-packaging.js)
 
 - **Vai trò:** kiểm phần khai kiện thủ công (nếu có) khớp quy cách lô và khớp tình trạng bao bì đã kiểm.
 - **Logic:** không khai kiện mà dòng không phải `SEALED` ⇒ trả `undefined` (để `receiveStock` tự tách). Dòng `SEALED` không khai ⇒ lượng phải chia hết `piecesPerCarton`. Có khai:
@@ -1916,8 +1916,8 @@ Cùng file [po-receiving.routes.js](../../../src/modules/po-receiving/po-receivi
 
 ### Hàm dùng chung của các luồng phụ mua hàng
 
-- **`findPurchase(id, user, session, { kind, readOnly })`** ([purchase-core.js:24](../../../src/modules/po-receiving/purchase-core.js)): tìm theo `_id` (mã phiếu) hoặc `documentNo` trong model của `kind` (`PO`, `INSPECTION`, `GR_PURCHASE`, `CUSTODY_RECEIPT`, `CUSTODY_RELEASE`, `TO`, `OTHER`); không truyền `kind` thì thử lần lượt mọi model. Kiểm kho của chứng từ, trừ Kế toán ở chế độ `readOnly`. Lệnh ghi của Kế toán (sửa, chốt thiếu, mở lại PO) vẫn cần kho được gán.
-- **`purchaseOrderRef(id)`** ([purchase-core.js:20](../../../src/modules/po-receiving/purchase-core.js), thêm 25/11/2026): đổi tham số lọc `purchaseOrderId` (mã phiếu hoặc `documentNo`) thành `_id` thật của PO để so với `header.purchaseOrderId` đã lưu. Không thấy PO thì trả nguyên giá trị (danh sách rỗng). Hàm **không** kiểm phạm vi kho; bộ lọc kho của danh sách vẫn áp dụng sau đó.
+- **`findPurchase(id, user, session, { kind, readOnly })`** ([purchase-core.js:24](../../../src/shared/utils/purchase-core.js)): tìm theo `_id` (mã phiếu) hoặc `documentNo` trong model của `kind` (`PO`, `INSPECTION`, `GR_PURCHASE`, `CUSTODY_RECEIPT`, `CUSTODY_RELEASE`, `TO`, `OTHER`); không truyền `kind` thì thử lần lượt mọi model. Kiểm kho của chứng từ, trừ Kế toán ở chế độ `readOnly`. Lệnh ghi của Kế toán (sửa, chốt thiếu, mở lại PO) vẫn cần kho được gán.
+- **`purchaseOrderRef(id)`** ([purchase-core.js:20](../../../src/shared/utils/purchase-core.js), thêm 25/11/2026): đổi tham số lọc `purchaseOrderId` (mã phiếu hoặc `documentNo`) thành `_id` thật của PO để so với `header.purchaseOrderId` đã lưu. Không thấy PO thì trả nguyên giá trị (danh sách rỗng). Hàm **không** kiểm phạm vi kho; bộ lọc kho của danh sách vẫn áp dụng sau đó.
 
   ```js
   const purchaseIdFilter = id => /^[a-f\d]{24}$/i.test(id) ? { $or: [{ _id: id }, { documentNo: id }] } : { documentNo: id };
@@ -1928,8 +1928,8 @@ Cùng file [po-receiving.routes.js](../../../src/modules/po-receiving/po-receivi
   ```
 
   Dùng ở `listDocuments` (kiểm nhận, phiếu nhập mua, giữ hộ, hàng đợi) và danh sách gộp `GET /api/goods-receipts?purchaseOrderId=`.
-- **`replayPurchase`** ([purchase-core.js:41](../../../src/modules/po-receiving/purchase-core.js)) là `authorizeReplay` của gần như mọi lệnh mua hàng: đọc lại chứng từ đích bằng `findPurchase` để kiểm phạm vi trước khi trả biên nhận cũ.
-- **`evidenceFor(user, document, ids, session, required)`** ([purchase-core.js:33](../../../src/modules/po-receiving/purchase-core.js)): danh sách id bằng chứng không trùng; mỗi id phải là `Attachment` `ATTACHED` của **chính** chứng từ đó. `required = true` thì danh sách không được rỗng ("Thiếu bằng chứng").
+- **`replayPurchase`** ([purchase-core.js:41](../../../src/shared/utils/purchase-core.js)) là `authorizeReplay` của gần như mọi lệnh mua hàng: đọc lại chứng từ đích bằng `findPurchase` để kiểm phạm vi trước khi trả biên nhận cũ.
+- **`evidenceFor(user, document, ids, session, required)`** ([purchase-core.js:33](../../../src/shared/utils/purchase-core.js)): danh sách id bằng chứng không trùng; mỗi id phải là `Attachment` `ATTACHED` của **chính** chứng từ đó. `required = true` thì danh sách không được rỗng ("Thiếu bằng chứng").
 
 ## 2B.2. Luồng phụ của RR
 
@@ -2237,7 +2237,7 @@ Mọi lệnh ở mục này dùng quyền `purchase_order:update` trong `command
 
 ### 2B.4.1. Dữ liệu form kiểm nhận: `inspectionContext(user, id)`
 
-[po-receiving.service.js:566](../../../src/modules/po-receiving/po-receiving.service.js). Route `GET /api/purchase-orders/:id/inspection-context`. Chỉ đọc.
+[goods-inspection.service.js](../../../src/modules/goods-inspections/goods-inspection.service.js). Route `GET /api/purchase-orders/:id/inspection-context`. Chỉ đọc.
 
 - **Vai trò nghiệp vụ:** mọi thứ form kiểm nhận cần: PO (ẩn giá), hạn mức nhận từng dòng, vị trí kho, lô và thông tin sản phẩm.
 - **Từ điển biến:**
@@ -2255,7 +2255,7 @@ Mọi lệnh ở mục này dùng quyền `purchase_order:update` trong `command
 
 ### 2B.4.2. Tra kết quả theo khóa thao tác: `receivingOperation(user, id, key)`
 
-[po-receiving.service.js:607](../../../src/modules/po-receiving/po-receiving.service.js). Route `GET /api/purchase-orders/:id/receiving-operations/:key`. Chỉ đọc.
+[purchase-read.service.js](../../../src/modules/po-receiving/purchase-read.service.js). Route `GET /api/purchase-orders/:id/receiving-operations/:key`. Chỉ đọc.
 
 - **Vai trò nghiệp vụ:** sau lỗi mạng, FE hỏi "lệnh có khóa này đã commit chưa" để không bấm lại một lệnh đã thành công.
 - **Biến:** `key` (khóa client đã gửi, `requestKey`), `operations` (`OperationRecord` của chính người gọi với khóa đó), `subject` (chứng từ đích của từng biên nhận).
@@ -2276,7 +2276,7 @@ Mọi lệnh ở mục này dùng quyền `purchase_order:update` trong `command
 
 ### 2B.4.3. Hủy chứng từ nháp: `cancelDraft(user, id, kind, input)`
 
-[po-receiving.service.js:475](../../../src/modules/po-receiving/po-receiving.service.js). Ba route dùng chung: `POST /api/goods-inspections/:id/cancel` (`kind = 'INSPECTION'`), `POST /api/goods-receipts/purchase/:id/cancel` (`'GR_PURCHASE'`, body thêm `expectedPoVersion`), `POST /api/custody-receipts/:id/cancel` (`'CUSTODY_RECEIPT'`). Mã lệnh `CANCEL_<kind>`, quyền `goods_receipt_inspection:update`.
+[purchase-core.js](../../../src/shared/utils/purchase-core.js). Ba route dùng chung: `POST /api/goods-inspections/:id/cancel` (`kind = 'INSPECTION'`), `POST /api/goods-receipts/purchase/:id/cancel` (`'GR_PURCHASE'`, body thêm `expectedPoVersion`), `POST /api/custody-receipts/:id/cancel` (`'CUSTODY_RECEIPT'`). Mã lệnh `CANCEL_<kind>`, quyền `goods_receipt_inspection:update`.
 
 - **Vai trò nghiệp vụ:** bỏ một phiếu kiểm nháp (xe hàng ghi nhầm), một phiếu nhập nháp (không ghi tồn phần này) hoặc một phiếu giữ hộ nháp.
 - **Từ điển biến:**
@@ -2303,7 +2303,7 @@ Mọi lệnh ở mục này dùng quyền `purchase_order:update` trong `command
 
 ### 2B.4.4. Đổi bãi tiếp nhận trước ghi tồn: `changeDestinations(user, id, input)`
 
-[po-receiving.service.js:525](../../../src/modules/po-receiving/po-receiving.service.js). Route `PATCH /api/goods-receipts/purchase/:id/destinations`, mã lệnh `CHANGE_RECEIPT_DESTINATIONS`, quyền `:update`.
+[purchase-receipt.service.js](../../../src/modules/goods-receipts/purchase-receipt.service.js). Route `PATCH /api/goods-receipts/purchase/:id/destinations`, mã lệnh `CHANGE_RECEIPT_DESTINATIONS`, quyền `:update`.
 
 - **Vai trò nghiệp vụ:** bãi đã chọn lúc xác nhận kiểm bị đầy hoặc chọn nhầm; đổi trước khi ghi tồn.
 - **Từ điển biến:** `input.lines[]` (`{ lineId, receivingLocationId }` 1–100), `input.reason` (bắt buộc, vào audit), `source` (dòng kiểm gốc của dòng phiếu nhập).
@@ -2335,7 +2335,7 @@ Mọi lệnh ở mục này dùng quyền `purchase_order:update` trong `command
 
 ## 2B.5. Sửa kết quả kiểm nhận đã xác nhận: `replaceInspection`
 
-[purchase-correction.service.js](../../../src/modules/po-receiving/purchase-correction.service.js): `correctionBlockers` [dòng 208](../../../src/modules/po-receiving/purchase-correction.service.js), `correctionPreflight` [dòng 249](../../../src/modules/po-receiving/purchase-correction.service.js), `replaceInspection` [dòng 263](../../../src/modules/po-receiving/purchase-correction.service.js). Route `GET /api/goods-inspections/:id/correction-preflight` và `POST /api/goods-inspections/:id/corrections` (mã lệnh `REPLACE_GOODS_INSPECTION`, quyền `goods_receipt_inspection:update`).
+[goods-inspection.correction.js](../../../src/modules/goods-inspections/goods-inspection.correction.js): `correctionBlockers`, `correctionPreflight`, `replaceInspection`. Route `GET /api/goods-inspections/:id/correction-preflight` và `POST /api/goods-inspections/:id/corrections` (mã lệnh `REPLACE_GOODS_INSPECTION`, quyền `goods_receipt_inspection:update`).
 
 - **Vai trò nghiệp vụ:** phiếu kiểm đã xác nhận bị sai (đếm nhầm, sai lô, sai chất lượng). Không sửa phiếu cũ mà lập một cặp hàng đến + phiếu kiểm **thay thế** ở `DRAFT`, sau khi đã gỡ hết chứng từ sinh ra từ phiếu cũ.
 - **Từ điển biến:**
@@ -2384,7 +2384,7 @@ Mọi lệnh ở mục này dùng quyền `purchase_order:update` trong `command
 
 ## 2B.6. Đảo phiếu nhập hoặc giữ hộ đã ghi tồn: `reverseReceipt`
 
-[purchase-correction.service.js](../../../src/modules/po-receiving/purchase-correction.service.js): `checkDependentDocuments` [dòng 14](../../../src/modules/po-receiving/purchase-correction.service.js), `eligible` [dòng 30](../../../src/modules/po-receiving/purchase-correction.service.js), `reversalPreflight` [dòng 97](../../../src/modules/po-receiving/purchase-correction.service.js), `getReversal` [dòng 117](../../../src/modules/po-receiving/purchase-correction.service.js), `reverseReceipt` [dòng 122](../../../src/modules/po-receiving/purchase-correction.service.js). Route phiếu nhập mua `GET .../reversal-preflight`, `POST .../reverse` (body thêm `expectedPoVersion`); route giữ hộ tương tự dưới `/api/custody-receipts`. Mã lệnh `REVERSE_PURCHASE_RECEIPT` hoặc `REVERSE_CUSTODY_RECEIPT`.
+[stock-reversal.service.js](../../../src/modules/stock-reversals/stock-reversal.service.js): `checkDependentDocuments`, `eligible`, `reversalPreflight`, `getReversal`, `reverseReceipt`. Route phiếu nhập mua `GET .../reversal-preflight`, `POST .../reverse` (body thêm `expectedPoVersion`); route giữ hộ tương tự dưới `/api/custody-receipts`. Mã lệnh `REVERSE_PURCHASE_RECEIPT` hoặc `REVERSE_CUSTODY_RECEIPT`.
 
 - **Vai trò nghiệp vụ:** hủy hiệu lực tồn của một phiếu đã ghi (nhập nhầm, hàng phải trả lại toàn bộ...) bằng một bút toán ngược, không xóa phiếu gốc.
 - **Quyền:** `command()` kiểm `goods_receipt_inspection:reverse`; `work` và `authorizeReplay` kiểm thêm `:post`. Theo seed, Thủ kho có cả hai và không cần ai duyệt.
@@ -2498,7 +2498,7 @@ Mọi lệnh ở mục này dùng quyền `purchase_order:update` trong `command
 
 ## 2B.8. Nhánh hàng giữ hộ nhà cung cấp
 
-Dòng kiểm `CUSTODY` (bắt buộc với hàng không `GOOD`) sinh `CustodyReceipt` `PNGH-...` `DRAFT` ở bước 7. Hàng này **không** thuộc cửa hàng (`ownerType: 'SUPPLIER'`, `ownerId` = NCC), không tính vào tồn khả dụng và không làm PO tiến trạng thái. Từ đây có hai lối ra: Kế toán quyết định **nhận sở hữu** (thành phiếu nhập mua) hoặc **trả NCC** (thành phiếu xuất giữ hộ). [Service giữ hộ](../../../src/modules/po-receiving/purchase-custody.service.js).
+Dòng kiểm `CUSTODY` (bắt buộc với hàng không `GOOD`) sinh `CustodyReceipt` `PNGH-...` `DRAFT` ở bước 7. Hàng này **không** thuộc cửa hàng (`ownerType: 'SUPPLIER'`, `ownerId` = NCC), không tính vào tồn khả dụng và không làm PO tiến trạng thái. Từ đây có hai lối ra: Kế toán quyết định **nhận sở hữu** (thành phiếu nhập mua) hoặc **trả NCC** (thành phiếu xuất giữ hộ). [Service giữ hộ](../../../src/modules/custody/custody.service.js).
 
 ```text
 PNGH DRAFT ─post (2B.8.1)─► PNGH POSTED ─┬─ tái kiểm (2B.8.2, tùy chọn) ─► PKN CONFIRMED (REINSPECTION)
@@ -2508,7 +2508,7 @@ PNGH DRAFT ─post (2B.8.1)─► PNGH POSTED ─┬─ tái kiểm (2B.8.2, tù
                                           └─ đảo phiếu (2B.6)
 ```
 
-**Hàm phụ trợ** ([purchase-custody.service.js:13–53](../../../src/modules/po-receiving/purchase-custody.service.js)):
+**Hàm phụ trợ** ([custody-stock.js](../../../src/modules/custody/custody-stock.js), [custody.service.js](../../../src/modules/custody/custody.service.js)):
 
 | Hàm | Vai trò |
 |---|---|
@@ -2520,7 +2520,7 @@ PNGH DRAFT ─post (2B.8.1)─► PNGH POSTED ─┬─ tái kiểm (2B.8.2, tù
 
 ### 2B.8.1. Ghi tồn giữ hộ: `postCustodyReceipt(user, id, input)`
 
-[po-receiving.service.js:628](../../../src/modules/po-receiving/po-receiving.service.js). Route `POST /api/custody-receipts/:id/post`, mã lệnh `POST_PURCHASE_CUSTODY`, quyền `goods_receipt_inspection:post`.
+[custody.service.js](../../../src/modules/custody/custody.service.js). Route `POST /api/custody-receipts/:id/post`, mã lệnh `POST_PURCHASE_CUSTODY`, quyền `goods_receipt_inspection:post`.
 
 - **Vai trò nghiệp vụ:** đưa hàng không đạt (hoặc tạm giữ) vào vị trí giữ hộ/cách ly, có sổ cái, để theo dõi tới khi trả hoặc nhận.
 - **Từ điển biến:**
@@ -2551,7 +2551,7 @@ PNGH DRAFT ─post (2B.8.1)─► PNGH POSTED ─┬─ tái kiểm (2B.8.2, tù
 
 ### 2B.8.2. Tái kiểm hàng giữ hộ: `reinspectCustody(user, id, input)`
 
-[purchase-custody.service.js:54](../../../src/modules/po-receiving/purchase-custody.service.js). Route `POST /api/custody-receipts/:id/reinspections`, mã lệnh `REINSPECT_PURCHASE_CUSTODY`, quyền `goods_receipt_inspection:update`.
+[purchase-custody.service.js:54](../../../src/modules/custody/custody.service.js). Route `POST /api/custody-receipts/:id/reinspections`, mã lệnh `REINSPECT_PURCHASE_CUSTODY`, quyền `goods_receipt_inspection:update`.
 
 - **Vai trò nghiệp vụ:** kiểm lại phần hàng đang giữ (ví dụ hàng `PENDING` nay xác định là `GOOD`) làm căn cứ cho quyết định nhận sở hữu.
 - **Từ điển biến:** `input.lines[]` (`{ custodyItemId, qtyBase, qualityCode }`, không trùng dòng), `input.reason`, `input.evidenceIds` (**bắt buộc**), `inspected` (phiếu kiểm mới).
@@ -2571,7 +2571,7 @@ PNGH DRAFT ─post (2B.8.1)─► PNGH POSTED ─┬─ tái kiểm (2B.8.2, tù
 
 ### 2B.8.3. Quyết định xử lý: `decideCustody(user, id, input)`
 
-[purchase-custody.service.js:58](../../../src/modules/po-receiving/purchase-custody.service.js). Route `POST /api/custody-receipts/:id/resolution-decisions`, mã lệnh `DECIDE_PURCHASE_CUSTODY`, quyền `purchase_custody:decide` (Kế toán).
+[purchase-custody.service.js:58](../../../src/modules/custody/custody.service.js). Route `POST /api/custody-receipts/:id/resolution-decisions`, mã lệnh `DECIDE_PURCHASE_CUSTODY`, quyền `purchase_custody:decide` (Kế toán).
 
 - **Vai trò nghiệp vụ:** Kế toán thỏa thuận với NCC: nhận mua phần nào (`ACCEPT`) hay trả lại phần nào (`RETURN`).
 - **Từ điển biến:**
@@ -2601,7 +2601,7 @@ PNGH DRAFT ─post (2B.8.1)─► PNGH POSTED ─┬─ tái kiểm (2B.8.2, tù
 
 ### 2B.8.4. Lập chứng từ thực hiện: `createCustodyResolution(user, id, input, action)`
 
-[purchase-custody.service.js:66](../../../src/modules/po-receiving/purchase-custody.service.js). Route `POST /api/custody-receipts/:id/purchase-receipts` (`action = 'ACCEPT'`, body thêm `expectedPoVersion` và `destinationLocationId` mỗi dòng) và `POST /api/custody-receipts/:id/releases` (`'RETURN'`). Mã lệnh `CREATE_CUSTODY_ACCEPT` / `CREATE_CUSTODY_RETURN`, quyền `purchase_custody:execute` (Thủ kho).
+[purchase-custody.service.js:66](../../../src/modules/custody/custody.service.js). Route `POST /api/custody-receipts/:id/purchase-receipts` (`action = 'ACCEPT'`, body thêm `expectedPoVersion` và `destinationLocationId` mỗi dòng) và `POST /api/custody-receipts/:id/releases` (`'RETURN'`). Mã lệnh `CREATE_CUSTODY_ACCEPT` / `CREATE_CUSTODY_RETURN`, quyền `purchase_custody:execute` (Thủ kho).
 
 - **Vai trò nghiệp vụ:** từ quyết định của Kế toán, kho lập phiếu nháp để thực hiện: phiếu nhập mua (`PNM`) hoặc phiếu xuất giữ hộ (`PXGH`).
 - **Từ điển biến:**
@@ -2635,7 +2635,7 @@ PNGH DRAFT ─post (2B.8.1)─► PNGH POSTED ─┬─ tái kiểm (2B.8.2, tù
 
 ### 2B.8.5. Ghi phiếu nhập từ giữ hộ: `postOwnedCustody` và `transferCustodyStock`
 
-[purchase-custody.service.js:85](../../../src/modules/po-receiving/purchase-custody.service.js), [:78](../../../src/modules/po-receiving/purchase-custody.service.js). Được `postReceipt` gọi cho dòng có `custodyBalanceId`; `capabilities.post` của phiếu này đòi thêm `purchase_custody:execute`.
+[custody-stock.js](../../../src/modules/custody/custody-stock.js) (`postOwnedCustody`, `transferCustodyStock`). Được `postReceipt` gọi cho dòng có `custodyBalanceId`; `capabilities.post` của phiếu này đòi thêm `purchase_custody:execute`.
 
 - **Vai trò nghiệp vụ:** đổi chủ hàng từ NCC sang cửa hàng và đưa hàng sang bãi tiếp nhận, giữ nguyên các kiện đã đo lúc nhập giữ hộ.
 - **Từ điển biến:** `d` (phiếu giữ hộ nguồn), `original` (dòng giữ hộ), `decision` (phải `ACCEPT` của đúng phiếu), `move` (movement ghi giữ hộ; `toBalanceId` phải bằng `item.custodyBalanceId`), `checked` (kết quả kiểm `GOOD`), `ids` (kiện gốc + kiện đã trả về qua `restoredCustodyPortions`), `target` (số dư `STORE`/`GOOD` ở `RECEIVING`).
@@ -2657,7 +2657,7 @@ PNGH DRAFT ─post (2B.8.1)─► PNGH POSTED ─┬─ tái kiểm (2B.8.2, tù
 
 ### 2B.8.6. Trả hàng giữ hộ cho NCC: `postCustodyRelease(user, id, input)`
 
-[purchase-custody.service.js:95](../../../src/modules/po-receiving/purchase-custody.service.js). Route `POST /api/custody-releases/:id/post`, mã lệnh `POST_PURCHASE_CUSTODY_RELEASE`, quyền `purchase_custody:execute`.
+[purchase-custody.service.js:95](../../../src/modules/custody/custody.service.js). Route `POST /api/custody-releases/:id/post`, mã lệnh `POST_PURCHASE_CUSTODY_RELEASE`, quyền `purchase_custody:execute`.
 
 - **Vai trò nghiệp vụ:** bàn giao hàng giữ hộ cho NCC mang đi, trừ tồn NCC khỏi kho.
 - **Từ điển biến:** `input.recipientName` (bắt buộc), `doc` (`CustodyRelease` `DRAFT`), `decision` (phải `RETURN`), `posting` (`operation: 'CUSTODY_RELEASE'`).
@@ -2860,9 +2860,11 @@ Lượt này không chạy lại `native-api.integration.test.js` và các test 
 | Route → controller dùng chung | [src/middlewares/auth.js](../../../src/middlewares/auth.js), [src/middlewares/permission.js](../../../src/middlewares/permission.js), [src/shared/utils/catchAsync.js](../../../src/shared/utils/catchAsync.js) (`respondWithData`), [src/shared/utils/command-validation.js](../../../src/shared/utils/command-validation.js) |
 | RR | [src/modules/replenishments/](../../../src/modules/replenishments/) |
 | PO | [src/modules/purchase-orders/](../../../src/modules/purchase-orders/): `purchase-order.routes.js`, `.validation.js`, `.controller.js`, `.service.js` (đọc), `.commands.js` (lệnh) |
-| Kiểm nhận và ghi nhập | [src/modules/po-receiving/](../../../src/modules/po-receiving/): `po-receiving.routes.js`, `.validation.js`, `.controller.js`, `.service.js`, `purchase-core.js` |
-| Sửa kết quả kiểm, đảo phiếu nhập | [purchase-correction.service.js](../../../src/modules/po-receiving/purchase-correction.service.js) |
-| Giữ hộ NCC | [purchase-custody.service.js](../../../src/modules/po-receiving/purchase-custody.service.js), `postCustodyReceipt` trong [po-receiving.service.js](../../../src/modules/po-receiving/po-receiving.service.js) |
+| Kiểm nhận và sửa kết quả kiểm | [src/modules/goods-inspections/](../../../src/modules/goods-inspections/): `goods-inspection.routes.js`, `.validation.js`, `.controller.js`, `.service.js`, `.correction.js` |
+| Phiếu nhập mua | [src/modules/goods-receipts/](../../../src/modules/goods-receipts/): `purchase-receipt.routes.js`, `.validation.js`, `.controller.js`, `.service.js` |
+| Đảo phiếu nhập / giữ hộ | [src/modules/stock-reversals/](../../../src/modules/stock-reversals/): `stock-reversal.routes.js`, `.validation.js`, `.controller.js`, `.service.js` |
+| Giữ hộ NCC | [src/modules/custody/](../../../src/modules/custody/): `custody.routes.js`, `.validation.js`, `.controller.js`, `.service.js`, `custody-stock.js` |
+| Tiện ích nhận hàng dùng chung | [purchase-core.js](../../../src/shared/utils/purchase-core.js), [intake-packaging.js](../../../src/shared/utils/intake-packaging.js), [evidence-storage.js](../../../src/shared/utils/evidence-storage.js), [purchase-validation.js](../../../src/shared/utils/purchase-validation.js) |
 | Bằng chứng đính kèm | [purchase-evidence.service.js](../../../src/modules/po-receiving/purchase-evidence.service.js) |
 | Đọc, hàng đợi, lịch sử nhận hàng | [purchase-read.service.js](../../../src/modules/po-receiving/purchase-read.service.js) |
 | Đối soát, dọn bằng chứng | [purchase-reconciliation.js](../../../src/modules/po-receiving/purchase-reconciliation.js), [scripts/purchase-maintenance.mjs](../../../scripts/purchase-maintenance.mjs) |

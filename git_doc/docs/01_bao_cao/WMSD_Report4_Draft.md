@@ -106,7 +106,7 @@ flowchart LR
 | 01 | `authenticate` (`middlewares/auth.js`) | Verifies the JWT from the `Authorization` header (or `claim_access_token` cookie), reloads the user with role and permissions from MongoDB on every request and rejects inactive users. |
 | 02 | `checkPermission` (`middlewares/permission.js`) | Route-level operation permission check (`ERR-CORE-403-001`). Services repeat permission, warehouse, record, state and version checks inside the transaction. |
 | 03 | `validate` / `upload` | Strict Zod schemas for params/query/body; multer for JPEG/PNG/PDF evidence up to 5 MB with content inspection. |
-| 04 | Feature modules (`src/modules/*`) | Routes plus native services per domain (replenishments, purchase-orders, po-receiving, goods-receipts, location-movements, transfers, sales-orders, goods-issues, return-workflows, stocktake-closure, warehouse-stock, operational-reports, users, roles, products, lots, suppliers, uoms, auth). |
+| 04 | Feature modules (`src/modules/*`) | Routes plus native services per domain (replenishments, purchase-orders, po-receiving, goods-inspections, goods-receipts, custody, stock-reversals, location-movements, transfers, sales-orders, goods-issues, return-workflows, stocktake-closure, warehouse-stock, operational-reports, users, roles, products, lots, suppliers, uoms, auth). |
 | 05 | Shared command pipeline (`shared/utils/document-command.js`, `persistence.js`) | `command()` wraps every write: transaction with snapshot read concern and majority write concern, actor reload, idempotency via `operation_records`, audit log and outbox event. |
 | 06 | Stock engine (`shared/utils/stock.js`) | Balance lookup by holding point/lot/quality/owner, packaging split, reservations, capacity check, stocktake lock guard and `StockTransaction.movements`. |
 | 07 | Document numbering (`shared/utils/document-number.js`) | Allocates `_id = documentNo` = `[type]-[warehouse/department]-[YYMMDD]-[sequence]` inside the transaction; retries on collision. |
@@ -127,7 +127,7 @@ flowchart TB
     subgraph mods["modules"]
       m1["auth · users · roles"]
       m2["products · lots · uoms · suppliers"]
-      m3["replenishments · purchase-orders · po-receiving · goods-receipts"]
+      m3["replenishments · purchase-orders · po-receiving · goods-inspections · goods-receipts · custody · stock-reversals"]
       m4["warehouse-stock · location-movements · transfers"]
       m5["sales-orders · return-workflows"]
       m6["stocktake-closure · operational-reports · upload · health"]
@@ -358,7 +358,7 @@ Implementation status legend used in this section: **Implemented** = native API 
 
 ### 0. Shared command pipeline (Report 3 I.2.9, EX-01–EX-05)
 
-This diagram shows the common document command pipeline. In BF-01, the WMSD API lifeline represents the router and controller. PO, inspection, purchase receipt and custody routes with static permissions check those permissions before validating the request. Purchase evidence and unified goods receipt queries authorize access in the service based on the document or receipt kind. Purchase and custody reversal preflight and execution both require the reverse and post permissions.
+This diagram shows the common document command pipeline. In BF-01, each sequence names the UI file, controller and feature service. HTTP messages pass through the router and its middleware before reaching the controller. PO, inspection, purchase receipt and custody routes with static permissions check those permissions before validating the request. Purchase evidence and unified goods receipt queries authorize access in the service based on the document or receipt kind. Purchase and custody reversal preflight and execution both require the reverse and post permissions.
 
 ```mermaid
 sequenceDiagram
@@ -406,7 +406,7 @@ sequenceDiagram
 
 ### 1. BF-01 Replenishment, purchasing and goods receipt — Implemented
 
-The BF-01 diagrams follow the operations available in the application at the design/specification level. An approved Replenishment Request (RR) can produce a Purchase Order (PO). Staff create a Goods Inspection (INS) with its Goods Arrival (ARR) against an open PO. Confirmation can produce a draft purchase Goods Receipt (GR), a draft supplier Custody Receipt, or both, depending on the inspection lines. Every write command also runs the shared pipeline in section 0. Editable class and sequence diagrams are available in [WMSD BF-01 diagrams](../04_so_do/WMSD_BF01_Diagrams.drawio). In the class diagrams, dotted arrows (`..>`) denote call or read/write dependencies, dashed triangles (`..|>`) denote interface realization, solid arrows (`-->`) with multiplicity denote stored references, and a filled diamond (`*--`) denotes embedded records. Document ids such as `RR-warehouse-YYMMDD-seq` are placeholders: the stored `_id` uses the Vietnamese type code (`YCBS` for RR, `ĐMH` for PO, `HĐK` for ARR, `PKN` for INS, `PNM` for GR, `PNGH` for CustodyReceipt, `PXGH` for CustodyRelease, `PĐN` for StockReversal), the warehouse code, the date and a six-digit sequence.
+The BF-01 diagrams follow the operations available in the application at the design/specification level. An approved Replenishment Request (RR) can produce a Purchase Order (PO). Staff create a Goods Inspection (INS) with its Goods Arrival (ARR) against an open PO. Confirmation can produce a draft purchase Goods Receipt (GR), a draft supplier Custody Receipt, or both, depending on the inspection lines. Every write command also runs the shared pipeline in section 0. Editable class and sequence diagrams are available in [WMSD BF-01 diagrams](../04_so_do/WMSD_BF01_Diagrams.drawio). In the class diagrams, dashed arrows with open arrowheads (`..>`) denote call or read/write dependencies, solid arrows (`-->`) with multiplicity denote stored references, and a filled diamond (`*--`) denotes embedded records. Document ids such as `RR-warehouse-YYMMDD-seq` are placeholders: the stored `_id` uses the Vietnamese type code (`YCBS` for RR, `ĐMH` for PO, `HĐK` for ARR, `PKN` for INS, `PNM` for GR, `PNGH` for CustodyReceipt, `PXGH` for CustodyRelease, `PĐN` for StockReversal), the warehouse code, the date and a six-digit sequence.
 
 Historical purchase documents may have an ObjectId `_id` and a separate `documentNo`. PO detail, receiving summary and trips, operation lookup and PO list filters resolve the identifier before querying stored references. Evidence list, download and attach use the resolved document `_id` to match the attachment owner.
 
@@ -414,7 +414,7 @@ Historical purchase documents may have an ObjectId `_id` and a separate `documen
 
 ##### 1.1.1 Class Diagram
 
-Express routes in `replenishment.routes.js` handle JWT authentication and Zod validation before dispatching to `ReplenishmentController`; route-level or command-level RBAC guards are enforced per operation.
+Express routes in `replenishment.routes.js` handle JWT authentication and Zod validation before dispatching to `ReplenishmentController`; route-level or command-level RBAC guards are enforced per operation. `ReplenishmentEvaluation` reads the applicable source models in `resolveSource()`. A sales shortage resolves from a sales order directly or through a warehouse issue request. A stocktake shortage resolves from a stocktake. Source document references are stored per RR item.
 
 ```mermaid
 classDiagram
@@ -492,12 +492,6 @@ classDiagram
     +reason : String
     +itemDecisions : List~ItemDecision~
   }
-  class ReplenishmentSource {
-    <<interface>>
-    +id : DocumentIdentity
-    +workflowStatus : WorkflowStatus
-    +version : Int
-  }
   class SalesOrder {
     <<entity>>
   }
@@ -520,24 +514,22 @@ classDiagram
     +workflowStatus : WorkflowStatus
     +replenishmentRequestId : DocumentIdentity
   }
-  ReplenishmentController ..> ReplenishmentCommands : invokes commands
-  ReplenishmentController ..> ReplenishmentService : queries
-  ReplenishmentController ..> ReplenishmentSources : queries sources
-  ReplenishmentCommands ..> ReplenishmentEvaluation : evaluates lines
-  ReplenishmentCommands ..> ReplenishmentRequest : reads & writes
-  ReplenishmentCommands ..> ApprovalHistory : creates on review
-  ReplenishmentCommands ..> PurchaseOrder : checks live PO
-  ReplenishmentEvaluation ..> ReplenishmentSource : resolves source
-  ReplenishmentEvaluation ..> ReplenishmentRequest : reads open RR
-  ReplenishmentEvaluation ..> InventoryBalance : reads free stock
-  ReplenishmentEvaluation ..> Product : reads thresholds
-  ReplenishmentEvaluation ..> PurchaseOrder : reads incoming PO
-  SalesOrder ..|> ReplenishmentSource
-  WarehouseIssueRequest ..|> ReplenishmentSource
-  Stocktake ..|> ReplenishmentSource
-  ApprovalHistory "0..*" --> "1" ReplenishmentRequest : subjectId
-  ReplenishmentRequest "0..*" --> "0..1" ApprovalHistory : latestDecisionId
-  ReplenishmentRequest "0..*" --> "0..*" ReplenishmentSource : items[].sources
+  ReplenishmentController ..> ReplenishmentCommands
+  ReplenishmentController ..> ReplenishmentService
+  ReplenishmentController ..> ReplenishmentSources
+  ReplenishmentCommands ..> ReplenishmentEvaluation
+  ReplenishmentCommands ..> ReplenishmentRequest
+  ReplenishmentCommands ..> ApprovalHistory
+  ReplenishmentCommands ..> PurchaseOrder
+  ReplenishmentEvaluation ..> ReplenishmentRequest
+  ReplenishmentEvaluation ..> InventoryBalance
+  ReplenishmentEvaluation ..> Product
+  ReplenishmentEvaluation ..> PurchaseOrder
+  ReplenishmentEvaluation ..> SalesOrder
+  ReplenishmentEvaluation ..> WarehouseIssueRequest
+  ReplenishmentEvaluation ..> Stocktake
+  ApprovalHistory "0..*" --> "1" ReplenishmentRequest
+  ReplenishmentRequest "0..*" --> "0..1" ApprovalHistory
 ```
 
 ##### 1.1.2 Sequence diagrams
@@ -549,9 +541,11 @@ The requester is Sales Staff or Warehouse Staff.
 ```mermaid
 sequenceDiagram
   actor X as Sales or Warehouse Staff
-  participant U as Replenishment form
-  participant A as WMSD API
-  participant S as ReplenishmentCommands
+  participant U as UI<br/>:ReplenishmentDraftEditor.tsx
+  participant U2 as UI<br/>:ReplenishmentDetailPage.tsx
+  participant A as RestController<br/>:replenishment.controller.js
+  participant S as Service<br/>:replenishment.commands.js
+  participant T as Service<br/>:replenishment.evaluation.js
   participant D as MongoDB
   X->>U: Evaluate requested quantities
   activate U
@@ -559,9 +553,9 @@ sequenceDiagram
   activate A
   A->>S: evaluateReplenishment()
   activate S
-  S->>D: Read demand, stock and pending supply
-  D-->>S: Evaluation inputs
-  S->>S: Evaluate each line
+  S->>T: evaluateLines()
+  T->>D: Read demand, stock and pending supply
+  D-->>T: Evaluation inputs
   S-->>A: line evaluations and warnings
   A-->>U: 200 OK
   U-->>X: Show line evaluations and warnings
@@ -574,9 +568,9 @@ sequenceDiagram
   activate A
   A->>S: createReplenishment()
   activate S
-  S->>D: Read source and stock context
+  S->>D: Read product and unit data
   D-->>S: Evaluation inputs
-  S->>S: Re-evaluate and check warnings
+  S->>T: Re-evaluate with evaluateLines()
   alt [Request can be saved]
     alt [Action is SUBMIT]
       S->>D: Save SUBMITTED with submission snapshot
@@ -597,29 +591,29 @@ sequenceDiagram
   deactivate A
   deactivate U
   opt [DRAFT was saved and creator submits later]
-    X->>U: Submit saved draft
-    activate U
-    U->>A: POST /api/replenishments/:id/submit
+    X->>U2: Submit saved draft
+    activate U2
+    U2->>A: POST /api/replenishments/:id/submit
     activate A
     A->>S: submitReplenishment()
     activate S
     S->>D: Load RR and evaluation inputs
     D-->>S: RR and inputs
-    S->>S: Check creator, DRAFT and version
+    S->>T: evaluateLines() after creator, DRAFT and version checks
     alt [Current draft and confirmed warnings]
       S->>D: Save SUBMITTED with submission snapshot
       D-->>S: Saved
       S-->>A: submitted request
-      A-->>U: 200 OK
-      U-->>X: Show submitted request
+      A-->>U2: 200 OK
+      U2-->>X: Show submitted request
     else [otherwise]
       S-->>A: submit error
-      A-->>U: Error response
-      U-->>X: Show submit error
+      A-->>U2: Error response
+      U2-->>X: Show submit error
     end
     deactivate S
     deactivate A
-    deactivate U
+    deactivate U2
   end
 ```
 
@@ -628,9 +622,10 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Sales or Warehouse Staff
-  participant U as Replenishment form
-  participant A as WMSD API
-  participant S as ReplenishmentCommands
+  participant U as UI<br/>:ReplenishmentDraftEditor.tsx
+  participant A as RestController<br/>:replenishment.controller.js
+  participant S as Service<br/>:replenishment.commands.js
+  participant T as Service<br/>:replenishment.evaluation.js
   participant D as MongoDB
   X->>U: Save changes to draft
   activate U
@@ -640,7 +635,7 @@ sequenceDiagram
   activate S
   S->>D: Load RR, linked PO and evaluation inputs
   D-->>S: RR and inputs
-  S->>S: Check creator, DRAFT, version and warnings
+  S->>T: evaluateLines() after creator, DRAFT and version checks
   alt [Draft editable and evaluations valid]
     S->>D: Save updated DRAFT
     D-->>S: Saved
@@ -662,9 +657,9 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Store Owner
-  participant U as Replenishment detail
-  participant A as WMSD API
-  participant S as ReplenishmentCommands
+  participant U as UI<br/>:ReplenishmentDetailPage.tsx
+  participant A as RestController<br/>:replenishment.controller.js
+  participant S as Service<br/>:replenishment.commands.js
   participant D as MongoDB
   X->>U: Approve or reject with reason
   activate U
@@ -701,9 +696,9 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Requester or Store Owner
-  participant U as Replenishment detail
-  participant A as WMSD API
-  participant S as ReplenishmentCommands
+  participant U as UI<br/>:ReplenishmentDetailPage.tsx
+  participant A as RestController<br/>:replenishment.controller.js
+  participant S as Service<br/>:replenishment.commands.js
   participant D as MongoDB
   X->>U: Cancel request with reason
   activate U
@@ -828,21 +823,21 @@ classDiagram
     +workflowStatus : WorkflowStatus
     +arrivalId : DocumentIdentity
   }
-  PurchaseOrderController ..> PurchaseOrderService : delegates queries
-  PurchaseOrderController ..> PurchaseOrderCommands : delegates commands
-  PurchaseOrderCommands ..> PurchaseOrderService : quantities, blockers, status
-  PurchaseOrderCommands ..> PurchaseOrder : creates & updates
-  PurchaseOrderCommands ..> ReplenishmentRequest : verifies APPROVED & touches updatedAt
-  PurchaseOrderCommands ..> ApprovalHistory : verifies approved ceiling
-  PurchaseOrderCommands ..> Supplier : verifies ACTIVE
-  PurchaseOrderService ..> PurchaseOrder : queries
-  PurchaseOrderService ..> PurchaseReceipt : sums received & draft qty
-  PurchaseOrderService ..> GoodsArrival : checks blockers & open work
-  PurchaseOrderService ..> GoodsInspection : checks draft work
-  PurchaseOrder "0..1" --> "0..1" ReplenishmentRequest : replenishmentRequestId
-  PurchaseOrder "0..*" --> "1" Supplier : supplierId
-  PurchaseReceipt "0..*" --> "1" PurchaseOrder : purchaseOrderId
-  GoodsArrival "0..*" --> "1" PurchaseOrder : purchaseOrderId
+  PurchaseOrderController ..> PurchaseOrderService
+  PurchaseOrderController ..> PurchaseOrderCommands
+  PurchaseOrderCommands ..> PurchaseOrderService
+  PurchaseOrderCommands ..> PurchaseOrder
+  PurchaseOrderCommands ..> ReplenishmentRequest
+  PurchaseOrderCommands ..> ApprovalHistory
+  PurchaseOrderCommands ..> Supplier
+  PurchaseOrderService ..> PurchaseOrder
+  PurchaseOrderService ..> PurchaseReceipt
+  PurchaseOrderService ..> GoodsArrival
+  PurchaseOrderService ..> GoodsInspection
+  PurchaseOrder "0..1" --> "0..1" ReplenishmentRequest
+  PurchaseOrder "0..*" --> "1" Supplier
+  PurchaseReceipt "0..*" --> "1" PurchaseOrder
+  GoodsArrival "0..*" --> "1" PurchaseOrder
 ```
 
 ##### 1.2.2 Sequence diagrams
@@ -854,9 +849,10 @@ The Accountant agrees order terms with the supplier outside WMSD.
 ```mermaid
 sequenceDiagram
   actor X as Accountant
-  participant U as Purchase order form
-  participant A as WMSD API
-  participant S as PurchaseOrderCommands
+  participant U as UI<br/>:CreatePurchaseOrderModal.tsx
+  participant U2 as UI<br/>:PurchaseOrderDraftActions.tsx
+  participant A as RestController<br/>:purchase-order.controller.js
+  participant S as Service<br/>:purchase-order.commands.js
   participant D as MongoDB
   X->>U: Save PO from approved request
   activate U
@@ -882,9 +878,9 @@ sequenceDiagram
   deactivate A
   deactivate U
   opt [DRAFT was saved and Accountant issues it]
-    X->>U: Issue saved purchase order
-    activate U
-    U->>A: POST /api/purchase-orders/:id/confirm
+    X->>U2: Issue saved purchase order
+    activate U2
+    U2->>A: POST /api/purchase-orders/:id/confirm
     activate A
     A->>S: confirmPurchaseOrder()
     activate S
@@ -895,16 +891,16 @@ sequenceDiagram
       S->>D: Save PO OPEN with issue timestamp
       D-->>S: Saved
       S-->>A: open purchase order
-      A-->>U: 200 OK
-      U-->>X: Show open purchase order
+      A-->>U2: 200 OK
+      U2-->>X: Show open purchase order
     else [otherwise]
       S-->>A: issue error
-      A-->>U: Error response
-      U-->>X: Show issue error
+      A-->>U2: Error response
+      U2-->>X: Show issue error
     end
     deactivate S
     deactivate A
-    deactivate U
+    deactivate U2
   end
 ```
 
@@ -913,9 +909,9 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Accountant
-  participant U as Purchase order form
-  participant A as WMSD API
-  participant S as PurchaseOrderCommands
+  participant U as UI<br/>:EditPurchaseOrderDraftModal.tsx
+  participant A as RestController<br/>:purchase-order.controller.js
+  participant S as Service<br/>:purchase-order.commands.js
   participant D as MongoDB
   X->>U: Save changes to PO draft
   activate U
@@ -947,9 +943,9 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Accountant
-  participant U as Purchase order detail
-  participant A as WMSD API
-  participant S as PurchaseOrderCommands
+  participant U as UI<br/>:RescheduleExpectedOnModal.tsx
+  participant A as RestController<br/>:purchase-order.controller.js
+  participant S as Service<br/>:purchase-order.commands.js
   participant D as MongoDB
   X->>U: Enter new date and reason
   activate U
@@ -981,9 +977,10 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Accountant
-  participant U as Purchase order detail
-  participant A as WMSD API
-  participant S as PurchaseOrderCommands
+  participant U as UI<br/>:ClosePurchaseOrderRemainderModal.tsx
+  participant A as RestController<br/>:purchase-order.controller.js
+  participant S as Service<br/>:purchase-order.commands.js
+  participant T as Service<br/>:purchase-order.service.js
   participant D as MongoDB
   X->>U: Close unreceived quantity with reason
   activate U
@@ -995,7 +992,7 @@ sequenceDiagram
   D-->>S: Outstanding and committed quantities
   S->>S: Check OPEN or PARTIAL, version and available quantity
   alt [Close quantity is valid]
-    S->>S: Add closed quantity and recalculate remainder
+    S->>T: Recalculate remainder with purchaseOrderQuantities()
     opt [Outstanding is zero on every line]
       S->>S: Set PO CLOSED
     end
@@ -1019,9 +1016,10 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Accountant
-  participant U as Purchase order detail
-  participant A as WMSD API
-  participant S as PurchaseOrderCommands
+  participant U as UI<br/>:ReopenPurchaseOrderModal.tsx
+  participant A as RestController<br/>:purchase-order.controller.js
+  participant S as Service<br/>:purchase-order.commands.js
+  participant T as Service<br/>:purchase-order.service.js
   participant D as MongoDB
   X->>U: Reopen closed PO with reason
   activate U
@@ -1031,7 +1029,7 @@ sequenceDiagram
   activate S
   S->>D: Load PO and receipt quantities
   D-->>S: Received and outstanding quantities
-  S->>S: Check version and reopen eligibility
+  S->>T: Check eligibility with purchaseOrderQuantities() and reopenable()
   alt [PO CLOSED with outstanding quantity]
     alt [Any quantity remains received]
       S->>S: Set PO PARTIAL
@@ -1058,9 +1056,10 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Accountant
-  participant U as Purchase order detail
-  participant A as WMSD API
-  participant S as PurchaseOrderCommands
+  participant U as UI<br/>:CancelPurchaseOrderModal.tsx
+  participant A as RestController<br/>:purchase-order.controller.js
+  participant S as Service<br/>:purchase-order.commands.js
+  participant T as Service<br/>:purchase-order.service.js
   participant D as MongoDB
   X->>U: Cancel PO with reason
   activate U
@@ -1070,7 +1069,7 @@ sequenceDiagram
   activate S
   S->>D: Load PO and receiving history
   D-->>S: PO and cancellation blockers
-  S->>S: Check version and cancellation rules
+  S->>T: Check receiving blockers with cancelBlocker()
   alt [DRAFT or OPEN and no blocker]
     S->>D: Save PO CANCELLED and release RR link
     D-->>S: Saved
@@ -1091,7 +1090,7 @@ sequenceDiagram
 
 ##### 1.3.1 Class Diagram
 
-Routers in `po-receiving.routes.js` authenticate, enforce static RBAC permissions via `checkPermission`, validate payloads with Zod (`po-receiving.validation.js`), and dispatch through `PoReceivingController` to read/write services (which recheck scope, state, and dynamic permissions).
+Routers in `goods-inspection.routes.js` and `po-receiving.routes.js` (read layer) authenticate, enforce static RBAC permissions via `checkPermission`, validate payloads with Zod (`goods-inspection.validation.js`, `po-receiving.validation.js`), and dispatch through controllers to read/write services (which recheck scope, state, and dynamic permissions).
 
 ```mermaid
 classDiagram
@@ -1191,42 +1190,43 @@ classDiagram
     +id : DocumentIdentity
     +workflowStatus : WorkflowStatus
   }
-  PurchaseReceivingRouter ..> PoReceivingController : dispatches PO receiving
-  InspectionRouter ..> PoReceivingController : dispatches inspection
-  QueueRouter ..> PoReceivingController : dispatches queue
-  PoReceivingController ..> PoReceivingService : context, create, update, confirm, cancel, operation
-  PoReceivingController ..> PurchaseReadService : summary, trips, queue, list, detail, history
-  PoReceivingController ..> PurchaseCorrectionService : preflight, replace
-  PurchaseCorrectionService ..> PoReceivingService : activePo, prepare
-  PoReceivingService ..> PurchaseOrder : locks & bumps version
-  PoReceivingService ..> GoodsArrival : creates & updates
-  PoReceivingService ..> GoodsInspection : creates & confirms
-  PoReceivingService ..> PurchaseReceipt : creates DRAFT on confirm
-  PoReceivingService ..> CustodyReceipt : creates DRAFT on confirm
-  PurchaseCorrectionService ..> GoodsArrival : creates replacement
-  PurchaseCorrectionService ..> GoodsInspection : creates replacement
-  PurchaseCorrectionService ..> PurchaseReceipt : checks blockers
-  PurchaseCorrectionService ..> CustodyReceipt : checks blockers
-  PurchaseCorrectionService ..> SupplierReturn : checks blockers
-  GoodsArrival "0..*" --> "1" PurchaseOrder : purchaseOrderId
-  GoodsInspection "1..*" --> "1" GoodsArrival : arrivalId
-  GoodsInspection "0..*" --> "0..1" GoodsInspection : previousInspectionId
-  PurchaseReceipt "0..*" --> "0..1" GoodsInspection : items[].inspectionId
-  CustodyReceipt "0..*" --> "0..1" GoodsInspection : sources
+  PurchaseReceivingRouter ..> PoReceivingController
+  InspectionRouter ..> PoReceivingController
+  QueueRouter ..> PoReceivingController
+  PoReceivingController ..> PoReceivingService
+  PoReceivingController ..> PurchaseReadService
+  PoReceivingController ..> PurchaseCorrectionService
+  PurchaseCorrectionService ..> PoReceivingService
+  PoReceivingService ..> PurchaseOrder
+  PoReceivingService ..> GoodsArrival
+  PoReceivingService ..> GoodsInspection
+  PoReceivingService ..> PurchaseReceipt
+  PoReceivingService ..> CustodyReceipt
+  PurchaseCorrectionService ..> GoodsArrival
+  PurchaseCorrectionService ..> GoodsInspection
+  PurchaseCorrectionService ..> PurchaseReceipt
+  PurchaseCorrectionService ..> CustodyReceipt
+  PurchaseCorrectionService ..> SupplierReturn
+  GoodsArrival "0..*" --> "1" PurchaseOrder
+  GoodsInspection "1..*" --> "1" GoodsArrival
+  GoodsInspection "0..*" --> "0..1" GoodsInspection
+  PurchaseReceipt "0..*" --> "0..1" GoodsInspection
+  CustodyReceipt "0..*" --> "0..1" GoodsInspection
 ```
 
 ##### 1.3.2 Sequence diagrams
 
-Confirming an inspection creates eligible receipt drafts. A line with quality other than GOOD must use CUSTODY. A GOOD line marked ACCEPT creates a purchase receipt line for a RECEIVING location. Posting the receipt records stock.
+Confirming an inspection checks the document versions and ownership decisions. It creates eligible receipt drafts. A line with quality other than GOOD must use CUSTODY. A GOOD line marked ACCEPT creates a purchase receipt line for a RECEIVING location. Posting the receipt records stock.
 
 ###### 1.3.2.1 Create Goods Inspection (UC-37)
 
 ```mermaid
 sequenceDiagram
   actor X as Warehouse Staff
-  participant U as Inspection form
-  participant A as WMSD API
-  participant S as PoReceivingService
+  participant U as UI<br/>:InspectionFormPage.tsx
+  participant A as RestController<br/>:po-receiving.controller.js
+  participant S as Service<br/>:po-receiving.service.js
+  participant T as Service<br/>:purchase-order.service.js
   participant D as MongoDB
   X->>U: Open receiving trip
   activate U
@@ -1272,9 +1272,9 @@ sequenceDiagram
     activate A
     A->>S: confirmInspection()
     activate S
-    S->>D: Load INS, ARR and PO headroom
-    D-->>S: Draft and PO quantities
-    S->>S: Check versions, GOOD / ACCEPT to RECEIVING and non-GOOD to CUSTODY
+    S->>D: Load INS, ARR and PO
+    D-->>S: Draft and PO
+    S->>T: Check PO allowance with purchaseOrderQuantities()
     alt [Draft confirmation valid]
       opt [At least one GOOD / ACCEPT line]
         S->>D: Save purchase receipt DRAFT
@@ -1305,9 +1305,9 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Warehouse Staff
-  participant U as Inspection form
-  participant A as WMSD API
-  participant S as PoReceivingService
+  participant U as UI<br/>:InspectionFormPage.tsx
+  participant A as RestController<br/>:po-receiving.controller.js
+  participant S as Service<br/>:po-receiving.service.js
   participant D as MongoDB
   X->>U: Save draft inspection changes
   activate U
@@ -1339,9 +1339,9 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Warehouse Staff
-  participant U as Inspection detail
-  participant A as WMSD API
-  participant S as PoReceivingService
+  participant U as UI<br/>:InspectionFormPage.tsx
+  participant A as RestController<br/>:po-receiving.controller.js
+  participant S as Service<br/>:po-receiving.service.js
   participant D as MongoDB
   X->>U: Cancel draft inspection with reason
   activate U
@@ -1373,9 +1373,11 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Warehouse Staff
-  participant U as Inspection detail
-  participant A as WMSD API
-  participant S as PurchaseCorrectionService
+  participant U as UI<br/>:InspectionFormPage.tsx
+  participant U2 as UI<br/>:InspectionCorrectionModals.tsx
+  participant A as RestController<br/>:po-receiving.controller.js
+  participant S as Service<br/>:purchase-correction.service.js
+  participant T as Service<br/>:po-receiving.service.js
   participant D as MongoDB
   X->>U: Request correction eligibility
   activate U
@@ -1393,29 +1395,29 @@ sequenceDiagram
   deactivate A
   deactivate U
   opt [Eligible and staff submit corrected counts]
-    X->>U: Submit correction with reason
-    activate U
-    U->>A: POST /api/goods-inspections/:id/corrections
+    X->>U2: Submit correction with reason
+    activate U2
+    U2->>A: POST /api/goods-inspections/:id/corrections
     activate A
     A->>S: replaceInspection()
     activate S
     S->>D: Load INS, ARR, PO and links
     D-->>S: Sources and blockers
-    S->>S: Recheck versions, blockers and corrected lines
+    S->>T: Validate and prepare corrected lines with prepare()
     alt [Correction still eligible]
       S->>D: Save replacement drafts and bump original INS version
       D-->>S: Saved
       S-->>A: linked replacement draft
-      A-->>U: 200 OK
-      U-->>X: Show linked replacement draft
+      A-->>U2: 200 OK
+      U2-->>X: Show linked replacement draft
     else [otherwise]
       S-->>A: correction error
-      A-->>U: Error response
-      U-->>X: Show correction error
+      A-->>U2: Error response
+      U2-->>X: Show correction error
     end
     deactivate S
     deactivate A
-    deactivate U
+    deactivate U2
   end
 ```
 
@@ -1587,41 +1589,41 @@ classDiagram
     +id : DocumentIdentity
     +workflowStatus : WorkflowStatus
   }
-  GoodsReceiptRouter ..> GoodsReceiptController : dispatches queries
-  GoodsReceiptRouter ..> ReceiptRouter : mounts /purchase
-  ReceiptRouter ..> PoReceivingController : dispatches purchase receipts
-  CustodyRouters ..> PoReceivingController : dispatches custody receipts & releases
-  GoodsReceiptController ..> GoodsReceiptService : unified & per-kind queries
-  GoodsReceiptService ..> PurchaseReadService : PURCHASE detail
-  PoReceivingController ..> PurchaseReadService : receipt & custody list/detail
-  PoReceivingController ..> PoReceivingService : post, cancel, destinations
-  PoReceivingController ..> PurchaseCorrectionService : preflight & reverse
-  PoReceivingController ..> PurchaseCustodyService : reinspect, decide, resolve, release
-  PoReceivingService ..> PurchaseCustodyService : postOwnedCustody
-  PoReceivingService ..> StockUtils : guards & posts stock
-  PoReceivingService ..> PurchaseReceipt : posts & updates
-  PoReceivingService ..> CustodyReceipt : posts & cancels
-  PoReceivingService ..> PurchaseOrder : updates PARTIAL / COMPLETED / CLOSED
-  PurchaseCorrectionService ..> StockUtils : checks free qty & capacity
-  PurchaseCorrectionService ..> PurchaseCustodyService : transferCustodyStock
-  PurchaseCorrectionService ..> PurchaseOrder : updates PARTIAL / OPEN
-  PurchaseCorrectionService ..> StockReversal : creates POSTED
-  PurchaseCorrectionService ..> StockTransaction : records REVERSAL
-  PurchaseCustodyService ..> CustodyReceipt : updates
-  PurchaseCustodyService ..> PurchaseReceipt : creates ACCEPT draft
-  PurchaseCustodyService ..> CustodyRelease : creates & posts RETURN
-  PurchaseCustodyService ..> StockUtils : guards & splits stock
-  StockUtils ..> InventoryBalance : updates balances
-  StockUtils ..> StockTransaction : records movements
-  PurchaseReceipt "0..*" --> "1" PurchaseOrder : purchaseOrderId
-  PurchaseReceipt "0..1" --> "0..1" StockTransaction : stockTransactionId
-  CustodyReceipt "0..1" --> "0..1" StockTransaction : stockTransactionId
-  CustodyRelease "0..1" --> "0..1" StockTransaction : stockTransactionId
-  StockReversal "0..1" --> "1" StockTransaction : originalTransactionId
-  StockReversal "0..1" --> "0..1" StockTransaction : stockTransactionId
-  StockTransaction "1" *-- "0..*" StockMovement : movements
-  StockMovement "0..*" --> "0..1" InventoryBalance : fromBalanceId
-  StockMovement "0..*" --> "0..1" InventoryBalance : toBalanceId
+  GoodsReceiptRouter ..> GoodsReceiptController
+  GoodsReceiptRouter ..> ReceiptRouter
+  ReceiptRouter ..> PoReceivingController
+  CustodyRouters ..> PoReceivingController
+  GoodsReceiptController ..> GoodsReceiptService
+  GoodsReceiptService ..> PurchaseReadService
+  PoReceivingController ..> PurchaseReadService
+  PoReceivingController ..> PoReceivingService
+  PoReceivingController ..> PurchaseCorrectionService
+  PoReceivingController ..> PurchaseCustodyService
+  PoReceivingService ..> PurchaseCustodyService
+  PoReceivingService ..> StockUtils
+  PoReceivingService ..> PurchaseReceipt
+  PoReceivingService ..> CustodyReceipt
+  PoReceivingService ..> PurchaseOrder
+  PurchaseCorrectionService ..> StockUtils
+  PurchaseCorrectionService ..> PurchaseCustodyService
+  PurchaseCorrectionService ..> PurchaseOrder
+  PurchaseCorrectionService ..> StockReversal
+  PurchaseCorrectionService ..> StockTransaction
+  PurchaseCustodyService ..> CustodyReceipt
+  PurchaseCustodyService ..> PurchaseReceipt
+  PurchaseCustodyService ..> CustodyRelease
+  PurchaseCustodyService ..> StockUtils
+  StockUtils ..> InventoryBalance
+  StockUtils ..> StockTransaction
+  PurchaseReceipt "0..*" --> "1" PurchaseOrder
+  PurchaseReceipt "0..1" --> "0..1" StockTransaction
+  CustodyReceipt "0..1" --> "0..1" StockTransaction
+  CustodyRelease "0..1" --> "0..1" StockTransaction
+  StockReversal "0..1" --> "1" StockTransaction
+  StockReversal "0..1" --> "0..1" StockTransaction
+  StockTransaction "1" *-- "0..*" StockMovement
+  StockMovement "0..*" --> "0..1" InventoryBalance
+  StockMovement "0..*" --> "0..1" InventoryBalance
 ```
 
 ##### 1.4.2 Sequence diagrams
@@ -1632,14 +1634,16 @@ Use BF-03 to relocate posted purchase stock from RECEIVING to STORAGE. The seque
 
 ###### 1.4.2.1 Change Purchase Receipt Destinations
 
+This endpoint is shown as an API operation. The current purchase receipt UI calls post and cancel, while destination changes use the separate PATCH endpoint.
+
 ```mermaid
 sequenceDiagram
   actor X as Warehouse Staff
-  participant U as Purchase receipt detail
-  participant A as WMSD API
-  participant S as PoReceivingService
+  participant U as API client
+  participant A as RestController<br/>:po-receiving.controller.js
+  participant S as Service<br/>:po-receiving.service.js
   participant D as MongoDB
-  X->>U: Save new receiving locations
+  X->>U: Prepare new receiving locations and reason
   activate U
   U->>A: PATCH /api/goods-receipts/purchase/:id/destinations
   activate A
@@ -1653,11 +1657,11 @@ sequenceDiagram
     D-->>S: Saved
     S-->>A: updated destinations
     A-->>U: 200 OK
-    U-->>X: Show updated destinations
+    U-->>X: Read updated destinations
   else [otherwise]
     S-->>A: destination error
     A-->>U: Error response
-    U-->>X: Show destination error
+    U-->>X: Read API error
   end
   deactivate S
   deactivate A
@@ -1669,9 +1673,9 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Warehouse Staff
-  participant U as Purchase receipt detail
-  participant A as WMSD API
-  participant S as PoReceivingService
+  participant U as UI<br/>:PurchaseReceiptReview.tsx
+  participant A as RestController<br/>:po-receiving.controller.js
+  participant S as Service<br/>:po-receiving.service.js
   participant D as MongoDB
   X->>U: Cancel draft receipt with reason
   activate U
@@ -1703,9 +1707,10 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Warehouse Staff
-  participant U as Purchase receipt detail
-  participant A as WMSD API
-  participant S as PoReceivingService
+  participant U as UI<br/>:PurchaseReceiptReview.tsx
+  participant A as RestController<br/>:po-receiving.controller.js
+  participant S as Service<br/>:po-receiving.service.js
+  participant T as Service<br/>:purchase-custody.service.js
   participant D as MongoDB
   X->>U: Post draft purchase receipt
   activate U
@@ -1721,7 +1726,7 @@ sequenceDiagram
       alt [Source is GOOD / ACCEPT inspection line]
         S->>S: Receive STORE stock at RECEIVING
       else [Source is accepted supplier custody]
-        S->>S: Move SUPPLIER stock to STORE at RECEIVING
+        S->>T: postOwnedCustody() moves SUPPLIER stock to STORE at RECEIVING
       end
     end
     S->>S: Verify capacity and derive PO status
@@ -1745,9 +1750,10 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Warehouse Staff
-  participant U as Purchase receipt detail
-  participant A as WMSD API
-  participant S as PurchaseCorrectionService
+  participant U as UI<br/>:PurchaseReceiptReverseModal.tsx
+  participant A as RestController<br/>:po-receiving.controller.js
+  participant S as Service<br/>:purchase-correction.service.js
+  participant T as Service<br/>:purchase-custody.service.js
   participant D as MongoDB
   X->>U: Check reversal eligibility
   activate U
@@ -1775,7 +1781,7 @@ sequenceDiagram
     D-->>S: Stock and both versions
     S->>S: Recheck blockers, stock and versions
     alt [Reversal still eligible]
-      S->>S: Undo owned stock movement
+      S->>T: Reverse movement with transferCustodyStock()
       opt [Receipt came from supplier custody]
         S->>S: Restore supplier-held stock
       end
@@ -1803,9 +1809,9 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Warehouse Staff
-  participant U as Custody receipt detail
-  participant A as WMSD API
-  participant S as PoReceivingService
+  participant U as UI<br/>:CustodyDetailPage.tsx
+  participant A as RestController<br/>:po-receiving.controller.js
+  participant S as Service<br/>:po-receiving.service.js
   participant D as MongoDB
   X->>U: Cancel draft custody receipt
   activate U
@@ -1837,9 +1843,9 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Warehouse Staff
-  participant U as Custody receipt detail
-  participant A as WMSD API
-  participant S as PoReceivingService
+  participant U as UI<br/>:CustodyDetailPage.tsx
+  participant A as RestController<br/>:po-receiving.controller.js
+  participant S as Service<br/>:po-receiving.service.js
   participant D as MongoDB
   X->>U: Choose custody locations and post
   activate U
@@ -1872,9 +1878,10 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor X as Warehouse Staff
-  participant U as Custody receipt detail
-  participant A as WMSD API
-  participant S as PurchaseCorrectionService
+  participant U as UI<br/>:CustodyReverseModal.tsx
+  participant A as RestController<br/>:po-receiving.controller.js
+  participant S as Service<br/>:purchase-correction.service.js
+  participant T as Service<br/>:purchase-custody.service.js
   participant D as MongoDB
   X->>U: Check custody reversal eligibility
   activate U
@@ -1902,7 +1909,7 @@ sequenceDiagram
     D-->>S: Receipt version and supplier-held stock
     S->>S: Recheck eligibility, location and free stock
     alt [Reversal still eligible]
-      S->>S: Deduct originally received supplier stock
+      S->>T: Deduct supplier stock with transferCustodyStock()
       S->>D: Save reversal and custody receipt REVERSED
       D-->>S: Saved
       S-->>A: reversal and stock transaction

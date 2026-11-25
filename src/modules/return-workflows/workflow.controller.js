@@ -1,4 +1,4 @@
-import { evidenceStorage } from '../po-receiving/purchase-evidence.service.js';
+import { evidenceStorage } from '../../shared/utils/evidence-storage.js';
 import { catchAsync } from '../../shared/utils/catchAsync.js';
 import { formatApiResponse } from '../../shared/utils/ApiResponse.js';
 import * as v from './native.validation.js';
