@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { User, Warehouse } from "../../models/runtime.js";
 import { ApiError, ERROR_CODES, validationError } from "../../shared/utils/ApiError.js";
 import { rolePermissions, userRoleDto } from "../../shared/utils/userRole.js";
+import { displayRoleName } from "../../shared/utils/roleNames.js";
 import { generateRefreshToken } from "../../config/jwt.js";
 import { escapeRegex } from "../../shared/utils/domain.js";
 import { appendAudit, changedFields } from "../../shared/utils/audit.js";
@@ -96,7 +97,6 @@ export const forgotPassword = async (rawEmail) => {
   await appendAudit({ actorId: user._id, action: "RESET_PASSWORD", entityType: "users", entityId: user._id, details: { channel: "email" } }).catch(() => undefined);
 };
 
-const ROLE_NAMES = { ADMIN: "Quản trị viên", OWNER: "Chủ cửa hàng", SALES: "Nhân viên Bán hàng", WAREHOUSE: "Thủ kho & Điều phối", ACCOUNTANT: "Kế toán công nợ" };
 
 // Session fields plus the read-only account details shown on the "Thông tin tài khoản" screen.
 async function accountDetails(user) {
@@ -109,7 +109,7 @@ async function accountDetails(user) {
     ...dto,
     email: user.email,
     roleCode: role.code,
-    roleName: role.name || ROLE_NAMES[role.code] || role.code,
+    roleName: displayRoleName(role.code, role.name),
     warehouses: warehouses.map((w) => ({ id: String(w._id), code: w.code, name: w.name, isActive: w.isActive !== false })),
     version: user.version ?? 1,
     lastLoginAt: user.lastLoginAt ?? null,

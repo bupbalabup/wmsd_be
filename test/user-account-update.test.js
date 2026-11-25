@@ -73,6 +73,14 @@ test('profile schema accepts name and phone, rejects invalid values and any emai
   assert.equal(parse({ phone: '9'.repeat(31) }).success, false);
 });
 
+test('phone must be a Vietnamese number; spaces and dots are stripped (25/11/2026)', () => {
+  assert.equal(parse({ phone: '0912 345.678' }).data.body.phone, '0912345678');
+  assert.equal(parse({ phone: '+84912345678' }).success, true);
+  assert.equal(parse({ phone: '' }).success, true);
+  assert.equal(parse({ phone: 'abc' }).success, false);
+  assert.equal(parse({ phone: '12345' }).success, false);
+});
+
 test('profile schema rejects status fields instead of ignoring them', () => {
   assert.equal(parse({ isActive: false }).success, false);
   assert.equal(parse({ isActive: true }).success, false);
