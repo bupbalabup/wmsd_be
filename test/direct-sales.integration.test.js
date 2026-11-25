@@ -212,8 +212,9 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
  const secondBatch=await m.ProductBatch.create({productId:product._id,manufacturerLot:'GI-LOT-2',identificationStatus:'VERIFIED',piecesPerCarton:4,cartonLengthMm:'620',cartonWidthMm:'620',cartonHeightMm:'50'});
  const secondBalance=await m.InventoryBalance.create({holdingPointId:point._id,batchId:secondBatch._id,ownerType:'STORE',qualityStatus:'GOOD',quantityBase:'4',version:1,
   packagingPortions:[{packagingState:'SEALED',sealedPackCount:1,quantityBase:'4',packagingSnapshot:{packageUnit:'BOX',baseUnitsPerPackage:'4',outerLengthMm:'620',outerWidthMm:'620',outerHeightMm:'50'},createdBy:worker._id}]});
- const manualIssueResult=await issues.createIssue(worker,{idempotencyKey:key(),issueKind:'SALE',warehouseId:String(warehouse._id),referenceNo:'MANUAL-MULTI-LOT',lines:[{productId:String(product._id),qtyBase:'6'}]});
+ const manualIssueResult=await issues.createIssue(worker,{idempotencyKey:key(),issueKind:'SALE',warehouseId:String(warehouse._id),referenceNo:'MANUAL-MULTI-LOT',customerName:'Multi lot customer',customerPhone:'0900000000',lines:[{productId:String(product._id),qtyBase:'6'}]});
  let manualIssue=await m.SalesGoodsIssue.findById(manualIssueResult.id);
+ assert.equal(manualIssue.header.customerName,'Multi lot customer');assert.equal(manualIssue.header.customerPhone,'0900000000');
  assert.equal(manualIssue.items[0].lotId,undefined,'warehouse-created manual issue line is not assigned one lot');
  const manualPickingResult=await issues.createIssuePicking(worker,manualIssue._id,{idempotencyKey:key(),expectedVersion:manualIssue.version,allocations:[
   {lineId:String(manualIssue.items[0]._id),sourceBalanceId:String(balance._id),qtyBase:'4',locationId:String(staging._id)},
@@ -224,13 +225,15 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
  manualIssue=await m.SalesGoodsIssue.findById(manualIssue._id);
  await issues.postIssue(worker,manualIssue._id,{idempotencyKey:key(),expectedVersion:manualIssue.version,recipientName:'Customer'});
  manualIssue=await m.SalesGoodsIssue.findById(manualIssue._id);
- const manualSources=await lookup(seller,{kind:'sources',purpose:'customer-returns',warehouseId:String(warehouse._id),documentId:String(manualIssue._id),page:1,limit:10});
+ const manualSources=await lookup(seller,{kind:'sources',purpose:'customer-returns',warehouseId:String(warehouse._id),documentId:String(manualIssue._id),search:'MANUAL-MULTI-LOT',page:1,limit:10});
+ assert.equal(manualSources.items[0].referenceNo,'MANUAL-MULTI-LOT');assert.equal(manualSources.items[0].customerName,'Multi lot customer');assert.equal(manualSources.items[0].customerPhone,'0900000000');
  assert.deepEqual(manualSources.items[0].sourceLots.map(lot=>[lot.manufacturerLot,lot.quantityBase,lot.availableQty]),[['GI-LOT','4','4'],['GI-LOT-2','2','2']]);
  const multiLotReturn=await returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),customerName:'Multi lot customer',lines:[
   {salesIssueLineId:String(manualIssue.items[0]._id),lotId:String(batch._id),qtyBase:'2',reason:'First batch'},
   {salesIssueLineId:String(manualIssue.items[0]._id),lotId:String(secondBatch._id),qtyBase:'1',reason:'Second batch'},
  ]});
  let multiLotDoc=await m.CustomerReturn.findById(multiLotReturn.id);
+ assert.equal(multiLotDoc.header.customerPhone,'0900000000','Customer Return inherits the selected standalone sale phone when present');
  assert.deepEqual(multiLotDoc.items.map(item=>String(item.lotId)),[String(batch._id),String(secondBatch._id)]);
  const multiLotEvidence=await attach(multiLotDoc);
  await returns.inspectCustomerReturn(worker,multiLotDoc._id,{idempotencyKey:key(),expectedVersion:multiLotDoc.version,evidenceIds:[String(multiLotEvidence._id)],lines:multiLotDoc.items.map(item=>({returnLineId:String(item._id),qtyReceived:String(item.qtyBase),packagingCondition:'LOOSE',installationStatus:'UNUSED',damageCause:'NONE',deadlineStatus:'WITHIN',deadlineReference:'Verified return policy',assessmentReason:'Lot identity matched'}))});
@@ -244,11 +247,31 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
  assert.deepEqual([String((await m.InventoryBalance.findById(balance._id)).quantityBase),String((await m.InventoryBalance.findById(secondBalance._id)).quantityBase)],[String(Number(beforeMultiLotReceipt[0])+2),String(Number(beforeMultiLotReceipt[1])+1)]);
  await assert.rejects(returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),customerName:'Multi lot customer',lines:[{salesIssueLineId:String(manualIssue.items[0]._id),lotId:String(batch._id),qtyBase:'3',reason:'Exceeds remaining first lot'}]}),/Vượt lượng đã xuất còn lại của lô/);
  await assert.rejects(returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),customerName:'Goods issue customer',lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),qtyBase:'2',reason:'Over remaining issue quantity'}]}),/Vượt lượng khách đã nhận còn được trả/);
+ const availabilityProduct=await m.Product.create({sku:'GI-AVAIL',name:'Availability test tile',manufacturerCode:'TEST',categoryId:category._id,color:'White',baseUnit:'PIECE',wholeBaseUnits:true,lengthMm:'600',widthMm:'600',heightMm:'10'});
+ const availabilityBatch=await m.ProductBatch.create({productId:availabilityProduct._id,manufacturerLot:'GI-AVAIL-LOT',identificationStatus:'VERIFIED',piecesPerCarton:4,cartonLengthMm:'620',cartonWidthMm:'620',cartonHeightMm:'50'});
+ await m.InventoryBalance.create({holdingPointId:point._id,batchId:availabilityBatch._id,ownerType:'STORE',qualityStatus:'GOOD',quantityBase:'8',version:1,
+  packagingPortions:[{packagingState:'SEALED',sealedPackCount:2,quantityBase:'8',packagingSnapshot:{packageUnit:'BOX',baseUnitsPerPackage:'4',outerLengthMm:'620',outerWidthMm:'620',outerHeightMm:'50'},createdBy:worker._id}]});
  const {default:app}=await import('../src/app.js');
  server=app.listen(0,'127.0.0.1'); await new Promise(resolve=>server.once('listening',resolve));
  const http=async(actor,path)=>{const response=await fetch('http://127.0.0.1:'+server.address().port+'/api'+path,{headers:{authorization:'Bearer '+jwt.sign({userId:String(actor._id)},process.env.JWT_SECRET)}});return {status:response.status,body:await response.json()};};
  assert.equal((await http(worker,'/goods-issues/direct-options')).status,200);
- const manualResponse=await fetch('http://127.0.0.1:'+server.address().port+'/api/goods-issues',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+jwt.sign({userId:String(seller._id)},process.env.JWT_SECRET)},body:JSON.stringify({idempotencyKey:key(),expectedVersion:1,issueKind:'SALE',warehouseId:String(warehouse._id),referenceNo:'MISA-OLD',lines:[{productId:String(product._id),qtyBase:'4'}]})});assert.equal(manualResponse.status,400);
+ const salesAvailability=await http(seller,'/goods-issues/options?warehouseId='+encodeURIComponent(String(warehouse._id)));
+ assert.equal(salesAvailability.status,200);assert.equal(salesAvailability.body.data.availableByProduct[String(availabilityProduct._id)],'8');
+ const outsideWarehouse=await m.Warehouse.create({code:'GI-OUTSIDE',name:'Unassigned warehouse',lengthMm:'10000',widthMm:'10000',clearHeightMm:'3000'});
+ const issueUrl='http://127.0.0.1:'+server.address().port+'/api/goods-issues';
+ const saleInput={idempotencyKey:key(),expectedVersion:1,issueKind:'SALE',warehouseId:String(warehouse._id),referenceNo:'MISA-NEW-SALE',customerName:'External customer',customerPhone:'0900000001',lines:[{productId:String(product._id),qtyBase:'4'}]};
+ const createSale=()=>fetch(issueUrl,{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+jwt.sign({userId:String(seller._id)},process.env.JWT_SECRET)},body:JSON.stringify(saleInput)});
+ const manualResponse=await createSale();assert.equal(manualResponse.status,201);
+ const manualBody=await manualResponse.json(),createdSale=await m.SalesGoodsIssue.findById(manualBody.data.id);
+ assert.equal(createdSale.workflowStatus,'PENDING_APPROVAL');assert.equal(createdSale.header.referenceNo,'MISA-NEW-SALE');
+ assert.equal(createdSale.header.customerName,'External customer');assert.equal(createdSale.header.customerPhone,'0900000001');
+ assert.equal(await m.StockReservation.countDocuments({'executionRef.documentId':createdSale._id}),0);assert.equal(await m.StockTransaction.countDocuments({sourceId:createdSale._id}),0);
+ const replayedSale=await createSale();assert.equal(replayedSale.status,201);assert.equal((await replayedSale.json()).data.id,manualBody.data.id);
+ await assert.rejects(issues.createIssuePicking(worker,createdSale._id,{idempotencyKey:key(),expectedVersion:createdSale.version,allocations:[{lineId:String(createdSale.items[0]._id),sourceBalanceId:String(balance._id),qtyBase:'4',locationId:String(staging._id)}]}));
+ await assert.rejects(issues.createIssue(seller,{idempotencyKey:key(),expectedVersion:1,issueKind:'SALE',warehouseId:String(outsideWarehouse._id),referenceNo:'OUTSIDE',lines:[{productId:String(product._id),qtyBase:'1'}]}),/warehouse|kho/i);
+ const approvedSale=await issues.approveIssue(actors.OWNER,createdSale._id,{idempotencyKey:key(),expectedVersion:createdSale.version});
+ assert.equal(String(approvedSale.id),String(createdSale._id));assert.equal((await m.SalesGoodsIssue.findById(createdSale._id)).workflowStatus,'DRAFT');
+ assert.equal(await m.StockReservation.countDocuments({'executionRef.documentId':createdSale._id}),0);
  assert.equal((await http(seller,'/goods-issues/'+encodeURIComponent(issue._id))).status,200);
  const lookupEvidence=await http(seller,'/return-workflows/lookup?kind=evidence&documentId='+encodeURIComponent(issue._id)+'&page=1&limit=10');assert.equal(lookupEvidence.status,200);
  const signEvidence=t.mock.method(evidenceStorage,'download',async()=> 'https://example.test/signed-return-evidence');

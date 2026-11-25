@@ -36,6 +36,7 @@ export async function issueSource(actor, id, session, write = false) {
   if (manual(issue)) {
     if (sales(actor)) {
       if (!same(issue.createdBy, actor._id) || issue.header.issueKind !== 'SALE') throw notFoundError();
+      requireWarehouseAccess(actor, issue.header.warehouseId);
     } else if (write || !['OWNER', 'ACCOUNTANT'].includes(currentRole(actor)?.code)) requireWarehouseAccess(actor, issue.header.warehouseId);
     return { issue };
   }
@@ -110,11 +111,12 @@ export function createIssue(user, input) {
 function createManualIssue(user, input) {
   return command(user, 'CREATE_MANUAL_GOODS_ISSUE', 'goods_issue:create', null, input, replay, async (session, actor) => {
     if (sales(actor) && input.issueKind !== 'SALE') throw forbiddenError('Sales chỉ được tạo phiếu xuất bán');
-    if (!sales(actor)) requireWarehouseAccess(actor, input.warehouseId);
+    requireWarehouseAccess(actor, input.warehouseId);
     if (!await m.Warehouse.exists({ _id: input.warehouseId, isActive: true }).session(session)) throw validationError('Kho không còn hoạt động');
     const issue = new m.SalesGoodsIssue({ ...await nextDocumentFields(m.SalesGoodsIssue, input.issueKind === 'OTHER' ? 'GI_OTHER' : 'GI', input.warehouseId, session),
       documentKind: input.issueKind === 'OTHER' ? 'GI_OTHER' : 'GI_SALE', workflowStatus: sales(actor) ? 'PENDING_APPROVAL' : 'DRAFT', version: 1, createdBy: actor._id,
-      note: input.note, header: { warehouseId: input.warehouseId, issueKind: input.issueKind, referenceNo: input.referenceNo, reasonText: input.reasonText }, items: [] });
+      note: input.note, header: { warehouseId: input.warehouseId, issueKind: input.issueKind, referenceNo: input.referenceNo, reasonText: input.reasonText,
+        ...(input.issueKind === 'SALE' && { customerName: input.customerName, customerPhone: input.customerPhone }) }, items: [] });
     for (const row of input.lines) {
       const product = await m.Product.findOne({ _id: row.productId, isActive: true }).session(session);
       if (!product || !await m.Uom.exists({ code: product.baseUnit, isActive: true }).session(session)) throw validationError('Sản phẩm hoặc đơn vị không còn hoạt động');
@@ -353,7 +355,7 @@ export async function listIssues(user, query) {
   return transaction(async session => {
     const deliveries = await readableDeliveries(user, query, session);
     const manualFilter = { 'header.referenceNo': { $exists: true },
-      ...(sales(user) ? { createdBy: user._id, 'header.issueKind': 'SALE' } : !['OWNER', 'ACCOUNTANT'].includes(currentRole(user)?.code) ? { 'header.warehouseId': { $in: user.warehouseIds || [] } } : {}),
+      ...(sales(user) ? { createdBy: user._id, 'header.issueKind': 'SALE', 'header.warehouseId': { $in: user.warehouseIds || [] } } : !['OWNER', 'ACCOUNTANT'].includes(currentRole(user)?.code) ? { 'header.warehouseId': { $in: user.warehouseIds || [] } } : {}),
       ...(query.sourceRequest && { 'header.referenceNo': new RegExp(escapeRegex(query.sourceRequest), 'i') }),
       ...((query.deliveryOrderId || query.salesOrderId || query.issueRequestId) && { _id: { $in: [] } }) };
     const directOrders = await m.SalesOrder.find({ ...(sales(user) && { createdBy: user._id }), ...(query.salesOrderId && { _id: query.salesOrderId }), ...(query.sourceRequest && { documentNo: new RegExp(escapeRegex(query.sourceRequest), 'i') }) }).session(session).distinct('_id');
@@ -379,6 +381,7 @@ export async function getIssue(user, id) {
     const postings = await m.StockTransaction.find({ sourceId: { $in: tasks.map(t => t._id) }, operation: 'SALES_PICK' }).session(session);
     const confirmedWithoutLedger = tasks.filter(t => t.workflowStatus === 'CONFIRMED' && !postings.some(p => same(p.sourceId, t._id))).flatMap(t => t.items);
     const issuePostings = await m.StockTransaction.find({ sourceId: issue._id, reversedTransactionId: { $exists: false } }).session(session);
+    const units = await m.Uom.find({ code: { $in: [...new Set(issue.items.flatMap(item => [item.enteredUnit, item.baseUnitSnapshot]))] } }).select('code name').session(session);
     const issued = await effectiveQuantities([issue], session);
     const lots = await m.ProductBatch.find({ _id: { $in: [...issue.items.map(i => i.lotId), ...tasks.flatMap(t => t.items.map(i => i.lotId))].filter(Boolean) } }).session(session);
     const locationIds = tasks.flatMap(t => t.items.flatMap(i => [i.details.fromLocationId, i.details.toLocationId]));
@@ -395,7 +398,9 @@ export async function getIssue(user, id) {
       // Historical full confirmations may predate SALES_PICK ledger records.
       const prepared = work.length ? picked.reduce((n, p) => n.plus(String(p.quantityBase)), exact('0'))
         .plus(confirmedWithoutLedger.filter(i => work.some(w => same(w._id, i._id))).reduce((n, i) => n.plus(String(i.qtyBase)), exact('0'))).toFixed() : issue.workflowStatus === 'POSTED' ? null : '0';
-      return { ...redactPrices(dto(item)), lotLabel: [...new Set(lots.filter(l => same(l._id, item.lotId) || work.some(w => same(w.lotId, l._id))).map(l => l.manufacturerLot))].join(', ') || 'Chọn khi soạn',
+      return { ...redactPrices(dto(item)), enteredUnitName: units.find(unit => unit.code === item.enteredUnit)?.name ?? item.enteredUnit,
+        baseUnitName: units.find(unit => unit.code === item.baseUnitSnapshot)?.name ?? item.baseUnitSnapshot,
+        lotLabel: [...new Set(lots.filter(l => same(l._id, item.lotId) || work.some(w => same(w.lotId, l._id))).map(l => l.manufacturerLot))].join(', ') || 'Chọn khi soạn',
         sourceLocations: labels(sourceLocations), stagingLocations: labels(work.map(i => i.details.toLocationId)), preparedQtyBase: prepared, issuedQtyBase: issued.get(String(item._id))?.toFixed() ?? '0' };
     });
     if (issue.header.fulfillmentMode === 'DIRECT') {
@@ -441,7 +446,6 @@ export async function getIssue(user, id) {
   });
 }
 async function warehouseIssueAvailability(user, warehouseId, session) {
-  if (sales(user)) throw forbiddenError('Bạn không có quyền xem tồn để lập phiếu xuất khác');
   requireWarehouseAccess(user, warehouseId);
   if (!await m.Warehouse.exists({ _id: warehouseId, isActive: true }).session(session)) throw validationError('Kho không còn hoạt động');
   const storage = await m.WarehouseLocation.find({ warehouseId, isActive: true, locationType: 'STORAGE', isPickable: true }).select('_id').session(session).lean();
@@ -470,14 +474,14 @@ export async function issueOptions(user, query) {
       const deliveries = (await readableDeliveries(user, query, session)).filter(d => active(d)
         && (isOwner(user) || (user.warehouseIds || []).some(w => same(w, d.header.warehouseId)))
         && (!query.q || d.documentNo.toLocaleLowerCase().includes(query.q.toLocaleLowerCase()))).slice(0, 100);
-      const warehouses = await m.Warehouse.find({ isActive: true, ...(!sales(user) && !isOwner(user) && { _id: { $in: user.warehouseIds || [] } }) }).select('code name').session(session);
+      const warehouses = await m.Warehouse.find({ isActive: true, ...(!isOwner(user) && { _id: { $in: user.warehouseIds || [] } }) }).select('code name').session(session);
       const products = await m.Product.find({ isActive: true }).select('sku name baseUnit wholeBaseUnits').session(session);
       const units = await m.Uom.find({ isActive: true }).select('code name isCarton areaMm2').session(session);
       const batches = await m.ProductBatch.find({ identificationStatus: 'VERIFIED' }).select('productId').session(session);
       const conversions = await m.Conversion.find({ productId: { $in: products.map(p => p._id) }, uomId: { $in: units.map(u => u._id) }, validFrom: { $lte: new Date() }, $or: [{ productBatchId: null }, { productBatchId: { $in: batches.map(b => b._id) } }] }).sort({ validFrom: -1 }).session(session);
       const current = conversions.filter((c, index) => conversions.findIndex(r => same(r.productId, c.productId) && String(r.productBatchId || '') === String(c.productBatchId || '') && same(r.uomId, c.uomId)) === index);
       const choices = current.filter((c, index) => current.findIndex(r => same(r.productId, c.productId) && same(r.uomId, c.uomId) && exact(String(r.basePerUnit)).eq(String(c.basePerUnit))) === index);
-      return { deliveries: deliveries.map(d => ({ id: String(d._id), documentNo: d.documentNo })), warehouses: warehouses.map(dto), products: products.map(dto), units: units.map(dto),
+      return { deliveries: deliveries.map(d => ({ id: String(d._id), documentNo: d.documentNo })), warehouses: warehouses.map(dto), products: products.map(product => ({ ...dto(product), baseUnitName: units.find(unit => unit.code === product.baseUnit)?.name ?? product.baseUnit })), units: units.map(dto),
         conversions: choices.map(c => ({ id: String(c._id), productId: String(c.productId), unit: units.find(u => same(u._id, c.uomId)).name, isArea: units.find(u => same(u._id, c.uomId)).areaMm2 != null, basePerUnit: String(c.basePerUnit) })), salesOnly: sales(user), lines: [], locations: [] };
     }
     const context = await deliverySource(user, query.deliveryOrderId, session, true), { delivery } = context;
