@@ -47,10 +47,22 @@ function sessionResult(user) {
   return { accessToken, user: dto };
 }
 
-export const loginUser = async (username, password) => {
-  const user = await User.findOne({ username: username.trim().toLowerCase() })
+const exactCaseInsensitive = (value) => new RegExp("^" + escapeRegex(value) + "$", "i");
+
+async function findLoginAccount(identifier) {
+  const account = await User.findOne({ username: identifier }).select("+passwordHash").populate(rolePopulation);
+  if (account) return account;
+
+  const field = identifier.includes("@") ? "email" : "username";
+  const candidates = await User.find({ [field]: exactCaseInsensitive(identifier) })
     .select("+passwordHash")
-    .populate(rolePopulation);
+    .populate(rolePopulation)
+    .limit(2);
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+export const loginUser = async (username, password) => {
+  const user = await findLoginAccount(username.trim().toLowerCase());
   if (
     !user ||
     !user.isActive ||
@@ -74,7 +86,7 @@ const lastReset = new Map();
 // Forgot password: set a new random password and email it. Unknown, locked or ambiguous addresses are ignored silently.
 export const forgotPassword = async (rawEmail) => {
   const email = rawEmail.trim().toLowerCase();
-  const matches = await User.find({ email: new RegExp(`^${escapeRegex(email)}$`, "i") }).select("+passwordHash").limit(2);
+  const matches = await User.find({ email: exactCaseInsensitive(email) }).select("+passwordHash").limit(2);
   if (matches.length !== 1 || !matches[0].isActive) return;
   // One request per minute per address keeps strangers from locking someone out by spamming the form.
   const last = lastReset.get(email) ?? 0;
@@ -83,15 +95,21 @@ export const forgotPassword = async (rawEmail) => {
   const user = matches[0];
   const previousHash = user.passwordHash;
   const password = generatePassword();
-  user.passwordHash = await bcrypt.hash(password, 10);
-  await user.save();
+  let passwordHash;
+  let changed = false;
   try {
+    passwordHash = await bcrypt.hash(password, 10);
+    const result = await User.updateOne(
+      { _id: user._id, email: user.email, isActive: true, passwordHash: previousHash },
+      { $set: { passwordHash } },
+    );
+    changed = result.modifiedCount === 1;
+    if (!changed) return;
     await sendMail({ to: email, ...passwordMail({ fullName: user.fullName, username: user.username, password, reason: "reset" }) });
   } catch (error) {
-    // The mail never left: put the old password back so the account is not locked out.
-    user.passwordHash = previousHash;
-    await user.save();
     lastReset.delete(email);
+    // Only restore the hash written by this request. A later change must win.
+    if (changed) await User.updateOne({ _id: user._id, passwordHash }, { $set: { passwordHash: previousHash } });
     throw error;
   }
   await appendAudit({ actorId: user._id, action: "RESET_PASSWORD", entityType: "users", entityId: user._id, details: { channel: "email" } }).catch(() => undefined);
@@ -151,7 +169,7 @@ export const requestPasswordResetOtp = async (rawEmail) => {
   const wait = resendWait(rateKey);
   if (wait > 0) throw new ApiError(429, `Vui lòng chờ ${wait} giây trước khi gửi lại mã`, { details: { retryAfterSeconds: wait } });
   recordIssued(rateKey);
-  const matches = await User.find({ email: new RegExp(`^${escapeRegex(email)}$`, "i") }).select("+passwordHash").limit(2);
+  const matches = await User.find({ email: exactCaseInsensitive(email) }).select("+passwordHash").limit(2);
   const user = matches.length === 1 && matches[0].isActive ? matches[0] : null;
   const { code, challengeToken, expiresAt } = createChallenge(RESET_PURPOSE, {
     tgt: user ? String(user._id) : null,

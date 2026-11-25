@@ -18,11 +18,13 @@ Trang phân quyền mở trực tiếp bảng tick của vai trò đầu tiên. 
 **Sửa tài khoản.** `PUT /users/:id` không còn nhận `password`. Từ 23/11/2026 cũng không còn nhận `email` (gửi lên → 400); đổi email phải qua luồng OTP ở mục "Đổi email bằng OTP".
 
 **Quên mật khẩu.** Từ 23/11/2026 người dùng chọn một trong hai cách: nhận mật khẩu mới ngẫu nhiên (mô tả ngay dưới) hoặc nhận mã OTP để tự đặt mật khẩu (mục "Quên mật khẩu bằng OTP"). Cách nhận mật khẩu mới: `POST /auth/forgot-password` (công khai), body `{ email }`.
-- Tìm đúng một tài khoản đang hoạt động có email đó; đặt ngay mật khẩu mới ngẫu nhiên, gửi về email, ghi audit `RESET_PASSWORD`. Mật khẩu cũ hết hiệu lực ngay. Nếu gửi email lỗi thì khôi phục mật khẩu cũ và trả 502.
+- Tìm đúng một tài khoản đang hoạt động có email đó. Chỉ cập nhật khi email, trạng thái hoạt động và hash cũ còn khớp, rồi gửi mật khẩu mới và ghi audit `RESET_PASSWORD`. Nếu gửi email lỗi, chỉ khôi phục hash cũ khi hash do yêu cầu này ghi vẫn còn hiện hành.
 - Luôn trả cùng một thông báo thành công dù email có tồn tại hay không (không lộ danh sách tài khoản). Email không có, trùng cho nhiều tài khoản hoặc tài khoản bị khóa thì không làm gì.
 - Mỗi email chỉ được xử lý 1 lần/phút (bộ nhớ trong tiến trình, mất khi khởi động lại và không dùng chung giữa nhiều instance), tránh bị người lạ spam để khóa tài khoản.
 
-**Cấu hình gửi email** (biến môi trường): `SMTP_HOST`, `SMTP_PORT` (465 = TLS ngay, còn lại dùng STARTTLS nếu máy chủ hỗ trợ), `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, tùy chọn `APP_URL` (đưa liên kết đăng nhập vào email). `MAIL_TRANSPORT=console` chỉ in nội dung email ra log, **chỉ dùng khi phát triển** vì mật khẩu sẽ nằm trong log. Thiếu cấu hình thì tạo tài khoản và quên mật khẩu trả 503. Gửi bằng package `nodemailer` (`shared/utils/mailer.js`, nạp khi gửi lần đầu); cần chạy `npm install` sau khi pull.
+**Cấu hình gửi email** (biến môi trường): `SMTP_HOST`, `SMTP_PORT` (465 = TLS ngay, còn lại dùng STARTTLS nếu máy chủ hỗ trợ), `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `APP_URL` là địa chỉ FE. Email production dùng `https://wmsd.tanthuong.workers.dev/login` khi thiếu URL HTTPS hợp lệ hoặc cấu hình trỏ localhost. `MAIL_TRANSPORT=console` chỉ in nội dung email ra log, **chỉ dùng khi phát triển** vì mật khẩu sẽ nằm trong log. Thiếu cấu hình thì tạo tài khoản và quên mật khẩu trả 503. Gửi bằng package `nodemailer` (`shared/utils/mailer.js`, nạp khi gửi lần đầu); cần chạy `npm install` sau khi pull.
+
+**Đăng nhập.** Trường `username` của `POST /api/auth/login` nhận tên đăng nhập hoặc email. BE ưu tiên username hiện hành, sau đó so khớp tên cũ hoặc email không phân biệt hoa thường khi có đúng một kết quả. Mật khẩu được xác thực theo tài khoản đang hoạt động.
 
 **Giao diện.** Đăng nhập → "Quên mật khẩu?" chuyển sang `/forgot`: nhập email, bấm "Gửi mật khẩu mới". Form tạo tài khoản bỏ ô mật khẩu và bắt buộc email; trang chi tiết tài khoản bỏ ô đổi mật khẩu.
 
