@@ -143,7 +143,7 @@ export async function issueSource(itemId,user,session,{allowWarehouseCreatedStan
  if(doc.documentKind==='GI_SALE'&&doc.header.issueKind==='SALE'&&doc.header.referenceNo&&!doc.header.salesOrderId){
   if(user.roleId?.code==='SALES'&&!same(doc.createdBy,user._id)&&!(allowWarehouseCreatedStandalone&&hasPermission(user,'customer_return:create')))throw notFoundError();
   await lockSource(doc,item,session);
-  return {doc,item,issued:await effectivePosted(doc,itemId,session),standaloneSale:true};
+  return {doc,item,issued:await effectivePosted(doc,itemId,session),customerName:doc.header.customerName,customerPhone:doc.header.customerPhone,standaloneSale:true};
  }
  const od=await m.DeliveryOrder.findOne({'items._id':item.details.outboundDeliveryLineId}).session(session);
  const odItem=od?.items.id(item.details.outboundDeliveryLineId);

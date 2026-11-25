@@ -116,6 +116,10 @@ key to SalesOrder or a unique import key. The user checks the external order and
 its quantities manually. Repeated shipments may record the same code. Creating
 this issue does not create an SO/WIR/OD, validate a MISA order, require source
 verification/evidence, or call MISA. Product/quantity validity is still checked.
+Sales may include optional `header.customerName` and `header.customerPhone`
+snapshots; customer-return lookup copies these values from the selected posted
+source. The source lookup searches both the PXB number and `header.referenceNo`
+and still requires the posted issue, warehouse scope and source-claim checks.
 Lines accept base quantities or an entered quantity with a current verified
 product conversion (carton/pallet/area). The item retains entered unit, quantity,
 factor and optional carton snapshot. Lots/bins are selected
@@ -260,6 +264,20 @@ requires no schema migration or data rewrite. Remote rollout needs explicit appr
 All commands retain exact replay payloads/keys, optimistic versions, audit/outbox
 and transaction rollback. The UI preserves uncertain writes, including query
 refresh failures, and confirms approval/picking/posting/cancellation explicitly.
+
+## Standalone sale and customer snapshot — 25 November 2026
+
+`POST /goods-issues` accepts a manual `SALE` with `warehouseId`, external
+`referenceNo`, optional `customerName`/`customerPhone`, and product lines. Sales
+creates `PENDING_APPROVAL`; a different Owner moves the same document to `DRAFT`.
+Neither action changes stock. Warehouse picking selects the source lot and bin,
+then posting is the only outbound stock reduction.
+
+The implementation was verified with an isolated 8-piece fixture: the issue was
+created and approved without reservation or stock movement, picked and posted,
+and then used as a customer-return source. A direct source lookup by external
+reference returned the lot and remaining quantity. The full acceptance scenario
+is recorded in [TRUNG_DEMO_LOCAL](../09_phat_trien/TRUNG_DEMO_LOCAL.md).
 
 ## Validation
 

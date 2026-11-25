@@ -61,6 +61,10 @@ All routes below are under `/api`, require active authentication, and recheck th
 
 The older 19-UC assignment is covered by these functions; split UCs are shown separately. Retired supplier Owner approval is not restored.
 
+Customer Return receipts post only the quantity actually received. A partial posting leaves the return `PARTIAL`; detail exposes the posted and remaining quantities in `items[].progress` and the positive remainder in `receivableLines`. After an uncertain response, resubmit the same payload, version and idempotency key: replay returns the original receipt reference without another stock movement. Posting the final eligible remainder completes the return. Posted Customer Return receipts have no reversal or generic reopen command.
+
+Return evidence download checks the authorized parent first and matches attached business evidence against that parent's stored `_id`, as the evidence list and upload do. The document identifier can be a current string ID or a historical ObjectId, not an arbitrary display-label alias. Evidence belonging to a different parent returns `404` without generating a download URL.
+
 ## In-app notification handoff
 
 Supplier-return events notify the next actor after creation, agreement and dispatch. Recording the supplier's acknowledgement (`ACK_SR`) now notifies the original request creator that the supplier responded; closing a completed return (`CLOSE_SR`) sends that creator a final closure notice. Notifications use the existing durable business-event worker and per-recipient deduplication. The recipient must still have `notification:read`, permission to read the source record and access to its warehouse; the notification links to the supplier-return detail.
@@ -71,7 +75,17 @@ Supplier-return events notify the next actor after creation, agreement and dispa
 
 For a direct or legacy standalone SALE Goods Issue, `lookup?kind=sources&purpose=customer-returns` returns `sourceLots` from the active, non-reversed stock movements for that issue line. Each lot includes its ID, manufacturer lot, issued base quantity and remaining quantity after existing Customer Return claims. This lets Sales split one return request across the lots the customer actually received. A single-lot source can default to that lot; a multi-lot source requires an explicit lot on each return line. The create payload accepts optional `lotId` for Goods Issue sources, and the server validates both the full source claim and the selected lot claim transactionally. The saved request line retains the selected lot, which the warehouse receipt uses for stock posting and traceability. No new collection or migration is required.
 
-This does not add a receipt-confirmation field to Goods Issue. SO-linked returns remain capped by the quantity Sales confirmed as received. Existing standalone SALE issues have no customer receipt confirmation and remain capped by posted issue quantity less failed-delivery returns and claims. New standalone manual SALE creation remains rejected; new sales use SO-linked direct issues. Supplier receipt/acceptance remains a separate `ACK_SR` event on the Supplier Return, not a Goods Issue field.
+This does not add a receipt-confirmation field to Goods Issue. SO-linked returns remain capped by the quantity Sales confirmed as received. Standalone SALE issues created with an external reference remain capped by posted issue quantity less failed-delivery returns and claims. New standalone manual SALE creation is supported through the Goods Issue form; Supplier receipt/acceptance remains a separate `ACK_SR` event on the Supplier Return, not a Goods Issue field.
+
+## Standalone sale snapshot and source search — 25 November 2026
+
+Standalone SALE headers may retain optional plain-text `customerName` and
+`customerPhone`. `lookup?kind=sources&purpose=customer-returns` projects the
+external reference and these snapshots for posted SALE lines, and searches by
+both PXB number and external reference. Customer Return creation copies the
+selected source snapshot and keeps the existing per-lot and source claim caps.
+The source remains selectable by its document/line identity; customer name or
+phone alone never selects a source.
 
 ## Reassessment claim and packaging correction — 20 November 2026
 

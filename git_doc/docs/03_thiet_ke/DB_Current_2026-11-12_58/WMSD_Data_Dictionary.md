@@ -3632,6 +3632,8 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `header.issueKind` | String | true |  |
 | `header.fulfillmentMode` | String | false |  |
 | `header.customerId` | ObjectId | false | Customer |
+| `header.customerName` | String | false | Snapshot khách trên SALE độc lập |
+| `header.customerPhone` | String | false | Snapshot liên hệ khách trên SALE độc lập |
 | `header.referenceNo` | String | false |  |
 | `header.reasonText` | String | false |  |
 | `header.issuedToName` | String | false |  |

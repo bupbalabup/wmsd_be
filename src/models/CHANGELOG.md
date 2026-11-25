@@ -349,3 +349,10 @@ Theo kế hoạch người dùng duyệt: thêm STOCK_THRESHOLD, nested Replenis
 ## 09/11/2026 — GoodsReceipt chung cho năm loại phiếu
 
 Thay bốn collection phiếu nhập bằng `goods_receipts`, đăng ký GoodsReceipt và năm discriminator `documentKind`. Giữ trường chung, header riêng, 19 cấu trúc dòng và hai lịch sử giao thất bại; index mã phiếu theo loại. `OTHER` có trường duyệt/hash phiên bản và liên kết phiếu thay thế. Seed dựng sạch gộp bốn mảng sau khi xử lý fixture lịch sử; không có migration DB cũ. Xem [từ điển hiện hành](../../git_doc/docs/03_thiet_ke/DB_Current_2026-11-09_57/WMSD_Data_Dictionary.md).
+## 25 November 2026 — standalone SALE customer snapshots
+
+`sales_goods_issues.header` adds optional `customerName` (max 160) and
+`customerPhone` (max 30) for manually created SALE issues. The fields are
+additive snapshots used by customer-return source lookup; no collection,
+index, migration or backfill is required.
+

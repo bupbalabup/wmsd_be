@@ -11,6 +11,8 @@ export function createSalesGoodsIssueHeaderSchema() {
     fulfillmentMode: code(['DIRECT'], { required: false }),
     salesOrderId: ref('SalesOrder', false),
     customerId: ref('Customer', false),
+    customerName: text(160, { required: false }),
+    customerPhone: text(30, { required: false }),
     deliveryOrderId: ref("DeliveryOrder", false),
     referenceNo: text(160, { required: false }),
     reasonText: text(500, { required: false }),
