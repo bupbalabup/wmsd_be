@@ -1,98 +1,105 @@
-import { documentIdentifier } from '../../shared/utils/document-id.validation.js';
 import { Router } from 'express';
-import { z } from 'zod';
 import multer from 'multer';
 import { authenticate } from '../../middlewares/auth.js';
+import checkPermission from '../../middlewares/permission.js';
 import { validate } from '../../middlewares/validate.js';
-import { catchAsync } from '../../shared/utils/catchAsync.js';
-import { formatApiResponse } from '../../shared/utils/ApiResponse.js';
 import { ApiError } from '../../shared/utils/ApiError.js';
-import { objectIdString as oid, decimalStringSchema } from '../../shared/utils/domain.js';
-import { PACKAGING_CONDITIONS } from '../../models/constants.js';
-import * as service from './po-receiving.service.js';
-import * as reads from './purchase-read.service.js';
-import * as correction from './purchase-correction.service.js';
-import * as custody from './purchase-custody.service.js';
-import * as evidence from './purchase-evidence.service.js';
+import * as controller from './po-receiving.controller.js';
+import * as validation from './po-receiving.validation.js';
 
-export const empty = z.object({}).strict();
-export const key = z.string().trim().min(1).max(160);
-export const ver = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER);
-export const qty = decimalStringSchema({ positive: true });
-export const reason = z.string().trim().min(1).max(2000);
-export const evidenceIds = z.array(oid).min(1).max(20).refine(a => new Set(a).size === a.length);
-export const optionalEvidenceIds = z.array(oid).max(20).refine(a => new Set(a).size === a.length).optional();
-const optionalText = max => z.string().trim().min(1).max(max).optional();
-const searchText = optionalText(100);
-const iso = z.string().datetime({ offset: true }).refine(v => Date.parse(v) <= Date.now(), 'Thời điểm đến không được ở tương lai');
-const line = z.object({ id: oid.optional(), poLineId: oid, lotId: oid, enteredQty: qty, enteredUnit: z.string().trim().min(1).max(60).optional(), qualityCode: z.enum(['GOOD','DAMAGED','PENDING','BLOCKED']), ownershipDecision: z.enum(['ACCEPT','CUSTODY','REJECT']), packagingCondition: z.enum(PACKAGING_CONDITIONS), handlingNote: optionalText(2000), receivingLocationId: oid.optional() }).strict();
-const form = { expectedPoVersion: ver, arrivedAt: iso, deliveryReference: optionalText(100), deliveredBy: optionalText(160), lines: z.array(line).min(1).max(100) };
-const pager = z.string().regex(/^[1-9]\d*$/).transform(Number).pipe(z.number().int().safe());
-export const pagination = { page: pager.default(1), limit: pager.pipe(z.number().max(100)).default(10) };
-export const paged = fields => z.object({ ...pagination, ...fields }).strict().refine(q => Number.isSafeInteger((q.page - 1) * q.limit));
-const query = status => paged({ purchaseOrderId: documentIdentifier.optional(), warehouseId: oid.optional(), status: z.enum(status).optional() });
-export const schema = (body = empty, params = z.object({ id: documentIdentifier }).strict(), query = empty) => z.object({ body, params, query });
-export const handle = fn => catchAsync(async (req, res) => { const data = await fn(req.user, req.validated); formatApiResponse(res, { data }); });
-export const commandBody = { expectedVersion: ver, operationKey: key };
-const reversalBody = { ...commandBody, reason, evidenceIds: optionalEvidenceIds };
-export const inspectionRouter = Router(); inspectionRouter.use(authenticate);
-inspectionRouter.get('/:id/history', validate(schema(empty, undefined, paged({}))), handle((u,v) => reads.receivingHistory(u,v.params.id,v.query)));
-inspectionRouter.post('/:id/cancel', validate(schema(z.object({ ...commandBody, reason }).strict())), handle((u,v) => service.cancelDraft(u,v.params.id,'INSPECTION',v.body)));
-inspectionRouter.get('/:id/correction-preflight', validate(schema()), handle((u,v) => correction.correctionPreflight(u,v.params.id)));
-inspectionRouter.post('/:id/corrections', validate(schema(z.object({ ...form, ...reversalBody }).strict())), handle((u,v) => correction.replaceInspection(u,v.params.id,v.body)));
-inspectionRouter.get('/', validate(schema(empty,empty,query(['DRAFT','CONFIRMED','CANCELLED']))), handle((u,v) => reads.listDocuments(u,'INSPECTION',v.query)));
-inspectionRouter.get('/:id', validate(schema()), handle((u,v) => reads.getDocument(u,v.params.id,'INSPECTION')));
-inspectionRouter.put('/:id', validate(schema(z.object({ ...form, ...commandBody }).strict())), handle((u,v) => service.updateInspection(u,v.params.id,v.body)));
-inspectionRouter.post('/:id/confirm', validate(schema(z.object({ ...commandBody, expectedPoVersion: ver, destinations: z.array(z.object({inspectionItemId:oid,locationId:oid}).strict()).max(100) }).strict())), handle((u,v) => service.confirmInspection(u,v.params.id,v.body)));
-const portion=z.object({packagingState:z.enum(['SEALED','OPEN','LOOSE']),sealedPackCount:z.number().int().nonnegative().optional(),quantityBase:qty,measuredVolumeMm3:qty.optional(),extraOccupiedVolumeMm3:decimalStringSchema().optional(),packagingSnapshot:z.object({packageUnit:z.string().min(1).max(60),baseUnitsPerPackage:qty,outerLengthMm:decimalStringSchema({positive:true,scale:3}),outerWidthMm:decimalStringSchema({positive:true,scale:3}),outerHeightMm:decimalStringSchema({positive:true,scale:3})}).strict().optional()}).strict();
-const packaging=z.array(z.object({lineId:oid,portions:z.array(portion).min(1).max(100)}).strict()).max(100).optional();
-export const receiptRouter = Router(); receiptRouter.use(authenticate);
-receiptRouter.post('/:id/cancel', validate(schema(z.object({ ...commandBody, expectedPoVersion: ver, reason }).strict())), handle((u,v) => service.cancelDraft(u,v.params.id,'GR_PURCHASE',v.body)));
-receiptRouter.patch('/:id/destinations', validate(schema(z.object({ ...commandBody, reason, lines: z.array(z.object({ lineId: oid, receivingLocationId: oid }).strict()).min(1).max(100) }).strict())), handle((u,v) => service.changeDestinations(u,v.params.id,v.body)));
-receiptRouter.get('/:id/reversal-preflight', validate(schema()), handle((u,v) => correction.reversalPreflight(u,v.params.id)));
-receiptRouter.post('/:id/reverse', validate(schema(z.object({ ...reversalBody, expectedPoVersion: ver }).strict())), handle((u,v) => correction.reverseReceipt(u,v.params.id,v.body)));
-receiptRouter.get('/', validate(schema(empty,empty,query(['DRAFT','POSTED','REVERSED','CANCELLED']))), handle((u,v) => reads.listDocuments(u,'GR_PURCHASE',v.query)));
-receiptRouter.get('/:id', validate(schema()), handle((u,v) => reads.getDocument(u,v.params.id,'GR_PURCHASE')));
-receiptRouter.post('/:id/post', validate(schema(z.object({ ...commandBody, expectedPoVersion: ver, packaging }).strict())), handle((u,v) => service.postReceipt(u,v.params.id,v.body)));
-export const purchaseReceivingRouter = Router(); purchaseReceivingRouter.use(authenticate);
-purchaseReceivingRouter.get('/:id/receiving-operations/:key', validate(schema(empty,z.object({ id: documentIdentifier, key }).strict())), handle((u,v) => service.receivingOperation(u,v.params.id,v.params.key)));
-purchaseReceivingRouter.get('/:id/receiving-summary', validate(schema()), handle((u,v) => reads.receivingSummary(u,v.params.id)));
-purchaseReceivingRouter.get('/:id/receiving-trips', validate(schema(empty,undefined,paged({ status: z.enum(['DRAFT','CONFIRMED','CANCELLED']).optional() }))), handle((u,v) => reads.receivingTrips(u,v.params.id,v.query)));
-purchaseReceivingRouter.get('/:id/inspection-context', validate(schema()), handle((u,v) => service.inspectionContext(u,v.params.id)));
-purchaseReceivingRouter.post('/:id/inspections', validate(schema(z.object({ ...form, creationKey: key }).strict())), handle((u,v) => service.createInspection(u,v.params.id,v.body)));
-export const queueRouter = Router(); queueRouter.use(authenticate);
-queueRouter.get('/', validate(schema(empty, empty, paged({
-  q: searchText,
-  warehouseId: oid.optional(),
-  purchaseOrderId: documentIdentifier.optional(),
-  stage: z.enum(['DRAFT_INSPECTION', 'AWAITING_POST', 'CORRECTION']),
-}))), handle((u, v) => reads.receivingQueue(u, v.query)));
-export const purchaseDocumentRouter = Router(); purchaseDocumentRouter.use(authenticate);
-purchaseDocumentRouter.get('/:id/history', validate(schema(empty,undefined,paged({}))), handle((u,v) => reads.receivingHistory(u,v.params.id,v.query)));
-purchaseDocumentRouter.get('/:id/evidence', validate(schema()), handle((u,v) => evidence.listEvidence(u,v.params.id)));
-const multipart = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 1 } }).single('file');
-purchaseDocumentRouter.post('/:id/evidence/uploads', (req,res,next) => multipart(req,res,e => next(e ? new ApiError(e.code === 'LIMIT_FILE_SIZE' ? 413 : 400,'Một tệp JPEG/PNG/PDF tối đa 5 MB') : undefined)), validate(schema(z.object({ lineId: oid.optional() }).strict())), catchAsync(async (req,res) => formatApiResponse(res,{ data: await evidence.uploadEvidence(req.user,req.validated.params.id,req.file,req.validated.body.lineId) })));
-purchaseDocumentRouter.post('/:id/evidence/attach', validate(schema(z.object({ ...commandBody, attachmentId: oid }).strict())), handle((u,v) => evidence.attachEvidence(u,v.params.id,v.body)));
-purchaseDocumentRouter.get('/:id/evidence/:evidenceId/download', validate(schema(empty,z.object({ id: documentIdentifier,evidenceId: oid }).strict())), handle((u,v) => evidence.downloadEvidence(u,v.params.id,v.params.evidenceId)));
+const multipart = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 1 },
+}).single('file');
 
-export const reversalRouter=Router();reversalRouter.use(authenticate);
-reversalRouter.get('/:id',validate(schema()),handle((u,v)=>correction.getReversal(u,v.params.id)));
-export const custodyRouter=Router();custodyRouter.use(authenticate);
-custodyRouter.get('/', validate(schema(empty, empty, query(['DRAFT', 'POSTED', 'CLOSED', 'CANCELLED', 'REVERSED']))),
-  handle((u, v) => reads.listDocuments(u, 'CUSTODY_RECEIPT', v.query)));
-custodyRouter.post('/:id/cancel', validate(schema(z.object({ ...commandBody, reason }).strict())), handle((u,v) => service.cancelDraft(u,v.params.id,'CUSTODY_RECEIPT',v.body)));
-custodyRouter.get('/:id/reversal-preflight', validate(schema()), handle((u,v) => correction.reversalPreflight(u,v.params.id,'CUSTODY_RECEIPT')));
-custodyRouter.post('/:id/reverse', validate(schema(z.object(reversalBody).strict())), handle((u,v) => correction.reverseReceipt(u,v.params.id,v.body,'CUSTODY_RECEIPT')));
-custodyRouter.get('/:id',validate(schema()),handle((u,v)=>reads.getDocument(u,v.params.id,'CUSTODY_RECEIPT')));
-custodyRouter.post('/:id/post',validate(schema(z.object({...commandBody,handedOverBy:z.string().trim().max(160).nullish(),destinations:z.array(z.object({lineId:oid,locationId:oid}).strict()).min(1).max(100),packaging}).strict())),handle((u,v)=>service.postCustodyReceipt(u,v.params.id,v.body)));
+const uploadEvidenceFile = (req, res, next) =>
+  multipart(req, res, e =>
+    next(e ? new ApiError(e.code === 'LIMIT_FILE_SIZE' ? 413 : 400, 'Một tệp JPEG/PNG/PDF tối đa 5 MB') : undefined));
 
+export const inspectionRouter = Router();
+inspectionRouter.use(authenticate);
+inspectionRouter.get('/:id/history', checkPermission('goods_receipt_inspection:read'), validate(validation.receivingHistorySchema), controller.getReceivingHistory);
+inspectionRouter.post('/:id/cancel', checkPermission('goods_receipt_inspection:update'), validate(validation.cancelInspectionSchema), controller.cancelInspection);
+inspectionRouter.get('/:id/correction-preflight', checkPermission('goods_receipt_inspection:update'), validate(validation.correctionPreflightSchema), controller.getCorrectionPreflight);
+inspectionRouter.post('/:id/corrections', checkPermission('goods_receipt_inspection:update'), validate(validation.replaceInspectionSchema), controller.replaceInspection);
+inspectionRouter.get('/', checkPermission('goods_receipt_inspection:read'), validate(validation.listInspectionsSchema), controller.listInspections);
+inspectionRouter.get('/:id', checkPermission('goods_receipt_inspection:read'), validate(validation.getDocumentSchema), controller.getInspection);
+inspectionRouter.put('/:id', checkPermission('goods_receipt_inspection:update'), validate(validation.updateInspectionSchema), controller.updateInspection);
+inspectionRouter.post('/:id/confirm', checkPermission('goods_receipt_inspection:update'), validate(validation.confirmInspectionSchema), controller.confirmInspection);
 
+export const receiptRouter = Router();
+receiptRouter.use(authenticate);
+receiptRouter.post('/:id/cancel', checkPermission('goods_receipt_inspection:update'), validate(validation.cancelPurchaseReceiptSchema), controller.cancelPurchaseReceipt);
+receiptRouter.patch('/:id/destinations', checkPermission('goods_receipt_inspection:update'), validate(validation.changeReceiptDestinationsSchema), controller.changeReceiptDestinations);
+receiptRouter.get(
+  '/:id/reversal-preflight',
+  checkPermission('goods_receipt_inspection:reverse'),
+  checkPermission('goods_receipt_inspection:post'),
+  validate(validation.reversalPreflightSchema),
+  controller.getPurchaseReversalPreflight,
+);
+receiptRouter.post(
+  '/:id/reverse',
+  checkPermission('goods_receipt_inspection:reverse'),
+  checkPermission('goods_receipt_inspection:post'),
+  validate(validation.reversePurchaseReceiptSchema),
+  controller.reversePurchaseReceipt,
+);
+receiptRouter.get('/', checkPermission('goods_receipt_inspection:read'), validate(validation.listPurchaseReceiptsSchema), controller.listPurchaseReceipts);
+receiptRouter.get('/:id', checkPermission('goods_receipt_inspection:read'), validate(validation.getDocumentSchema), controller.getPurchaseReceipt);
+receiptRouter.post('/:id/post', checkPermission('goods_receipt_inspection:post'), validate(validation.postPurchaseReceiptSchema), controller.postPurchaseReceipt);
 
-const custodyLines=(shape)=>z.array(z.object(shape).strict()).min(1).max(100).refine(rows=>new Set(rows.map(r=>r.custodyItemId)).size===rows.length,'Trùng dòng giữ hộ');
-custodyRouter.post('/:id/reinspections',validate(schema(z.object({...commandBody,reason,evidenceIds,lines:custodyLines({custodyItemId:oid,qtyBase:qty,qualityCode:z.enum(['GOOD','DAMAGED','PENDING','BLOCKED'])})}).strict())),handle((u,v)=>custody.reinspectCustody(u,v.params.id,v.body)));
-custodyRouter.post('/:id/resolution-decisions',validate(schema(z.object({...commandBody,reason,evidenceIds,decision:z.enum(['ACCEPT','RETURN']),lines:custodyLines({custodyItemId:oid,qtyBase:qty,reinspectionId:oid.optional()})}).strict())),handle((u,v)=>custody.decideCustody(u,v.params.id,v.body)));
-custodyRouter.post('/:id/purchase-receipts',validate(schema(z.object({...commandBody,decisionId:oid,expectedPoVersion:ver,lines:custodyLines({custodyItemId:oid,qtyBase:qty,destinationLocationId:oid})}).strict())),handle((u,v)=>custody.createCustodyResolution(u,v.params.id,v.body,'ACCEPT')));
-custodyRouter.post('/:id/releases',validate(schema(z.object({...commandBody,decisionId:oid,lines:custodyLines({custodyItemId:oid,qtyBase:qty})}).strict())),handle((u,v)=>custody.createCustodyResolution(u,v.params.id,v.body,'RETURN')));
-export const custodyReleaseRouter=Router();custodyReleaseRouter.use(authenticate);
-custodyReleaseRouter.get('/:id',validate(schema()),handle((u,v)=>reads.getDocument(u,v.params.id,'CUSTODY_RELEASE')));
-custodyReleaseRouter.post('/:id/post',validate(schema(z.object({...commandBody,recipientName:reason}).strict())),handle((u,v)=>custody.postCustodyRelease(u,v.params.id,v.body)));
+export const purchaseReceivingRouter = Router();
+purchaseReceivingRouter.use(authenticate);
+purchaseReceivingRouter.get('/:id/receiving-operations/:key', checkPermission('goods_receipt_inspection:read'), validate(validation.receivingOperationSchema), controller.getReceivingOperation);
+purchaseReceivingRouter.get('/:id/receiving-summary', checkPermission('purchase_order:read'), validate(validation.receivingSummarySchema), controller.getReceivingSummary);
+purchaseReceivingRouter.get('/:id/receiving-trips', checkPermission('goods_receipt_inspection:read'), validate(validation.receivingTripsSchema), controller.getReceivingTrips);
+purchaseReceivingRouter.get('/:id/inspection-context', checkPermission('goods_receipt_inspection:read'), validate(validation.inspectionContextSchema), controller.getInspectionContext);
+purchaseReceivingRouter.post('/:id/inspections', checkPermission('goods_receipt_inspection:create'), validate(validation.createInspectionSchema), controller.createInspection);
+
+export const queueRouter = Router();
+queueRouter.use(authenticate);
+queueRouter.get('/', checkPermission('goods_receipt_inspection:read'), validate(validation.receivingQueueSchema), controller.getReceivingQueue);
+
+export const purchaseDocumentRouter = Router();
+purchaseDocumentRouter.use(authenticate);
+purchaseDocumentRouter.get('/:id/history', checkPermission('goods_receipt_inspection:read'), validate(validation.receivingHistorySchema), controller.getReceivingHistory);
+// Evidence permissions depend on the resolved parent documentKind/workflowStatus in purchase-evidence.service.js.
+purchaseDocumentRouter.get('/:id/evidence', validate(validation.listEvidenceSchema), controller.listEvidence);
+purchaseDocumentRouter.post('/:id/evidence/uploads', uploadEvidenceFile, validate(validation.uploadEvidenceSchema), controller.uploadEvidence);
+purchaseDocumentRouter.post('/:id/evidence/attach', validate(validation.attachEvidenceSchema), controller.attachEvidence);
+purchaseDocumentRouter.get('/:id/evidence/:evidenceId/download', validate(validation.downloadEvidenceSchema), controller.downloadEvidence);
+
+export const reversalRouter = Router();
+reversalRouter.use(authenticate);
+reversalRouter.get('/:id', checkPermission('goods_receipt_inspection:read'), validate(validation.getReversalSchema), controller.getReversal);
+
+export const custodyRouter = Router();
+custodyRouter.use(authenticate);
+custodyRouter.get('/', checkPermission('goods_receipt_inspection:read'), validate(validation.listCustodyReceiptsSchema), controller.listCustodyReceipts);
+custodyRouter.post('/:id/cancel', checkPermission('goods_receipt_inspection:update'), validate(validation.cancelCustodyReceiptSchema), controller.cancelCustodyReceipt);
+custodyRouter.get(
+  '/:id/reversal-preflight',
+  checkPermission('goods_receipt_inspection:reverse'),
+  checkPermission('goods_receipt_inspection:post'),
+  validate(validation.reversalPreflightSchema),
+  controller.getCustodyReversalPreflight,
+);
+custodyRouter.post(
+  '/:id/reverse',
+  checkPermission('goods_receipt_inspection:reverse'),
+  checkPermission('goods_receipt_inspection:post'),
+  validate(validation.reverseCustodyReceiptSchema),
+  controller.reverseCustodyReceipt,
+);
+custodyRouter.get('/:id', checkPermission('goods_receipt_inspection:read'), validate(validation.getDocumentSchema), controller.getCustodyReceipt);
+custodyRouter.post('/:id/post', checkPermission('goods_receipt_inspection:post'), validate(validation.postCustodyReceiptSchema), controller.postCustodyReceipt);
+custodyRouter.post('/:id/reinspections', checkPermission('goods_receipt_inspection:update'), validate(validation.reinspectCustodySchema), controller.reinspectCustody);
+custodyRouter.post('/:id/resolution-decisions', checkPermission('purchase_custody:decide'), validate(validation.decideCustodySchema), controller.decideCustody);
+custodyRouter.post('/:id/purchase-receipts', checkPermission('purchase_custody:execute'), validate(validation.createCustodyPurchaseReceiptSchema), controller.createCustodyPurchaseReceipt);
+custodyRouter.post('/:id/releases', checkPermission('purchase_custody:execute'), validate(validation.createCustodyReleaseSchema), controller.createCustodyRelease);
+
+export const custodyReleaseRouter = Router();
+custodyReleaseRouter.use(authenticate);
+custodyReleaseRouter.get('/:id', checkPermission('goods_receipt_inspection:read'), validate(validation.getDocumentSchema), controller.getCustodyRelease);
+custodyReleaseRouter.post('/:id/post', checkPermission('purchase_custody:execute'), validate(validation.postCustodyReleaseSchema), controller.postCustodyRelease);

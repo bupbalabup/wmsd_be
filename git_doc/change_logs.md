@@ -1,3 +1,129 @@
+## 25/11/2026 — Đồng bộ thiết kế BF-01 với code nhận mua hiện hành
+
+- Report 4 §II.0–1 mô tả thứ tự xác thực, kiểm quyền tĩnh, validation và controller, cùng ngoại lệ phân quyền theo chứng từ và cách phân giải mã lịch sử sang _id. Ba class diagram PO, Inspection và Receipt trong draw.io theo tuyến gọi mới. Quan hệ ghi tồn đi qua StockMovement nhúng và hai đầu tham chiếu số dư.
+- Đồng bộ sequence xác nhận kiểm nhận, đổi vị trí nhập, post phiếu nhập mua và post giữ hộ. Phân biệt phạm vi API giải quyết giữ hộ với thao tác tạo đề nghị trả NCC từ màn hình giữ hộ. Report 3 cập nhật luồng BF-01, các đoạn liên quan của UC-37/40, vai trò và BR-08 theo xử lý hiện hành: RR chỉ duyệt hoặc từ chối, kế toán đóng phần PO còn thiếu trong một lệnh, chuyển hàng nhập mua qua BF-03.
+- Kiểm tra: render 26 khối Mermaid của pipeline và BF-01, xuất đủ 25 trang draw.io, xem trực tiếp 7 trang đã chỉnh, đối chiếu 400 thông điệp sequence và các quan hệ trên 3 trang class đã chỉnh. Ba bài test trong refactor-regression.integration.test.js và purchase-evidence.local.test.js qua với MongoDB rs0 cục bộ. Thay đổi thuộc tài liệu trong repo.
+
+## 25/11/2026 — Sửa 3 lỗi A1–A3 và đưa 4 module mua/nhận/tồn đầu về kiến trúc `routes → controller → service`
+
+- **Lý do & quyết định nguồn:** Quyết định người dùng ngày 25/11/2026: khắc phục 3 lỗi thực tế (`GET /api/opening-stocks/abc` trả `500`, lặp `authenticate` / `User.findById` 2–3 lần trên các prefix gắn nhiều router, và truy vấn bằng `id` thô từ URL thay vì `_id` chuẩn của chứng từ lịch sử) và chuẩn hóa 4 module (`po-receiving`, `purchase-orders`, `opening-stock`, `goods-receipts`) về mô hình `routes → controller → service` kèm `checkPermission` ở tầng route cho các route có quyền tĩnh. Giữ nguyên hợp đồng API (path, payload, `{ data }`, HTTP `200` cho `POST /purchase-orders`).
+- **Hành vi trước / sau:**
+  - **A1 (Opening-stock `:id`):** trước gọi `databaseId(req.params.id)` trực tiếp làm `GET/POST /opening-stocks/abc` ném `CastError` → `500`; nay chặn ở route bằng `documentIdentifier` → `400` cho ID sai định dạng, `404` cho ID đúng định dạng nhưng không tồn tại (không đổi `errorHandler.js` toàn cục để tránh nuốt `CastError` nội bộ). Body của `preview`/`create`/`post`/`cancel` giữ parse trả thông báo tiếng Việt sạch không có tiền tố `body:`; nhánh lỗi dòng Excel ở `POST /preview` chuyển sang `service.previewRowErrors(user, issues)` kiểm `allowed(user, 'opening_stock:create')` trực tiếp (bỏ mẹo gọi `service.options()` gây 4 truy vấn DB thừa).
+  - **A2 (Chống lặp `authenticate`):** thêm `Symbol` private `AUTHENTICATED` trong `src/middlewares/auth.js` (chỉ gắn sau khi JWT, tài khoản `isActive` và `currentRole` hợp lệ) và gộp router lệnh PO vào `purchase-order.routes.js`. Mỗi request trên `/purchase-orders`, `/goods-receipts/purchase`, `/warehouse-transfers` chỉ nạp `User.findById` 1 lần (vẫn nạp lại actor trong `command()` cho transaction/replay).
+  - **A3 (`id` thô → `_id` chứng từ):** sau `findPurchase`/`getPurchaseOrder`/`parent`, dùng `_id` đã phân giải trong `getPurchaseOrder` (4 truy vấn liên kết), `receivingSummary` (`po.id`), `receivingTrips` (`String(po._id)`), `receivingOperation` (cả 3 phép so sánh), và `purchase-evidence.service.js` (`listEvidence`, `downloadEvidence`, `attachEvidence` ngoài & trong transaction, đồng thời giữ nguyên `targetId` truyền vào `command()` để không vỡ `requestHash` khi replay).
+  - **Kiến trúc & `checkPermission`:** thêm `respondWithData` ở `src/shared/utils/catchAsync.js` và tách Zod primitives dùng chung ra `src/shared/utils/command-validation.js`; tách `validation`/`controller`/`routes` (và `goods-receipt.service.js`) cho 4 module; xóa `purchase-order.commands.routes.js`. Các route quyền tĩnh trả `403` trước `400` validation; route cần 2 quyền (preflight/reverse) gắn đủ 2 middleware `checkPermission`; route quyền động (`/purchase-documents/:id/evidence*`, unified `GET /goods-receipts`, `GET /goods-receipts/:id`) giữ kiểm quyền trong service.
+- **File code thay đổi:**
+  - Shared/middleware: `src/middlewares/auth.js`, `src/shared/utils/catchAsync.js`, `src/shared/utils/command-validation.js` (mới), `src/routes.js`.
+  - `po-receiving`: `po-receiving.validation.js` (mới), `po-receiving.controller.js` (mới), `po-receiving.routes.js`, `po-receiving.service.js`, `purchase-read.service.js`, `purchase-evidence.service.js`.
+  - `purchase-orders`: `purchase-order.validation.js`, `purchase-order.controller.js`, `purchase-order.routes.js`, `purchase-order.service.js`, xóa `purchase-order.commands.routes.js`.
+  - `opening-stock`: `validation.js`, `controller.js` (mới), `routes.js`, `service.js`.
+  - `goods-receipts`: `goods-receipt.validation.js` (mới), `goods-receipt.controller.js` (mới), `goods-receipt.service.js` (mới), `goods-receipt.routes.js`.
+  - Test mới: `test/refactor-regression.integration.test.js`.
+- **Tài liệu cập nhật:** `git_doc/docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md`, `git_doc/docs/08_api/GOODS_RECEIPTS.md`, `git_doc/docs/08_api/EXCEL_AND_OPENING_STOCK.md`, `git_doc/docs/01_bao_cao/WMSD_Report4_Draft.md` (mục 1.2.1, 1.3.1, 1.4.1; giữ nguyên toàn bộ phần chỉnh sửa khác), `git_doc/change_logs.md`. Không đổi model, schema DB hay migration.
+- **Kiểm chứng thực tế (MongoDB local `rs0` cổng `27017`):**
+  - BE không cần DB: `opening-stock-setup.test.js`, `purchase-evidence.test.js`, `purchase-evidence.local.test.js`, `receiving-custody-policy.test.js`, `public-routing.test.js` — pass 12/12.
+  - BE tích hợp MongoDB local (`RUN_NATIVE_API_TESTS=1`, `RUN_GOODS_RECEIPT_TESTS=1`, `RUN_OPENING_TESTS=1`): `refactor-regression.integration.test.js` (2/2), `opening-stock.test.js`, `goods-receipt.integration.test.js`, `backend-permissions.integration.test.js`, `replenishment-warnings.integration.test.js`, `native-api.integration.test.js` — tổng pass 61/61, 0 lỗi.
+  - FE: `npx vitest run src/features/opening-stock/OpeningStockPage.test.tsx` — pass 7/7.
+  - Docs: `npm run docs:check` — đạt.
+  - Sửa thêm cùng loại A3 (yêu cầu người dùng 25/11/2026): bộ lọc `?purchaseOrderId=` trong `listDocuments` (danh sách kiểm nhận, nhập mua, giữ hộ, hàng đợi nhận hàng) và danh sách gộp `GET /goods-receipts` trước so khớp giá trị thô nên PO lịch sử có `_id` ObjectId gọi bằng `documentNo` trả rỗng; nay phân giải qua `purchaseOrderRef` trong `po-receiving/purchase-core.js` (dùng chung bộ lọc `_id`/`documentNo` với `findPurchase`). Test: 4 đường danh sách trong `refactor-regression.integration.test.js` (2/2), `goods-receipt.integration` 1/1, `native-api.integration` + `backend-permissions` 42/42, `purchase-evidence` + `public-routing` 3/3.
+  - Review lại cùng ngày: bổ sung vào `refactor-regression.integration.test.js` kiểm tra `403` trước `400` cho các route một quyền tĩnh (lệnh PO, tạo/xác nhận kiểm nhận, ghi phiếu nhập mua, quyết định giữ hộ, tạo phiếu nhập khác, ghi tồn đầu). Chạy lại trên MongoDB local `rs0`: `refactor-regression` 2/2, `goods-receipt.integration` 1/1, `native-api.integration` 35/35, `backend-permissions` + `replenishment-warnings` 21/21, `opening-stock` 2/2 (`MONGODB_TEST_PORT=27017`, `MONGODB_TEST_REPLICA_SET=rs0`), `purchase-evidence.local` 1/1. FE các thư mục `opening-stock`, `purchase-orders`, `receipts`, `inspections`, `custody`: 159/160; lỗi duy nhất ở `ReceiptCreatePage.test.tsx` (nhận hàng điều chuyển, không tìm thấy combobox "Chất lượng") thuộc FE dùng mock MSW, không liên quan thay đổi BE này.
+- **Giới hạn / chưa chạy:** Không chạy toàn bộ suite `npm test` ngoài phạm vi thay đổi và không ghi DB remote; không commit/push tự động.
+- **Rà lại hướng dẫn code RR → nhập → cất hàng (cùng ngày):** đối chiếu toàn bộ [HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md](docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md) với code sau đợt tách. Sửa: dòng đối chiếu code đầu tài liệu; mục 2.0 thêm khung `authenticate → checkPermission → validate → controller → service`, `respondWithData`, `command-validation.js` và cờ `AUTHENTICATED` của `authenticate`; ghi chú bảng route 2B.1 (403 trước 400, route nào còn kiểm quyền trong service); `purchaseOrderRef` và quy ước dùng `_id` đã phân giải ở 2.7, 2B.1, 2B.3.6, 2B.4.2, 2B.4.5, 2B.7; số dòng lệch của `purchase-core.js`, `purchase-read.service.js`, `purchase-evidence.service.js`, `po-receiving.validation.js`, `auth.js`; Phần 3 điểm 20 chuyển thành đã sửa; Phần 4 thêm lượt chạy 25/11/2026; Phụ lục thêm file controller/validation và test hồi quy. Không đổi code. Test chạy lại trên MongoDB local `rs0`: `refactor-regression.integration`, `goods-receipt.integration`, `backend-permissions.integration`, `purchase-evidence`, `public-routing`, `receiving-custody-policy` — 19/19 đạt.
+
+## 25/11/2026 — Report 3: đưa lại thay đổi của `efb9819` (FE-08, FE-09, BF-05) theo catalogue 174 use case
+
+- **Lý do**: mục "Bỏ năm trường tiếng Việt" ngày 25/11 ghi các thay đổi Report 3 của `efb9819` (minhbach-03) chưa có trong file sau merge `5e7456e`. Ghi chú đó hết hiệu lực từ mục này; mục cũ được giữ làm lịch sử. Người dùng chọn catalogue 174 UC ở mục I.4.2 làm chuẩn đánh số.
+- **Đã đưa vào** [Report 3](docs/01_bao_cao/WMSD_Report3_Fix.docx.txt): đặc tả FE-08 (UC-129…UC-146, trừ UC-132) thay cho các mục kiểm kê và giải quyết chênh lệch cũ; đặc tả FE-09 tài khoản và vai trò (UC-147, UC-152…UC-160) cùng UC-175; BF-05 viết lại; dòng `Project tracking: UC-xxx` giữ nguyên số của `Project_Tracking.xlsx`; ghi chú `Former`/`Formerly UC-…` giữ số cũ; tham chiếu ở BF-01…BF-08, EX-04, sơ đồ dữ liệu, bảng thực thể, DR, BR, bảng màn hình, mục III (SC-01, SC-02, SC-09…SC-31), IV và V đổi sang số mới. Đặc tả UC-164…UC-174 đã mang số mới từ trước.
+- **Giữ nguyên**: mục I.4.2, I.4.3, I.4.4, đặc tả mua hàng và nhập kho (II.1, II.3, trừ bốn tiêu đề khách hàng đã bỏ thêm chữ `Former`), SC-06…SC-08 và hai dòng SC-07/SC-08 ở bảng màn hình, bảng Change Log trong báo cáo.
+- **Sửa thêm số cũ mà `efb9819` bỏ sót** trong các dòng nó đã chạm (và dòng Historical GB mapping: UC-113 → UC-164): BF-01-A3; thực thể Party/User, Document, RR/PO, Reservation, Arrival/GR, Notification; DR-03, DR-14; BR-07, BR-08, BR-25. Tham chiếu tới hai use case cất hàng đã bỏ và bước Submit RR cũ được gỡ.
+- **Chờ người dùng chốt**: "Confirm Full External Payment Receipt" và "Initiate User Password Reset as Administrator" không có tên tương ứng trong catalogue 174. Tạm đánh UC-176 và UC-175 (số kế tiếp ngoài catalogue, theo cách `efb9819` dùng UC-161/UC-160, vì hai số này trong catalogue là View Notifications và Update Role Permissions). Chưa thêm vào catalogue hay ma trận quyền.
+- **Ghép theo tên gần đúng**: ba mục "View/Create Copied Sales Order…" ghép với UC-94…UC-96 "View/Create Sales Order…"; tiêu đề vẫn giữ chữ "Copied".
+- **Còn lệch, chưa sửa**: mục I.4.3 dùng bộ số khác I.4.2 (ví dụ Administrator ghi UC-145…UC-152); UC-132 Update Stocktake Session không có đặc tả riêng (nội dung sửa phiên PLANNED nằm trong UC-131) và không có ở SC-14; SC-19 chưa liệt kê UC-125, UC-127; một số use case khác trong catalogue chưa có đặc tả chi tiết ở mục II. Tài liệu ngoài Report 3 (PROJECT_GUIDE, RTM, Report 4) chưa đối chiếu số.
+- **File**: `git_doc/docs/01_bao_cao/WMSD_Report3_Fix.docx.txt`, `git_doc/change_logs.md`. Không đổi code, model, quyền hay dữ liệu; không commit.
+- **Kiểm chứng**: script so tiêu đề mục II với catalogue: không còn số trùng, mọi tham chiếu `UC-` ngoài bảng Change Log của báo cáo và các ghi chú số cũ (`Former`, `Formerly`, `retired`, `Project tracking`) là số có trong catalogue hoặc UC-175/UC-176; I.4.2, I.4.3, I.4.4, SC-06…SC-08 và Change Log trùng từng dòng với bản trước. `npm run docs:check` đạt. Chưa xuất lại `.docx`, chưa đối chiếu Google Docs, chưa đọc soát lại từng đặc tả so với code.
+
+**Bảng đối chiếu số theo tên use case** (cột "Trước trong file": số ở tiêu đề trước lần sửa này; "—": chưa có hoặc không đánh số). Use case không có trong bảng giữ nguyên số. Tiêu đề đã bỏ ghi `Former UC-…`: 33–36, 62–68, 85, 87, 117–119, 124–128.
+
+| Use case (tiêu đề hiện hành) | `efb9819` | Trước trong file | Nay |
+|---|---|---|---|
+| Post Goods Receipt | UC-39 | UC-40 | UC-40 |
+| View Warehouse List | UC-54 | UC-55 | UC-55 |
+| View storage location details | UC-56 | UC-57 | UC-57 |
+| Create Storage Location | UC-60 | UC-61 | UC-61 |
+| Update Storage Location Information | UC-61 | UC-62 | UC-62 |
+| Change Storage Location Status | UC-62 | UC-63 | UC-63 |
+| View stock by lot, location, and quality status | UC-63 | UC-64 | UC-64 |
+| View inventory balance details | UC-64 | UC-65 | UC-65 |
+| View location movement list | UC-65 | UC-68 | UC-68 |
+| View location movement details | UC-66 | UC-69 | UC-69 |
+| Create location movement | UC-67 | UC-70 | UC-70 |
+| Confirm actual location movement | UC-70 | UC-73 | UC-73 |
+| View warehouse transfer list | UC-76 | UC-79 | UC-79 |
+| View warehouse transfer details | UC-77 | UC-80 | UC-80 |
+| Create Transfer Request | UC-78 | UC-81 | UC-81 |
+| Review Transfer Request | UC-81 | UC-84 | UC-84 |
+| Create Transfer Dispatch (trước: Record Transfer Dispatch) | UC-82 | UC-85 | UC-85 |
+| Post Transfer Receipt (trước: Inspect and Post Transfer Receipt) | UC-86 | UC-120 | UC-89 |
+| Review Transfer Difference (trước: Review Transfer Difference Resolution) | UC-89 | UC-56 | UC-92 |
+| View Copied Sales Order List | UC-91 | UC-94 | UC-94 |
+| View Copied Sales Order Details | UC-92 | UC-58 | UC-95 |
+| Create Copied Sales Order | UC-93 | UC-59 | UC-96 |
+| Update Eligible Sales Order Remainder | UC-94 | UC-60 | UC-97 |
+| Cancel Eligible Sales Order Remainder | UC-95 | UC-98 | UC-98 |
+| View goods issue list | UC-96 | UC-99 | UC-99 |
+| View goods issue details | UC-97 | UC-100 | UC-100 |
+| Create goods issue | UC-98 | UC-71 | UC-101 |
+| Update goods issue | UC-99 | UC-72 | UC-102 |
+| Confirm Customer Delivery with Photo Evidence (trước: Record Customer Receipt Evidence on Goods Issue) | UC-105 | UC-129 | UC-105 |
+| View defective goods details | UC-108 | UC-74 | UC-108 |
+| Record Defective Goods (trước: Record Defect Inspection and Immediate Hold) | UC-109 | UC-75 | UC-109 |
+| Submit Defective Goods Disposition Proposal | UC-110 | UC-76 | UC-110 |
+| Review Defective Goods Disposition (trước: Approve or reject defective goods disposition) | UC-111 | UC-77 | UC-111 |
+| Record approved defective goods disposition | UC-112 | UC-78 | UC-112 |
+| Decide Ordinary Customer Return Acceptance | UC-117 | UC-82 | UC-117 |
+| Review Eligible Customer Return Exception | UC-118 | UC-83 | UC-119 |
+| Post Customer Return Receipt | UC-119 | UC-86 | UC-120 |
+| View supplier return request list | UC-120 | UC-122 | UC-122 |
+| View supplier return request details | UC-121 | UC-123 | UC-123 |
+| Create Supplier Return Request | UC-122 | UC-124 | UC-124 |
+| Confirm Supplier Return Dispatch | UC-124 | UC-126 | UC-126 |
+| Close Supplier Return | UC-126 | UC-128 | UC-128 |
+| View stocktake list | UC-127 | UC-93 | UC-129 |
+| View stocktake details | UC-128 | UC-130 | UC-130 |
+| Create Stocktake Session | UC-129 | UC-95 | UC-131 |
+| Activate Stocktake Session | UC-130 | UC-96 | UC-133 |
+| Print Stocktake Count Sheet | UC-131 | — | UC-134 |
+| Record Stocktake Count | UC-132 | — | UC-135 |
+| Record Stocktake Difference Reason | UC-133 | — | UC-136 |
+| Reconcile Stocktake Results | UC-134 | UC-137 | UC-137 |
+| Request Stocktake Recount | UC-135 | — | UC-138 |
+| Approve Stocktake Differences | UC-136 | — | UC-139 |
+| Cancel Stocktake Session | UC-137 | — | UC-140 |
+| View Stocktake Plan List | UC-138 | — | UC-141 |
+| View Stocktake Plan Details | UC-139 | — | UC-142 |
+| Create Stocktake Plan | UC-140 | — | UC-143 |
+| Update Stocktake Plan | UC-141 | — | UC-144 |
+| Change Stocktake Plan Status | UC-142 | — | UC-145 |
+| Generate Stocktake Session from Plan | UC-143 | — | UC-146 |
+| Sign in to the system | UC-144 | UC-106 | UC-147 |
+| Reset Own Password by Email | UC-145 | UC-131 | UC-152 |
+| View account list | UC-146 | UC-153 | UC-153 |
+| View account details | UC-147 | UC-108 | UC-154 |
+| Create Staff Account | UC-148 | UC-109 | UC-155 |
+| Update Staff Account Information | UC-149 | UC-110 | UC-156 |
+| Change Staff Account Status | UC-150 | UC-111 | UC-157 |
+| View Role List | UC-151 | — | UC-158 |
+| Create Role | UC-152 | — | UC-159 |
+| Update Role Permissions | UC-153 | — | UC-160 |
+| View Operational Reports | UC-154 | UC-164 | UC-164 |
+| View stock movement log | UC-155 | UC-165 | UC-165 |
+| View stock movement details | UC-156 | UC-166 | UC-166 |
+| Trace a product lot through source documents | UC-157 | UC-172 | UC-172 |
+| Verify Historical Customer Delivery Source | UC-158 | UC-173 | UC-173 |
+| Record External Document Reference | UC-159 | UC-174 | UC-174 |
+| Initiate User Password Reset as Administrator | UC-160 | UC-132 | UC-175 |
+| Confirm Full External Payment Receipt | UC-161 | — | UC-176 |
+
 ## 25/11/2026 — Bỏ năm trường tiếng Việt sao chép trên chứng từ
 
 - **Lý do**: người dùng quyết định ngày 25/11/2026. `tenLoaiPhieu`, `maDonVi`, `kyDanhSo`, `soThuTu`, `trangThaiTiengViet` lặp lại dữ liệu đã có ở `documentKind`, `documentNo`, `workflowStatus`; nhãn trạng thái đã lưu còn bị cũ khi sang trạng thái thiếu trong bảng nhãn (ví dụ `SUBMITTED` vẫn hiện "Nháp").

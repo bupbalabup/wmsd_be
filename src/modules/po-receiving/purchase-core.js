@@ -15,10 +15,15 @@ export function purchaseWarehouseFilter(user, id) {
   return all ? {} : { 'header.warehouseId': { $in: user.warehouseIds ?? [] } };
 }
 
+const purchaseIdFilter = id => /^[a-f\d]{24}$/i.test(id) ? { $or: [{ _id: id }, { documentNo: id }] } : { documentNo: id };
+// List filters accept a PO _id or documentNo; historical POs keep an ObjectId _id, so linked headers store that.
+export async function purchaseOrderRef(id){
+  const po=await PurchaseOrder.findOne(purchaseIdFilter(id)).select('_id').lean();
+  return po?._id ?? id;
+}
 export async function findPurchase(id,user,session,{kind,readOnly=false}={}){
   let document;
-  const isHex = /^[a-f\d]{24}$/i.test(id);
-  const filter = isHex ? { $or: [{ _id: id }, { documentNo: id }] } : { documentNo: id };
+  const filter = purchaseIdFilter(id);
   const candidates=kind?[purchaseModels[kind]]:Object.values(purchaseModels);
   for(const Model of candidates){if(!Model)throw notFoundError();document=await Model.findOne(filter).session(session);if(document)break;}
   if(!document)throw notFoundError();

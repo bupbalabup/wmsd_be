@@ -21,7 +21,6 @@ import productsRouter from "./modules/products/product.routes.js";
 import suppliersRouter from "./modules/suppliers/supplier.routes.js";
 import lotsRouter from "./modules/lots/lot.routes.js";
 import purchaseOrdersRouter from "./modules/purchase-orders/purchase-order.routes.js";
-import purchaseOrderCommandsRouter from './modules/purchase-orders/purchase-order.commands.routes.js';
 import {
   inspectionRouter,
   purchaseReceivingRouter,
@@ -61,7 +60,6 @@ router.use("/products", productsRouter);
 router.use("/suppliers", suppliersRouter);
 router.use("/lots", lotsRouter);
 router.use("/purchase-orders", purchaseOrdersRouter);
-router.use('/purchase-orders', purchaseOrderCommandsRouter);
 router.use("/purchase-orders", purchaseReceivingRouter);
 router.use("/goods-inspections", inspectionRouter);
 router.use("/stock-reversals", reversalRouter);
