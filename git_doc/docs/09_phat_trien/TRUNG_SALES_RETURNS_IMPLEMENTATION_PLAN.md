@@ -1,17 +1,17 @@
 # Kế hoạch triển khai: xuất bán và trả hàng — 25/11/2026
 
-**Trạng thái: đề xuất, chưa triển khai.** Dùng hướng dẫn demo người dùng cung cấp làm đích nghiệm thu: bán 8 viên → khách trả 4 viên → trả NCC 4 viên từ **lô khác**. Mượn cách `ReplenishmentDraftEditor` và `ReplenishmentProductTable` trình bày sản phẩm, căn cứ và đơn vị ngay trên dòng; không bê bước mua–nhập hoặc nút duyệt của luồng mua sang đây.
+**Trạng thái: đã triển khai và kiểm chứng backend; FE còn 5 lỗi jsdom trong bộ test tập trung.** Đích nghiệm thu là bán 8 viên → khách trả 4 viên → trả NCC 4 viên từ **lô khác**. Mượn cách `ReplenishmentDraftEditor` và `ReplenishmentProductTable` trình bày sản phẩm, căn cứ và đơn vị ngay trên dòng; không bê bước mua–nhập hoặc nút duyệt của luồng mua sang đây.
 
 ## 0. Chốt phạm vi và bản chạy
 
 - Làm trên cặp checkout `trungph` của backend/frontend. Ghi SHA hai repo và DB demo cô lập trước khi kiểm thử. Đối chiếu nhánh thực tế chứ không suy ra tính năng từ ảnh hoặc dữ liệu mẫu.
-- [API Phiếu xuất hiện hành](../08_api/GOODS_ISSUES.md) từ chối tạo mới `SALE` chỉ bằng mã ngoài; phiếu cũ vẫn giữ luồng tương thích. Bật lại nút `SALE` không tự khôi phục backend.
-- **Cổng quyết định:** trước khi viết phần khôi phục, xác nhận cho phép tạo mới `SALE` theo mã ngoài theo đúng chuỗi Kinh doanh tạo → Ban điều hành duyệt → Kho vận giữ chỗ, soạn và ghi xuất. Không mở lại màn Sales Order, không thay đổi luồng bán nội bộ hiện có, không mở rộng quyền hoặc đổi schema chỉ vì bố cục. Rà các quyền và lệnh tương thích trước; nếu không đủ, ghi rõ phần chênh lệch để chốt thay vì nới quyền ngầm.
-- Trong lúc chờ quyết định, có thể làm tra cứu khách trả, cải thiện xuất trả NCC và nghiệm thu từ `PXB` đã ghi sổ; không quảng bá ca bắt đầu từ tạo mới `PXB` như đã chạy được.
+- [API Phiếu xuất hiện hành](../08_api/GOODS_ISSUES.md) cho phép Sales tạo `SALE` độc lập bằng mã ngoài; không có màn Sales Order mới.
+- Đã thực hiện chuỗi Kinh doanh tạo → Owner khác duyệt → Kho vận chọn lô, soạn và ghi xuất. Duyệt không giữ chỗ hoặc đổi tồn; PICK TO giữ hàng và ghi xuất giảm tồn đúng một lần.
+- Backend full-flow test dùng fixture riêng cho 8 viên và một lô NCC khác; không ghi DB dùng chung.
 
 ## 1. Xuất bán theo mã ngoài và quy đổi
 
-1. Đối chiếu `goods-issue.routes.js`, `goods-issue.validation.js`, `goods-issue.service.js` và test xuất trực tiếp/tương thích. Nếu được duyệt, phục hồi đúng nhánh tạo mới theo mã ngoài qua luồng tương thích hiện có; giữ kiểm quyền/warehouse scope, phiên bản, idempotency và audit. Mã ngoài là tham chiếu, không là Sales Order ID hoặc khóa duy nhất. Phải có test từ chối vai trò không đúng, kho ngoài phạm vi, ghi xuất trước khi soạn đủ và gửi lại lệnh ghi xuất không trừ tồn lần hai.
+1. `goods-issue.validation.js` và `goods-issue.service.js` nhận tạo `SALE` độc lập, giữ kiểm quyền/kho, phiên bản, idempotency và audit. Mã ngoài là tham chiếu, không là Sales Order ID hoặc khóa duy nhất. Test HTTP kiểm tra retry, kho ngoài phạm vi, chưa được soạn và duyệt không tạo reservation/stock transaction.
 2. Đối chiếu trang tạo và chi tiết phiếu xuất với `DESIGN.md` của FE. Dùng hai vùng: bảng dòng hàng bên trái, thông tin chứng từ và nút đúng vai trò bên phải; màn hẹp xếp chồng hai vùng. Kinh doanh chọn kho rồi tìm SKU/tên; khi đổi kho phải bỏ lựa chọn và dữ liệu khả dụng của kho cũ. Hiện SKU/quy cách, khả dụng, lượng nhập, đơn vị và lượng gốc ngay trên dòng. Khung chứng từ hiện mã ngoài, tên khách và SĐT tùy chọn; không buộc chọn lô lúc tạo phiếu. Kho vận chọn lô khi soạn.
 3. Dùng chuyển đổi và quy tắc số nguyên hiện có của phiếu xuất, không dùng cách làm tròn của mua hàng. Chi tiết phiếu thể hiện cả lượng/đơn vị đã nhập và lượng gốc từ snapshot. Số khả dụng trên form chỉ hỗ trợ quyết định; backend kiểm lại theo kho/lô ở bước giữ chỗ và ghi sổ tương ứng. Ban điều hành duyệt không giữ chỗ hoặc thay đổi tồn vật lý; xác nhận soạn không trừ tổng tồn kho.
 
@@ -28,6 +28,7 @@
 
 ## 4. Nghiệm thu, triển khai và chia commit
 
-- Chạy test BE/FE tập trung theo ma trận trong [hướng dẫn demo local](TRUNG_DEMO_LOCAL.md). Ghi SHA, dữ liệu ban đầu, chứng từ, thay đổi tồn và kết quả thật. Không sửa chứng từ demo gốc hoặc ghi DB dùng chung.
+- Backend: `RUN_GOODS_ISSUE_TESTS=1 node --test test/direct-sales.integration.test.js` đạt 1/1 trên MongoDB local `27018/hieudt-test`; `RUN_RETURNS_NATIVE_TESTS=1 RUN_HIEUDT_TESTS=1 node --test test/return-workflows.integration.test.js` đạt 22/22. Hai bài gồm HTTP SALE contract và full flow 8 → 4 → supplier 4 khác lô.
+- Frontend: `npx vitest run src/features/goods-issues/pages.test.tsx src/features/return-workflows/usability.test.tsx` đạt 27/32. Năm lỗi còn lại là jsdom/Ant Design interaction ở test đổi kho và staged return; các assertion SALE/source lookup/conversion mới đạt. Chưa chạy browser visual test.
 - Chia commit theo thay đổi có thể review độc lập: (1) phục hồi cổng tạo `SALE` BE và test, nếu được duyệt; (2) bố cục/quy đổi xuất bán FE; (3) lookup nguồn khách trả BE và test phạm vi; (4) picker và chi tiết khách trả FE; (5) bố cục xuất NCC và kiểm hạn mức; (6) fixture/kịch bản nghiệm thu nếu có thay đổi riêng. Không tạo commit rỗng hoặc tách code khỏi test trực tiếp của nó.
-- Mỗi phần cập nhật `git_doc/change_logs.md` và tài liệu tương ứng: [Phiếu xuất](../08_api/GOODS_ISSUES.md), [Trả hàng](../08_api/RETURN_WORKFLOWS_NATIVE.md), hướng dẫn demo/local, và quyền hoặc model map **chỉ nếu thực sự đổi**. Với commit FE, cập nhật tài liệu ở BE cùng task, ghi commit FE tương ứng để truy vết. Chỉ cập nhật hợp đồng hiện hành sau khi hành vi đã được triển khai và xác minh.
+- Đã cập nhật `git_doc/change_logs.md`, [Phiếu xuất](../08_api/GOODS_ISSUES.md), [Trả hàng](../08_api/RETURN_WORKFLOWS_NATIVE.md), hướng dẫn demo/local, MODEL_MAP, data dictionary và model changelog sau khi triển khai/xác minh. FE commit được ghi cạnh backend commit để truy vết.

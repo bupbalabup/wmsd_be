@@ -2,7 +2,7 @@
 
 ## Nghiệm thu kế hoạch xuất bán và trả hàng — 25/11/2026
 
-Ma trận dưới đây thuộc [kế hoạch triển khai](TRUNG_SALES_RETURNS_IMPLEMENTATION_PLAN.md), không phải bằng chứng đã chạy qua hoặc hướng dẫn đổi môi trường bên dưới. Chỉ bắt đầu từ tạo mới `PXB` khi backend/FE đã hỗ trợ tạo `SALE` theo mã ngoài. Nếu chưa, dùng `PXB-K-GACH-01-261118-000002` làm nguồn khách trả **sau khi kiểm tra còn đủ hạn mức và đúng quyền trong DB demo**; không tính phần tạo phiếu là đã nghiệm thu. Nếu thiếu dữ liệu, chuẩn bị fixture riêng thay vì sửa hoặc dùng hết chứng từ dự phòng.
+Ma trận này là tiêu chí và kết quả kiểm chứng tự động của implementation. Bài backend dùng fixture cô lập; không sửa chứng từ demo gốc hoặc ghi DB dùng chung.
 
 | Mã | Thao tác và bằng chứng cần lưu | Kết quả đạt |
 |---|---|---|
@@ -12,6 +12,12 @@ Ma trận dưới đây thuộc [kế hoạch triển khai](TRUNG_SALES_RETURNS_
 | EDGE-01 | Với sản phẩm chỉ cho phép viên nguyên, thử quy cách 4 viên/thùng, nhập 1,5 rồi 0,1 thùng trên phiếu luyện tập riêng. | 1,5 thùng hiển thị 6 viên; 0,1 thùng bị chặn tại form và backend nếu gửi trực tiếp. |
 | EDGE-02 | Tạo fixture riêng có hai `PXB` đã ghi sổ cùng mã `SO-001`; phiếu được chọn có 6 viên đủ điều kiện. Yêu cầu trả 3, kiểm/chấp nhận/nhập 3, rồi tra lại. | Cả hai phiếu đủ quyền hiện riêng; chọn theo phiếu/dòng, không theo tên hoặc SĐT. Hạn mức còn 3 trên dòng đã chọn; phiếu kia không đổi. Phiếu chưa ghi sổ hoặc khác kho ngoài phạm vi không xuất hiện. |
 | EDGE-03 | Với thỏa thuận 4 và đã bàn giao 3, yêu cầu bàn giao thêm 2; sau đó thử đúng 1. | Hệ thống từ chối 2, không sinh phiếu hoặc biến động tồn; chỉ 1 được bàn giao tiếp. |
+
+**Kết quả chạy ngày 25/11/2026:** backend direct-sales HTTP test đạt 1/1 và
+return-workflows native integration đạt 22/22 trên `27018/hieudt-test`. FE
+focused tests đạt 27/32; 5 lỗi còn lại thuộc jsdom/Ant Design event handling
+ở test đổi kho và staged return. Chưa có browser visual run và chưa có remote
+rollout.
 
 Giữ các ca từ chối khách trả (không lập phiếu nhập), NCC xác nhận 3 rồi 1 trên **cùng** dòng bàn giao, và NCC từ chối trước bàn giao làm kiểm tra hồi quy. Không chạy nhánh giữ hộ nếu chưa có nguồn đủ điều kiện.
 

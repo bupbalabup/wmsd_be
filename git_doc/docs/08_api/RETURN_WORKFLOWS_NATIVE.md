@@ -75,7 +75,17 @@ Supplier-return events notify the next actor after creation, agreement and dispa
 
 For a direct or legacy standalone SALE Goods Issue, `lookup?kind=sources&purpose=customer-returns` returns `sourceLots` from the active, non-reversed stock movements for that issue line. Each lot includes its ID, manufacturer lot, issued base quantity and remaining quantity after existing Customer Return claims. This lets Sales split one return request across the lots the customer actually received. A single-lot source can default to that lot; a multi-lot source requires an explicit lot on each return line. The create payload accepts optional `lotId` for Goods Issue sources, and the server validates both the full source claim and the selected lot claim transactionally. The saved request line retains the selected lot, which the warehouse receipt uses for stock posting and traceability. No new collection or migration is required.
 
-This does not add a receipt-confirmation field to Goods Issue. SO-linked returns remain capped by the quantity Sales confirmed as received. Existing standalone SALE issues have no customer receipt confirmation and remain capped by posted issue quantity less failed-delivery returns and claims. New standalone manual SALE creation remains rejected; new sales use SO-linked direct issues. Supplier receipt/acceptance remains a separate `ACK_SR` event on the Supplier Return, not a Goods Issue field.
+This does not add a receipt-confirmation field to Goods Issue. SO-linked returns remain capped by the quantity Sales confirmed as received. Standalone SALE issues created with an external reference remain capped by posted issue quantity less failed-delivery returns and claims. New standalone manual SALE creation is supported through the Goods Issue form; Supplier receipt/acceptance remains a separate `ACK_SR` event on the Supplier Return, not a Goods Issue field.
+
+## Standalone sale snapshot and source search — 25 November 2026
+
+Standalone SALE headers may retain optional plain-text `customerName` and
+`customerPhone`. `lookup?kind=sources&purpose=customer-returns` projects the
+external reference and these snapshots for posted SALE lines, and searches by
+both PXB number and external reference. Customer Return creation copies the
+selected source snapshot and keeps the existing per-lot and source claim caps.
+The source remains selectable by its document/line identity; customer name or
+phone alone never selects a source.
 
 ## Reassessment claim and packaging correction — 20 November 2026
 
