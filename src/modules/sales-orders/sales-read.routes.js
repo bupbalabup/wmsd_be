@@ -11,6 +11,7 @@ import { uploadSingleImage } from '../../middlewares/upload.js';
 import * as service from './sales-read.service.js';
 import * as execution from './sales-execution.service.js';
 import * as schemas from './sales-execution.validation.js';
+import { confirmIssuePicking } from '../goods-issues/goods-issue.controller.js';
 
 const parse = (schema, value) => {
   const result = schema.safeParse(value);
@@ -64,4 +65,7 @@ export const pickingRouter=Router();
 pickingRouter.use(authenticate);
 pickingRouter.get('/',checkPermission('picking_task:read'),catchAsync(async(req,res)=>formatApiResponse(res,{data:await execution.listPicking(req.user,parse(outboundQuery,req.query))})));
 pickingRouter.get('/:id',checkPermission('picking_task:read'),catchAsync(async(req,res)=>formatApiResponse(res,{data:await execution.getPicking(req.user,parse(detailParams,req.params).id)})));
-pickingRouter.post('/:id/confirm',checkPermission('picking_task:confirm'),catchAsync(async(req,res)=>formatApiResponse(res,{data:await execution.confirmPicking(req.user,parse(detailParams,req.params).id,parse(schemas.confirmPickingBody,req.body))})));
+pickingRouter.post('/:id/confirm',checkPermission('picking_task:confirm'),(req,_res,next)=>{
+  req.validated={params:parse(detailParams,req.params),body:parse(schemas.confirmPickingBody,req.body)};
+  next();
+},confirmIssuePicking);
