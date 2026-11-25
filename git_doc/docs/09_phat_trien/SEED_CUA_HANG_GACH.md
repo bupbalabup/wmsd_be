@@ -65,6 +65,8 @@ Quyền xem và thao tác vẫn theo tài khoản và kho được phân công. 
 - `validate.js` kiểm schema/ref, chuỗi tồn, lượng giữ, quyền duyệt, TR/nhận, sức chứa, hóa đơn và dữ liệu thùng.
 - `database.js` kiểm tập collection, fingerprint và ghi seed. `run.js` là CLI.
 
+Từ 25/11/2026 dữ liệu chữ của seed là tiếng Việt: tên vai trò (Chủ cửa hàng, Nhân viên kho, Kế toán, Nhân viên bán hàng, Quản trị viên), họ tên tài khoản, mô tả kho, vật liệu ("Gạch porcelain", "Gạch ceramic"), ghi chú/lý do không còn chữ "demo", số tham chiếu mẫu dạng `PGH-NCC-0001`, `BN-0001`, `TT-NCC-0001`. Email nhân sự `@ceratile.vn`, điện thoại theo định dạng Việt Nam. Cần seed lại DB đích để thấy thay đổi; seed không chạy trên DB từ xa nếu chưa có lệnh triển khai.
+
 Một thùng chứa đúng một sản phẩm và một lô. Các thùng chung dòng phải cùng quy cách. Quy cách của seed nằm trong mã seed để tạo snapshot trên dòng, không phải danh mục UOM mới. Kích thước sản phẩm và kích thước ngoài thùng có ý nghĩa riêng.
 
 ```powershell

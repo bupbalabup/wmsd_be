@@ -192,7 +192,7 @@ export function enrichGoodsReceiptsSeedData(data) {
       version: 3,
       createdBy: worker._id,
       occurredAt: seedDate(20, 8),
-      note: 'Dữ liệu mẫu nhập khác: Bổ sung gạch lát nền vân đá trắng AP6601 kiểm định đầu kỳ',
+      note: 'Bổ sung gạch lát nền vân đá trắng AP6601 kiểm định đầu kỳ',
       header: {
         warehouseId: defaultWh._id,
         reason: 'Nhập bổ sung tồn kho thực tế kiểm định đầu kỳ có chứng cứ',

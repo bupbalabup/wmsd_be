@@ -87,7 +87,7 @@ async function transferOne(key,{fail=false,expectedVersion}={}) {
 
 localTest('local reviewed registry populates users, roles and permissions from new collections',async()=>{
   const user=await models.get('users').findOne({username:'warehouse@ceratile.vn'}).populate({path:'roleId',populate:{path:'permissionIds'}});
-  assert.equal(user.roleId.name,'Warehouse Staff');
+  assert.equal(user.roleId.name,'Nhân viên kho');
   assert.ok(user.roleId.permissionIds.some(row=>row.code==='stock_relocation:create'));
   assert.equal(user.passwordHash,undefined);
   const point=await models.get('inventory_balances').findById(source._id).populate({path:'holdingPointId',populate:{path:'locationId'}}).populate('batchId');

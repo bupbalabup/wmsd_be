@@ -3,7 +3,8 @@ import { exact } from '../../models/model-utils.js';
 import { legacyDocumentCollections as documentCollections, collectionNames, splitSources, legacyMigrationCollections as newCollections } from '../../models/collections.js';
 import { PERMISSION_CATALOGUE } from '../../seeds/data/permissions.data.js';
 
-const roleNames = { OWNER: 'Store Owner', WAREHOUSE: 'Warehouse Staff', ACCOUNTANT: 'Accountant', SALES: 'Sales Staff', ADMIN: 'Administrator' };
+// Vietnamese role names (25/11/2026); codes are unchanged.
+const roleNames = { OWNER: 'Chủ cửa hàng', WAREHOUSE: 'Nhân viên kho', ACCOUNTANT: 'Kế toán', SALES: 'Nhân viên bán hàng', ADMIN: 'Quản trị viên' };
 const catalogue = new Map(PERMISSION_CATALOGUE.map(entry => [entry.code, entry]));
 const permissionGroups = {
   'FE-01': ['replenishment_request', 'notification', 'purchase_order', 'goods_receipt_inspection', 'putaway_task'],

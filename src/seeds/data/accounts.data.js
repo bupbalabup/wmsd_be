@@ -37,7 +37,7 @@ export const SEED_ACCOUNTS = [
   {
     roleCode: 'SALES',
     username: 'sales@ceratile.vn',
-    fullName: 'Nhân viên Bán hàng',
+    fullName: 'Nhân viên bán hàng',
     password: 'Sales@123',
     phone: '0901234569',
     warehouseCodes: ALL_WAREHOUSES,
@@ -77,7 +77,7 @@ export const SEED_ACCOUNTS = [
   {
     roleCode: 'ACCOUNTANT',
     username: 'accountant@ceratile.vn',
-    fullName: 'Kế toán công nợ',
+    fullName: 'Kế toán',
     password: 'KeToan@123',
     phone: '0901234571',
     warehouseCodes: ALL_WAREHOUSES,

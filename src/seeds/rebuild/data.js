@@ -22,6 +22,35 @@ export const decimalValue = value => mongoose.Types.Decimal128.fromString(String
 // Real local PNG bytes. These are synthetic evidence for exercising file metadata.
 export const demoPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aY9sAAAAASUVORK5CYII=', 'base64');
 
+// Human-readable seed text is Vietnamese and carries no "demo"/"test" markers (user decision 25/11/2026).
+// Codes and idempotency keys (no spaces, e.g. "demo:posting:gr:p") are left unchanged.
+// Reference numbers shown on screens (delivery note, receipt, supplier agreement, required tone).
+const DEMO_REFERENCES = { 'DELIVERY-DEMO': 'PGH-NCC-0001', 'RECEIPT-DEMO': 'BN-0001', 'AGREEMENT-DEMO': 'TT-NCC-0001', 'T-NO-SUPPLY-DEMO': 'T-HET-HANG' };
+const DEMO_FILE_NAMES = { 'demo-evidence.png': 'anh-chung-tu.png', 'demo-pod.png': 'anh-giao-hang.png' };
+const TEXT_FIELD = /^(note|reason|reasonNote|triggerReason|quantityAdjustmentReason|description|title|message|address|deliveryAddress|comment|summary|resolutionNote|decisionNote)$/;
+export function vietnameseText(value) {
+  return value
+    .replace(/s*((demo|thử nghiệm))/gi, '')
+    .replace(/(theo kế hoạch|yêu cầu|hàng|hỏng|kiểm kê|giao hàng) demo/gi, '$1')
+    .replace(/^Thao tác demo$/i, 'Thao tác mẫu')
+    .replace(/demo/gi, '')
+    .replace(/ {2,}/g, ' ').replace(/ ([.,;])/g, '$1').trim();
+}
+function vietnameseDemoText(data) {
+  const visit = (value) => {
+    if (!value || typeof value !== 'object' || value._bsontype || value instanceof Date || Buffer.isBuffer(value)) return;
+    for (const [key, child] of Object.entries(value)) {
+      if (typeof child === 'string') {
+        if (TEXT_FIELD.test(key) && / /.test(child)) value[key] = vietnameseText(child);
+        else if (key === 'originalName' && DEMO_FILE_NAMES[child]) value[key] = DEMO_FILE_NAMES[child];
+        else if (DEMO_REFERENCES[child]) value[key] = DEMO_REFERENCES[child];
+      } else if (Array.isArray(child)) child.forEach(visit);
+      else visit(child);
+    }
+  };
+  for (const rows of Object.values(data)) if (Array.isArray(rows)) rows.forEach(visit);
+}
+
 export function dataContext(data) {
   const documents = new Map(), items = new Map(), itemParents = new Map();
   const addDocument = (document, collection) => {
@@ -77,15 +106,16 @@ export async function buildReviewedDemo({ consolidate = true } = {}) {
   };
   context.actor = actor;
   const owner = actor('OWNER'), warehouse = actor('WAREHOUSE'), accountant = actor('ACCOUNTANT');
-  for (const row of data.products) { row.manufacturerCode='DEMO-FACTORY'; row.material='Porcelain mẫu'; }
+  for (const row of data.products) { row.manufacturerCode='NM-TANTHUONG'; row.material='Gạch porcelain'; }
   data.customers.forEach((row,index) => { row.phone='09000000' + String(index+1).padStart(2,'0'); });
   data.warehouses.forEach(row => {
-    Object.assign(row,{lengthMm:30000,widthMm:20000,clearHeightMm:6000,description:'Kích thước giả lập phục vụ kiểm thử'});
+    Object.assign(row,{lengthMm:30000,widthMm:20000,clearHeightMm:6000,description:'Kho gạch có kệ lưu trữ theo dãy'});
   });
   data.warehouse_locations.forEach(row => Object.assign(row,{ usableLengthMm:5000,usableWidthMm:5000,usableHeightMm:3000 }));
   for (const {document} of context.documents.values()) {
     document.header ??= {};
-    document.note='Dữ liệu mẫu tổng hợp theo thiết kế đã duyệt. Mọi tên, giá và kích thước chỉ phục vụ kiểm thử.';
+    // No "sample data" note on documents: it showed on every list and detail screen (25/11/2026).
+    delete document.note;
     document.createdAt=document.occurredAt ?? demoDate(10);
     document.updatedAt=document.createdAt;
     const transactions=data.stock_transactions.filter(row => String(row.sourceId)===String(document._id));
@@ -237,5 +267,6 @@ export async function buildReviewedDemo({ consolidate = true } = {}) {
   result.app_settings = [];
   result.api_endpoints = [];
   result.error_logs = [];
+  vietnameseDemoText(result);
   return result;
 }

@@ -30,9 +30,10 @@ test('all merged record types retain IDs, fields, quantities and history', () =>
 test('model serialization preserves every embedded history field and reference', async () => {
   const saved=Object.fromEntries([...models].map(([name,Model])=>[name,current[name].map(row=>new Model(row).toObject())]));
   await validateReviewedDemo(saved,models);
+  const expected=expandEmbedded(current);
   const expanded=expandEmbedded(saved);
   for (const old of Object.keys(embeddedTables)) {
-    assert.equal(expanded[old].length,source[old].length);
+    assert.equal(expanded[old].length,expected[old].length);
     function preserved(expected, actual) {
       if (expected == null) return;
       if (Array.isArray(expected)) { assert.equal(actual.length,expected.length); expected.forEach((v,i)=>preserved(v,actual[i])); }
@@ -41,7 +42,7 @@ test('model serialization preserves every embedded history field and reference',
       } else if (actual?._bsontype==='Decimal128') assert.equal(String(actual),String(expected));
       else assert.deepEqual(actual,expected);
     }
-    for (const row of source[old]) preserved(expectedRecord(old,row),expanded[old].find(value=>String(value._id)===String(row._id)));
+    for (const row of expected[old]) preserved(expectedRecord(old,row),expanded[old].find(value=>String(value._id)===String(row._id)));
   }
 });
 test('consolidation leaves the original snapshot untouched',()=>{
