@@ -1,3 +1,19 @@
+## 25/11/2026 — Hiển thị lý do hủy, lý do duyệt giảm số lượng và gọn bảng Đề nghị nhập hàng (BE + FE)
+
+- **Lý do & quyết định nguồn:** Theo yêu cầu người dùng ngày 25/11/2026 trên nhánh `minhtd`: bổ sung hiển thị lý do hủy phiếu (kèm tên người hủy và thời điểm hủy), lý do duyệt giảm số lượng từng dòng, bỏ cột "Quyết định mới nhất" không còn dữ liệu trên bảng danh sách (đưa về 7 cột theo `fe/DESIGN.md`) và thêm tab lọc "Đã hủy".
+- **Hành vi trước / sau:**
+  - **BE (`src/modules/replenishments/replenishment.service.js`):** `getReplenishment` và `listReplenishments` tra thêm `cancelledBy` trong `User.find` để trả về `cancelledByUser: { id, fullName }` bên cạnh `cancelReason`, `cancelledBy`, `cancelledAt`. Không thay đổi schema DB hay migration.
+  - **FE (`fe/src/features/replenishments/`):**
+    - `replenishmentTypes.ts` & `api/nativeReplenishmentMapping.ts`: bổ sung kiểu và map `cancelReason`, `cancelledAt`, `cancelledBy` (ưu tiên `cancelledByUser`), và `reason` trong `approvalHistory[].lines[]`.
+    - `detail/ReplenishmentDetailPage.tsx`: thêm banner `<Alert>` hiển thị lý do hủy, tên người hủy và thời điểm hủy khi phiếu ở trạng thái `CANCELLED`.
+    - `detail/components/ReplenishmentLinesTab.tsx`: hiển thị `"Lý do duyệt giảm:"` dưới số lượng duyệt cho các dòng có `approvedQtyBase < qtyBase`.
+    - `detail/components/ReplenishmentHistoryTab.tsx`: bổ sung thẻ sự kiện `"Đã hủy phiếu"` (người hủy, thời điểm, lý do hủy) và hiển thị lý do duyệt giảm từng dòng trong mỗi quyết định duyệt.
+    - `list/ReplenishmentsListPage.tsx`: xóa cột `"Quyết định mới nhất"` và state thừa `decisionFilter`, giữ 7 cột chuẩn `DESIGN.md`, thêm tab `"Đã hủy"` (`status: CANCELLED`).
+- **Tài liệu cập nhật:** `git_doc/docs/08_api/REPLENISHMENT_COVERAGE.md`, `git_doc/change_logs.md`.
+- **Kiểm chứng thực tế:**
+  - BE: `node --check src/modules/replenishments/replenishment.service.js` đạt; `node --test test/replenishment-review-decision.test.js` (1/1 pass); `npm run docs:check` đạt. Chưa chạy integration test BE cần MongoDB local hoặc E2E trình duyệt.
+  - FE: `vitest run` cho `nativeReplenishmentMapping.test.ts`, `ReplenishmentDetailPage.test.tsx`, `ReplenishmentsListPage.test.tsx` (35/35 pass); `tsc --noEmit` đạt (0 lỗi); `eslint` 9 file sửa đạt (0 lỗi); `impeccable detect --json` trên 4 file UI trả `[]` (0 lỗi). `pnpm ui:check` chưa chạy do script `scripts/ui-check.sh` không tồn tại trong repo FE; chưa chạy kiểm thử trình duyệt thực tế (`ui-visual-test`).
+
 ## 25/11/2026 — Sửa 404 chi tiết hàng lỗi của Owner và gom truy vấn tồn khả dụng
 
 - **Lý do:** Kiểm tra bản deploy: `GET /api/defects/:id` trả 404 "Không xác định được kho của hồ sơ" với hồ sơ `DEFECT_CASE-202610-002` (Owner thấy trong danh sách nhưng không mở được chi tiết); `GET /api/stock-alerts` và `GET /api/dashboard/owner` mất khoảng 7,9 giây vì mỗi cặp sản phẩm × kho chạy lần lượt khoảng 6 truy vấn cho mỗi số dư.
@@ -11,6 +27,7 @@
 - Đồng bộ [Report 4 §II.1](docs/01_bao_cao/WMSD_Report4_Draft.md#L407), [báo cáo đối chiếu](docs/04_so_do/WMSD_BF01_Diagrams_Review.md) và 14 ảnh xem trước. Thay đổi thuộc tài liệu, không cần migration.
 - Kiểm cấu trúc XML cả 25 trang, xem 14 ảnh xuất lại và render 25 khối Mermaid BF-01. Sáu test BE khoanh vùng vòng đời PO, sửa kiểm nhận, ghi tồn và đảo phiếu đạt trên cơ sở dữ liệu tạm MongoDB cục bộ. Nhánh `QUARANTINE` của PATCH được đối chiếu qua mã nguồn. Lượt này không chạy bộ test FE hoặc kiểm thử ứng dụng qua trình duyệt.
 - Sau khi đối chiếu, gỡ 25 ảnh xem trước và các liên kết ảnh khỏi báo cáo theo yêu cầu.
+- Đổi nhãn `RestController` thành `Controller` trên 21 sơ đồ tuần tự BF-01 trong draw.io và Report 4.
 
 ## 25/11/2026 — Tách module `po-receiving` theo loại chứng từ (BE + FE)
 

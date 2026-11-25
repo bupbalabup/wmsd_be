@@ -543,7 +543,7 @@ sequenceDiagram
   actor X as Sales or Warehouse Staff
   participant U as UI<br/>:ReplenishmentDraftEditor.tsx
   participant U2 as UI<br/>:ReplenishmentDetailPage.tsx
-  participant A as RestController<br/>:replenishment.controller.js
+  participant A as Controller<br/>:replenishment.controller.js
   participant S as Service<br/>:replenishment.commands.js
   participant T as Service<br/>:replenishment.evaluation.js
   participant D as MongoDB
@@ -623,7 +623,7 @@ sequenceDiagram
 sequenceDiagram
   actor X as Sales or Warehouse Staff
   participant U as UI<br/>:ReplenishmentDraftEditor.tsx
-  participant A as RestController<br/>:replenishment.controller.js
+  participant A as Controller<br/>:replenishment.controller.js
   participant S as Service<br/>:replenishment.commands.js
   participant T as Service<br/>:replenishment.evaluation.js
   participant D as MongoDB
@@ -658,7 +658,7 @@ sequenceDiagram
 sequenceDiagram
   actor X as Store Owner
   participant U as UI<br/>:ReplenishmentDetailPage.tsx
-  participant A as RestController<br/>:replenishment.controller.js
+  participant A as Controller<br/>:replenishment.controller.js
   participant S as Service<br/>:replenishment.commands.js
   participant D as MongoDB
   X->>U: Approve or reject with reason
@@ -697,7 +697,7 @@ sequenceDiagram
 sequenceDiagram
   actor X as Requester or Store Owner
   participant U as UI<br/>:ReplenishmentDetailPage.tsx
-  participant A as RestController<br/>:replenishment.controller.js
+  participant A as Controller<br/>:replenishment.controller.js
   participant S as Service<br/>:replenishment.commands.js
   participant D as MongoDB
   X->>U: Cancel request with reason
@@ -851,7 +851,7 @@ sequenceDiagram
   actor X as Accountant
   participant U as UI<br/>:CreatePurchaseOrderModal.tsx
   participant U2 as UI<br/>:PurchaseOrderDraftActions.tsx
-  participant A as RestController<br/>:purchase-order.controller.js
+  participant A as Controller<br/>:purchase-order.controller.js
   participant S as Service<br/>:purchase-order.commands.js
   participant D as MongoDB
   X->>U: Save PO from approved request
@@ -910,7 +910,7 @@ sequenceDiagram
 sequenceDiagram
   actor X as Accountant
   participant U as UI<br/>:EditPurchaseOrderDraftModal.tsx
-  participant A as RestController<br/>:purchase-order.controller.js
+  participant A as Controller<br/>:purchase-order.controller.js
   participant S as Service<br/>:purchase-order.commands.js
   participant D as MongoDB
   X->>U: Save changes to PO draft
@@ -944,7 +944,7 @@ sequenceDiagram
 sequenceDiagram
   actor X as Accountant
   participant U as UI<br/>:RescheduleExpectedOnModal.tsx
-  participant A as RestController<br/>:purchase-order.controller.js
+  participant A as Controller<br/>:purchase-order.controller.js
   participant S as Service<br/>:purchase-order.commands.js
   participant D as MongoDB
   X->>U: Enter new date and reason
@@ -978,7 +978,7 @@ sequenceDiagram
 sequenceDiagram
   actor X as Accountant
   participant U as UI<br/>:ClosePurchaseOrderRemainderModal.tsx
-  participant A as RestController<br/>:purchase-order.controller.js
+  participant A as Controller<br/>:purchase-order.controller.js
   participant S as Service<br/>:purchase-order.commands.js
   participant T as Service<br/>:purchase-order.service.js
   participant D as MongoDB
@@ -1017,7 +1017,7 @@ sequenceDiagram
 sequenceDiagram
   actor X as Accountant
   participant U as UI<br/>:ReopenPurchaseOrderModal.tsx
-  participant A as RestController<br/>:purchase-order.controller.js
+  participant A as Controller<br/>:purchase-order.controller.js
   participant S as Service<br/>:purchase-order.commands.js
   participant T as Service<br/>:purchase-order.service.js
   participant D as MongoDB
@@ -1057,7 +1057,7 @@ sequenceDiagram
 sequenceDiagram
   actor X as Accountant
   participant U as UI<br/>:CancelPurchaseOrderModal.tsx
-  participant A as RestController<br/>:purchase-order.controller.js
+  participant A as Controller<br/>:purchase-order.controller.js
   participant S as Service<br/>:purchase-order.commands.js
   participant T as Service<br/>:purchase-order.service.js
   participant D as MongoDB
@@ -1221,7 +1221,7 @@ Confirming an inspection checks the document versions and ownership decisions. I
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:InspectionFormPage.tsx
-  participant A as RestController<br/>:goods-inspection.controller.js
+  participant A as Controller<br/>:goods-inspection.controller.js
   participant S as Service<br/>:goods-inspection.service.js
   participant T as Service<br/>:purchase-order.service.js
   participant D as MongoDB
@@ -1303,7 +1303,7 @@ sequenceDiagram
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:InspectionFormPage.tsx
-  participant A as RestController<br/>:goods-inspection.controller.js
+  participant A as Controller<br/>:goods-inspection.controller.js
   participant S as Service<br/>:goods-inspection.service.js
   participant D as MongoDB
   X->>U: Save draft inspection changes
@@ -1337,7 +1337,7 @@ sequenceDiagram
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:InspectionFormPage.tsx
-  participant A as RestController<br/>:goods-inspection.controller.js
+  participant A as Controller<br/>:goods-inspection.controller.js
   participant S as Utility<br/>:purchase-core.js
   participant D as MongoDB
   X->>U: Cancel draft inspection with reason
@@ -1372,7 +1372,7 @@ sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:InspectionFormPage.tsx
   participant U2 as UI<br/>:InspectionCorrectionModals.tsx
-  participant A as RestController<br/>:goods-inspection.controller.js
+  participant A as Controller<br/>:goods-inspection.controller.js
   participant S as Service<br/>:goods-inspection.correction.js
   participant T as Service<br/>:goods-inspection.service.js
   participant D as MongoDB
@@ -1660,7 +1660,7 @@ This endpoint is shown as an API operation. The current purchase receipt UI call
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as API client
-  participant A as RestController<br/>:purchase-receipt.controller.js
+  participant A as Controller<br/>:purchase-receipt.controller.js
   participant S as Service<br/>:purchase-receipt.service.js
   participant D as MongoDB
   X->>U: Prepare new receiving locations and reason
@@ -1694,7 +1694,7 @@ sequenceDiagram
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:PurchaseReceiptReview.tsx
-  participant A as RestController<br/>:purchase-receipt.controller.js
+  participant A as Controller<br/>:purchase-receipt.controller.js
   participant S as Utility<br/>:purchase-core.js
   participant D as MongoDB
   X->>U: Cancel draft receipt with reason
@@ -1728,7 +1728,7 @@ sequenceDiagram
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:PurchaseReceiptReview.tsx
-  participant A as RestController<br/>:purchase-receipt.controller.js
+  participant A as Controller<br/>:purchase-receipt.controller.js
   participant S as Service<br/>:purchase-receipt.service.js
   participant T as Utility<br/>:custody-stock.js
   participant D as MongoDB
@@ -1773,7 +1773,7 @@ sequenceDiagram
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:PurchaseReceiptReverseModal.tsx
-  participant A as RestController<br/>:purchase-receipt.controller.js
+  participant A as Controller<br/>:purchase-receipt.controller.js
   participant S as Service<br/>:stock-reversal.service.js
   participant T as Utility<br/>:custody-stock.js
   participant D as MongoDB
@@ -1833,7 +1833,7 @@ sequenceDiagram
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:CustodyDetailPage.tsx
-  participant A as RestController<br/>:custody.controller.js
+  participant A as Controller<br/>:custody.controller.js
   participant S as Utility<br/>:purchase-core.js
   participant D as MongoDB
   X->>U: Cancel draft custody receipt
@@ -1867,7 +1867,7 @@ sequenceDiagram
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:CustodyDetailPage.tsx
-  participant A as RestController<br/>:custody.controller.js
+  participant A as Controller<br/>:custody.controller.js
   participant S as Service<br/>:custody.service.js
   participant D as MongoDB
   X->>U: Choose custody locations and post
@@ -1902,7 +1902,7 @@ sequenceDiagram
 sequenceDiagram
   actor X as Warehouse Staff
   participant U as UI<br/>:CustodyReverseModal.tsx
-  participant A as RestController<br/>:custody.controller.js
+  participant A as Controller<br/>:custody.controller.js
   participant S as Service<br/>:stock-reversal.service.js
   participant T as Utility<br/>:custody-stock.js
   participant D as MongoDB
