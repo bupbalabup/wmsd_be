@@ -3,8 +3,10 @@
   "main": "src/worker.js",
   "compatibility_date": "2026-07-01",
   "compatibility_flags": ["nodejs_compat"],
+  "keep_vars": true,
   "vars": {
-    "NODE_ENV": "production"
+    "NODE_ENV": "production",
+    "APP_URL": "https://wmsd.tanthuong.workers.dev"
   },
   "durable_objects": {
     "bindings": [{ "name": "BACKEND", "class_name": "Backend" }]
