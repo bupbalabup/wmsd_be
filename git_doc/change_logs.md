@@ -1,3 +1,7 @@
+## 25/11/2026 — Warehouse-first other goods issues
+
+- Add a read-only warehouse availability option to the [Goods Issue contract](docs/08_api/GOODS_ISSUES.md). The frontend checks the selected warehouse before adding or reviewing draft rows. There is no schema or stock-write change.
+
 ## 25/11/2026 — Customer returns without a Sales Order screen
 
 - Restore customer return and linked receipt screens without restoring Sales Order screens or changing return permissions.
