@@ -539,7 +539,7 @@ run('PO exposes hasOpenReceivingWork for draft inspections without changing its 
  assert.equal(await flag(),false);
 });
 run('native transfer dispatch, independent receipt and putaway reconcile all movement legs',async()=>{
- const transfers=await import('../src/modules/transfers/transfer-write.service.js');
+ const transfers=await import('../src/modules/transfers/transfer.service.js');
  const differences=await import('../src/modules/transfers/transfer-differences.js');
  const initialPoint=await m.StockHoldingPoint.findOne({locationId:storageLocation._id});
  const initialBalance=initialPoint&&await m.InventoryBalance.findOne({holdingPointId:initialPoint._id,batchId:batch._id,qualityStatus:'GOOD',ownerType:'STORE'});
@@ -559,7 +559,7 @@ run('native transfer dispatch, independent receipt and putaway reconcile all mov
  const customRole=await m.Role.create({code:'TRANSFER_OPERATOR',name:'Custom transfer operator',permissionIds:worker.roleId.permissionIds.map(p=>p._id),isSystemRole:false});
  const recipient=await m.User.create({username:'receiver',fullName:'Receiver',passwordHash:'unused',roleId:customRole._id,warehouseIds:[destination._id]});
  const actor=await m.User.findById(recipient._id).populate({path:'roleId',populate:{path:'permissionIds'}});
- const reads=await import('../src/modules/transfers/transfer-read.service.js');
+ const reads=await import('../src/modules/transfers/transfer.service.js');
  const selections=await reads.transferOptions(actor,String(destination._id));
  assert.ok(selections.warehouses.some(row=>String(row._id)===String(destination._id)));
  assert.ok(selections.warehouses.some(row=>String(row._id)===String(warehouse._id)));
@@ -579,7 +579,7 @@ run('native transfer dispatch, independent receipt and putaway reconcile all mov
  assert.deepEqual((await reads.listDispatches(actor, eligible)).items.map(row => row._id), [dispatch.id]);
  assert.equal((await reads.listDispatches(worker, eligible)).total, 0);
  assert.equal((await reads.getDispatch(actor, dispatch.id)).receivableLines[0].remainingQtyBase, '8');
- const { listQuery } = await import('../src/modules/transfers/transfer-read.validation.js');
+ const { listQuery } = await import('../src/modules/transfers/transfer.validation.js');
  assert.ok((await reads.listTransfers(actor, listQuery.parse({ status: 'APPROVED,OPEN' }))).items.some(row => row._id === request.id));
  const received=await transfers.receiveTransfer(actor,dispatch.id,{idempotencyKey:key(),expectedVersion:shipped.version,lines:[{dispatchLineId:String(shipped.items[0]._id),locationId:String(inbound._id),qtyBase:'8',qualityCode:'GOOD'}]});
  assert.equal((await reads.listDispatches(actor, eligible)).total, 0);

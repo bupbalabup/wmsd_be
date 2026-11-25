@@ -1,5 +1,7 @@
 # BF03 — Relocate within one warehouse
 
+Các endpoint đi qua Route → Controller → Service → Model. Controller gọi trực tiếp service cho cả thao tác đọc, tạo, sửa, hủy và xác nhận.
+
 Base path: `/api/location-movements`.  All responses retain the project envelope
 `{ success, message, data }`.  This is a native `transfer_orders` document with
 `header.taskKind = RELOCATE`; it does not create a transfer request or require a

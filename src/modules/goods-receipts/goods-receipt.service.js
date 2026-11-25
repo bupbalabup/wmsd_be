@@ -26,7 +26,7 @@ import { escapeRegex } from '../../shared/utils/movement-list.js';
 import { enrichLineItems } from '../../shared/utils/document-items.js';
 import { getDocument } from '../po-receiving/purchase-read.service.js';
 import { purchaseOrderRef } from '../po-receiving/purchase-core.js';
-import { transferDispatchScope } from '../transfers/transfer-read.service.js';
+import { transferDispatchScope } from '../transfers/transfer.service.js';
 
 const definitions = [
   ['purchase', 'PURCHASE', PurchaseReceipt, 'goods_receipt_inspection:read'],

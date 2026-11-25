@@ -1,6 +1,15 @@
 import { Role, Permission, User } from '../../models/runtime.js';
 import { ApiError, duplicateError } from '../../shared/utils/ApiError.js';
 import { appendAudit } from '../../shared/utils/audit.js';
+import { displayRoleName } from '../../shared/utils/roleNames.js';
+import { PERMISSION_CATALOGUE } from '../../seeds/data/permissions.data.js';
+
+// Only catalogue codes are offered or listed: a permission removed from the catalogue (e.g. sales_policy:*,
+// 25/11/2026) may still exist in older databases but grants nothing (see rolePermissions).
+const catalogueCodes = new Set(PERMISSION_CATALOGUE.map((permission) => permission.code));
+// The catalogue's Vietnamese description is shown even when an older database stored an empty or English one
+// ("UOM activate", or only the code such as opening_stock:post) — 25/11/2026.
+const catalogueDescriptions = new Map(PERMISSION_CATALOGUE.map((permission) => [permission.code, permission.description]));
 
 export const listRoles = async () => {
   const roles = await Role.find().populate('permissionIds').lean();
@@ -13,10 +22,10 @@ export const listRoles = async () => {
 
   return roles.map((r) => ({
     id: r._id.toString(),
-    code: r.code, name:r.name, description:r.description, isActive:r.isActive, isSystemRole:r.isSystemRole,
+    code: r.code, name: displayRoleName(r.code, r.name), description:r.description, isActive:r.isActive, isSystemRole:r.isSystemRole,
     roleKey: r.code.toLowerCase(),
     userCount: countMap.get(r._id.toString()) || 0,
-    permissions: (r.permissionIds || []).map((p) => p.code),
+    permissions: (r.permissionIds || []).map((p) => p?.code).filter((code) => catalogueCodes.has(code)),
   }));
 };
 
@@ -39,16 +48,7 @@ export const updateRolePermissions = async (roleCode, permissionCodes = [], acto
 
   const before = (await Permission.find({ _id: { $in: role.permissionIds } }).select('code').lean()).map((p) => p.code).sort();
   role.permissionIds = permissionDocs.map((p) => p._id);
-  if (!role.name) {
-    const defaultNames = {
-      ADMIN: 'Quản trị viên',
-      OWNER: 'Chủ cửa hàng',
-      SALES: 'Nhân viên Bán hàng',
-      WAREHOUSE: 'Thủ kho & Điều phối',
-      ACCOUNTANT: 'Kế toán công nợ',
-    };
-    role.name = defaultNames[role.code] || role.code;
-  }
+  if (!role.name) role.name = displayRoleName(role.code, role.name);
   await role.save();
   // Access changes are audited like account lock/unlock so the Administrator screen shows who changed which rights.
   await appendAudit({ actorId, action: 'UPDATE_ROLE_PERMISSIONS', entityType: 'roles', entityId: role._id, changes: [{ field: 'permissions', before, after: [...new Set(permissionCodes)].sort() }] });
@@ -70,5 +70,7 @@ export async function createRole(input, actorId){
  await appendAudit({actorId,action:'CREATE_ROLE',entityType:'roles',entityId:role._id,changes:[{field:'code',before:null,after:role.code},{field:'permissions',before:null,after:[...codes].sort()}]});
  return {id:String(role._id),code:role.code,name:role.name,permissions:codes};
 }
-export async function listPermissions(){return (await Permission.find({isActive:{$ne:false}}).select('code name description').lean()).map(p=>({id:String(p._id),code:p.code,name:p.name,description:p.description}));}
+// A stored name with no Vietnamese text (empty, the code itself, "UOM activate") is replaced by the catalogue description.
+const permissionName = (p) => (p.name && /[^\x00-\x7F]/.test(p.name) ? p.name : catalogueDescriptions.get(p.code) || p.name || p.code);
+export async function listPermissions(){return (await Permission.find({isActive:{$ne:false}}).select('code name description').lean()).filter(p=>catalogueCodes.has(p.code)).map(p=>({id:String(p._id),code:p.code,name:permissionName(p),description:catalogueDescriptions.get(p.code)||p.description}));}
 

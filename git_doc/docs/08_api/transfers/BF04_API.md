@@ -1,5 +1,7 @@
 # BF04 — Inter-warehouse transfer
 
+Các endpoint đi qua Route → Controller → Service → Model. Module dùng chung `transfer.routes.js`, `transfer.controller.js`, `transfer.service.js` và `transfer.validation.js` cho thao tác đọc và ghi. Controller kiểm tra dữ liệu HTTP, gọi service và trả response theo hợp đồng bên dưới.
+
 Base path: `/api/warehouse-transfers`.  All endpoints use authenticated users,
 the existing `{ success, message, data }` envelope, decimal-string quantities,
 optimistic `expectedVersion`, and a client-retained `idempotencyKey` (48 chars

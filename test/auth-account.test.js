@@ -79,7 +79,7 @@ test('GET /me returns account details with role name, warehouses and version, ne
   const { status, body } = await call('/me');
   assert.equal(status, 200);
   assert.equal(body.data.email, 'a@example.com');
-  assert.equal(body.data.roleName, 'Nhân viên Bán hàng');
+  assert.equal(body.data.roleName, 'Nhân viên bán hàng');
   assert.equal(body.data.version, 3);
   assert.deepEqual(body.data.warehouses, [{ id: warehouseId, code: 'KHO-HN', name: 'Kho Hà Nội', isActive: true }]);
   assert.equal(body.data.passwordHash, undefined);

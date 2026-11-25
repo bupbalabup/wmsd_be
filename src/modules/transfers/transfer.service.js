@@ -1,18 +1,244 @@
-import { nextDocumentFields } from '../../shared/utils/document-number.js';
-import { completeTransferIfReady,completionBlocker,putawayBlocker } from './transfer-completion.js';
-import { WarehouseTransferRequest as Request, TransferDispatch as Dispatch, TransferReceipt as Receipt,
-  InternalTransferRequirement as Requirement, TransferOrder as Task, Warehouse, ApprovalHistory,
-  StockHoldingPoint, InventoryBalance, StockReservation, StockDiscrepancy, DefectReport, User } from '../../models/runtime.js';
+import { databaseId } from '../../models/document-identity.js';
+import { effectiveQuantities } from '../sales-orders/sales-read.service.js';
 import { exact } from '../../models/model-utils.js';
-import { transferStockCheck } from './transfer-stock-check.js';
-import { requirePermission, requireWarehouseAccess, canAccessWarehouse, hasPermission, isOwner } from '../../shared/utils/access.js';
+import { freeQuantities, stockQuantities } from '../../shared/utils/stock-availability-read.js';
+import {
+  stocktakeLockedLocations,
+  sourceContext,
+  locationAt,
+  guardLocations,
+  freeQuantity,
+  beginStock,
+  balanceAt,
+  moveStock,
+  verifyCapacity,
+  remainingReservation,
+} from '../../shared/utils/stock.js';
+import mongoose from 'mongoose';
+import { movementList } from '../../shared/utils/movement-list.js';
+import {
+  optionFields,
+  movementDetailFields,
+  requirementFields,
+  executionFields,
+  differenceFields,
+  approvalFields,
+} from '../../shared/utils/movement-read-fields.js';
+import {
+  WarehouseTransferRequest,
+  TransferDispatch,
+  TransferReceipt,
+  InternalTransferRequirement,
+  TransferOrder,
+  ApprovalHistory,
+  SalesOrder,
+  WarehouseIssueRequest,
+  SupplyAllocation,
+  Warehouse,
+  WarehouseLocation,
+  StockHoldingPoint,
+  InventoryBalance,
+  ProductBatch,
+  Product,
+  Uom,
+  Conversion,
+  StockDiscrepancy,
+  User,
+  StockReservation,
+  DefectReport,
+} from '../../models/runtime.js';
+import { requirePermission, requireWarehouseAccess, isOwner, hasPermission, canAccessWarehouse } from '../../shared/utils/access.js';
 import { currentRole } from '../../shared/utils/userRole.js';
-import { validationError, forbiddenError, notFoundError } from '../../shared/utils/ApiError.js';
+import { dto } from '../../shared/utils/persistence.js';
+import { notFoundError, validationError, forbiddenError } from '../../shared/utils/ApiError.js';
+import { transferStockCheck } from './transfer-stock-check.js';
+import { nextDocumentFields } from '../../shared/utils/document-number.js';
+import { completeTransferIfReady, completionBlocker, putawayBlocker } from './transfer-completion.js';
 import { command, checkVersion, saveVersion, newId, same, hash } from '../../shared/utils/document-command.js';
 import { makeItem } from '../../shared/utils/document-items.js';
 import { copyItem, sourceLink } from '../../shared/utils/document-copy.js';
-import { sourceContext, locationAt, guardLocations, stocktakeLockedLocations, freeQuantity, beginStock, balanceAt, moveStock, verifyCapacity, remainingReservation } from '../../shared/utils/stock.js';
-import { stockQuantities } from '../../shared/utils/stock-availability-read.js';
+
+export { proposeDifference, reviewDifference } from './transfer-differences.js';
+
+async function transferWarehouseDisplay(documents) {
+  if(!documents.length)return [];
+  const warehouses=await Warehouse.find({_id:{$in:documents.flatMap(d=>[d.header.sourceWarehouseId,d.header.destinationWarehouseId])}}).select('_id code name').lean();
+  const byId=new Map(warehouses.map(w=>[String(w._id),w]));
+  const ref=id=>{const w=byId.get(String(id));return w?{id:String(w._id),code:w.code,name:w.name}:null;};
+  return documents.map(d=>({...d,sourceWarehouse:ref(d.header.sourceWarehouseId),destinationWarehouse:ref(d.header.destinationWarehouseId)}));
+}
+async function scope(user) {
+  const role=currentRole(user)?.code;
+  if(isOwner(user)||role==='ACCOUNTANT')return {};
+  if(role==='SALES'){
+    const orders=await SalesOrder.find({createdBy:user._id}).distinct('_id');
+    const requests=await WarehouseIssueRequest.find({'header.salesOrderId':{$in:orders}}).distinct('_id');
+    const ids=await SupplyAllocation.find({'demandRef.documentId':{$in:[...orders,...requests]},'sourceRef.documentType':'warehouse_transfer_requests'}).distinct('sourceRef.documentId');
+    return {_id:{$in:ids}};
+  }
+  return {$or:[{'header.sourceWarehouseId':{$in:user.warehouseIds||[]}},{'header.destinationWarehouseId':{$in:user.warehouseIds||[]}}]};
+}
+export async function listTransfers(user,query){
+  requirePermission(user,'stock_transfer:read');
+  const castQuery = { ...query };
+  for (const field of ['sourceWarehouseId', 'destinationWarehouseId']) if (query[field]) castQuery[field] = databaseId(query[field]);
+  const result = await movementList(WarehouseTransferRequest, await scope(user), castQuery, ['header.sourceWarehouseId', 'header.destinationWarehouseId'], 'COMPLETED');
+  return { ...result, items: await transferWarehouseDisplay(result.items) };
+}
+const dispatchWarehouseFields = ['header.sourceWarehouseId', 'header.destinationWarehouseId'];
+
+export async function transferDispatchScope(user) {
+  const requestScope = await scope(user);
+  const requestIds = await WarehouseTransferRequest.find(requestScope).distinct('_id');
+  return { 'header.requestId': { $in: requestIds } };
+}
+
+export async function listDispatches(user, query) {
+  requirePermission(user, 'stock_transfer:read');
+  const receivable = query.receivable === 'true';
+  const sales = currentRole(user)?.code === 'SALES';
+  if (receivable) requirePermission(user, 'stock_transfer:receive');
+  const filter = await transferDispatchScope(user);
+  if (receivable) {
+    const requestIds = await WarehouseTransferRequest.find({
+      _id: filter['header.requestId'],
+      workflowStatus: 'APPROVED',
+      ...(!isOwner(user) && { 'header.destinationWarehouseId': { $in: user.warehouseIds ?? [] } }),
+    }).distinct('_id');
+    const dispatchFilter = { 'header.requestId': { $in: requestIds }, workflowStatus: 'POSTED', 'header.dispatchedBy': { $ne: user._id } };
+    const lineIds = await TransferDispatch.find(dispatchFilter).distinct('items._id');
+    const points = await StockHoldingPoint.find({ dispatchLineId: { $in: lineIds }, type: 'IN_TRANSIT' }).select('dispatchLineId').lean();
+    const balances = await InventoryBalance.find({ holdingPointId: { $in: points.map(point => point._id) },
+      ownerType: 'STORE', qualityStatus: 'GOOD', quantityBase: { $gt: 0 } }).distinct('holdingPointId');
+    const remainingPoints = new Set(balances.map(String));
+    const remainingLines = points.filter(point => remainingPoints.has(String(point._id))).map(point => point.dispatchLineId);
+    Object.assign(filter, dispatchFilter, { 'items._id': { $in: remainingLines } });
+  }
+  const castQuery = { ...query };
+  for (const key of ['sourceWarehouseId', 'destinationWarehouseId']) if (query[key]) castQuery[key] = databaseId(query[key]);
+  const result = await movementList(TransferDispatch, filter, castQuery, dispatchWarehouseFields, 'POSTED');
+  return { ...result, items: sales ? result.items.map(row => ({
+    _id: row._id, documentNo: row.documentNo, workflowStatus: row.workflowStatus,
+  })) : await transferWarehouseDisplay(result.items) };
+}
+
+export async function getDispatch(user, id) {
+  requirePermission(user, 'stock_transfer:read');
+  if(currentRole(user)?.code === 'SALES')throw notFoundError();
+  const dispatch = await TransferDispatch.findOne({_id:id}).select(movementDetailFields).lean();
+  if(!dispatch)throw notFoundError();
+  const request=await WarehouseTransferRequest.findOne({$and:[await scope(user),{_id:dispatch.header.requestId}]}).select('header.sourceWarehouseId header.destinationWarehouseId workflowStatus').lean();
+  if(!request)throw notFoundError();
+  const [transfer]=await transferWarehouseDisplay([dto(request)]);
+  const canReceive = hasPermission(user, 'stock_transfer:receive') && dispatch.workflowStatus === 'POSTED'
+    && transfer.workflowStatus === 'APPROVED' && String(dispatch.header.dispatchedBy) !== String(user._id)
+    && (isOwner(user) || (user.warehouseIds ?? []).some(id => String(id) === String(transfer.header.destinationWarehouseId)));
+  const value = dto(dispatch);
+  let receivableLines=[];
+  if(canReceive){
+    const points=await StockHoldingPoint.find({dispatchLineId:{$in:dispatch.items.map(item=>item._id)}}).select('_id dispatchLineId').lean();
+    const balances=points.length?await InventoryBalance.find({holdingPointId:{$in:points.map(point=>point._id)}}).select('holdingPointId quantityBase').lean():[];
+    receivableLines=transitProgress([dispatch],points,balances)[0].lines;
+  }
+  return { ...value, header: { ...value.header, destinationWarehouseId: transfer.header.destinationWarehouseId },
+    sourceWarehouse: transfer.sourceWarehouse, destinationWarehouse: transfer.destinationWarehouse,
+    receivableLines };
+}
+
+function transitProgress(dispatches,points,balances){
+  const pointsByLine=new Map(points.map(point=>[String(point.dispatchLineId),String(point._id)])),quantityByPoint=new Map();
+  for(const balance of balances){const key=String(balance.holdingPointId);quantityByPoint.set(key,(quantityByPoint.get(key)??exact('0')).plus(String(balance.quantityBase)));}
+  return dispatches.map(dispatch=>({dispatchId:String(dispatch._id),lines:dispatch.items.map(item=>{
+    const remaining=quantityByPoint.get(pointsByLine.get(String(item._id)))??exact('0');
+    return {lineId:String(item._id),piecesPerCarton:item.packagingSnapshot?.baseUnitsPerPackage,dispatchedQtyBase:String(item.qtyBase),remainingQtyBase:remaining.toFixed(),receivedQtyBase:dispatch.workflowStatus==='POSTED'?exact(item.qtyBase).minus(remaining).toFixed():'0'};
+  })}));
+}
+
+export async function getTransfer(user,id){
+  requirePermission(user,'stock_transfer:read');
+  const sales = currentRole(user)?.code === 'SALES';
+  const request=await WarehouseTransferRequest.findOne({$and:[await scope(user),{_id:id}]}).select(movementDetailFields + (sales ? '' : ' items.sourceLocations')).lean();if(!request)throw notFoundError();
+  const [[display],dispatches]=await Promise.all([transferWarehouseDisplay([dto(request)]),TransferDispatch.find({'header.requestId':id}).select(movementDetailFields).lean()]);
+  const receipts=await TransferReceipt.find({'header.dispatchId':{$in:dispatches.map(row=>row._id)}}).select(movementDetailFields).lean();
+  if(sales)return {...display,dispatches:dispatches.map(row=>({id:String(row._id),workflowStatus:row.workflowStatus})),receipts:receipts.map(row=>({id:String(row._id),workflowStatus:row.workflowStatus}))};
+  const [requirements,approvals,differences,points,effective]=await Promise.all([
+    InternalTransferRequirement.find({'header.sourceDocumentId':{$in:[...dispatches,...receipts].map(row=>row._id)}}).select(requirementFields).lean(),
+    ApprovalHistory.find({subjectType:'warehouse_transfer_requests',subjectId:id}).select(approvalFields).lean(),
+    StockDiscrepancy.find({'header.sourceRef.documentId':{$in:dispatches.map(d=>d._id)}}).select(differenceFields).lean(),
+    StockHoldingPoint.find({dispatchLineId:{$in:dispatches.flatMap(d=>d.items.map(i=>i._id))}}).select('_id dispatchLineId').lean(),
+    effectiveQuantities(receipts.filter(r=>r.workflowStatus==='POSTED')),
+  ]);
+  const [tasks,transitBalances]=await Promise.all([
+    TransferOrder.find({'header.requirementId':{$in:requirements.map(row=>row._id)}}).select(executionFields).lean(),
+    InventoryBalance.find({holdingPointId:{$in:points.map(p=>p._id)}}).select('holdingPointId quantityBase').lean(),
+  ]);
+  const progress=transitProgress(dispatches,points,transitBalances);
+  const lineProgress=request.items.map(item=>{const sent=dispatches.filter(d=>d.workflowStatus==='POSTED').flatMap(d=>d.items).filter(i=>String(i.details.requestLineId)===String(item._id));const sentIds=sent.map(i=>String(i._id));const received=receipts.filter(r=>r.workflowStatus==='POSTED').flatMap(r=>r.items).filter(i=>sentIds.includes(String(i.details.dispatchLineId)));const sum=rows=>rows.reduce((n,i)=>n.plus(effective.get(String(i._id))??String(i.qtyBase)),exact('0')).toFixed();return {lineId:String(item._id),dispatchedQtyBase:sent.reduce((n,i)=>n.plus(String(i.qtyBase)),exact('0')).toFixed(),receivedGoodQtyBase:sum(received.filter(i=>i.details.qualityCode==='GOOD')),receivedDamagedQtyBase:sum(received.filter(i=>i.details.qualityCode==='DAMAGED')),transitQtyBase:progress.flatMap(p=>p.lines).filter(l=>sentIds.includes(l.lineId)).reduce((n,l)=>n.plus(l.remainingQtyBase),exact('0')).toFixed(),unresolvedQtyBase:differences.filter(d=>d.workflowStatus==='OPEN').flatMap(d=>d.items).filter(i=>sentIds.includes(String(i.details.sourceLineId))).reduce((n,i)=>n.plus(String(i.qtyBase)),exact('0')).toFixed(),writtenOffQtyBase:differences.filter(d=>d.workflowStatus==='RESOLVED'&&d.header?.resolutionMode==='WRITE_OFF').flatMap(d=>d.items).filter(i=>sentIds.includes(String(i.details.sourceLineId))).reduce((n,i)=>n.plus(String(i.qtyBase)),exact('0')).toFixed()};});
+  const stockCheck=['PENDING_APPROVAL','APPROVED','REVISION_REQUIRED'].includes(request.workflowStatus)?await transferStockCheck(request):undefined;
+  return {...display,stockCheck,lineProgress,differences:differences.map(dto),progress,dispatches:dispatches.map(dto),receipts:receipts.map(dto),internalRequirements:requirements.map(dto),tasks:tasks.map(dto),approvals:approvals.map(dto)};
+}
+
+export async function getPutawayTask(user,id) {
+  requirePermission(user,'stock_transfer:read');requirePermission(user,'stock_transfer:receive');
+  const task=await TransferOrder.findById(id).select('_id documentNo workflowStatus version header.warehouseId header.taskKind header.requirementId items.details.toLocationId items.sources.documentId items.sources.itemId').lean();
+  if(!task||task.header.taskKind!=='PUTAWAY'||!task.header.requirementId)throw notFoundError();
+  requireWarehouseAccess(user,task.header.warehouseId);
+  const requirement=await InternalTransferRequirement.findById(task.header.requirementId).select('_id header.sourceDocumentId header.taskKind header.warehouseId').lean();
+  const receipt=requirement&&await TransferReceipt.findById(requirement.header.sourceDocumentId).select('_id documentNo header.dispatchId header.warehouseId items._id items.productNameSnapshot items.lotId items.lotLabelSnapshot items.qtyBase items.baseUnitSnapshot items.details.qualityCode items.details.receivingLocationId').lean();
+  const dispatch=receipt&&await TransferDispatch.findById(receipt.header.dispatchId).select('header.requestId').lean();
+  const request=dispatch&&await WarehouseTransferRequest.findById(dispatch.header.requestId).select('workflowStatus header.destinationWarehouseId').lean();
+  if(!receipt||!request||String(request.header.destinationWarehouseId)!==String(task.header.warehouseId)||String(receipt.header.warehouseId)!==String(task.header.warehouseId)||String(requirement.header.warehouseId)!==String(task.header.warehouseId))throw notFoundError();
+  const locationIds=[...task.items.map(item=>item.details?.toLocationId),...receipt.items.map(item=>item.details?.receivingLocationId)].filter(Boolean);
+  const missingLots=receipt.items.filter(item=>!item.lotLabelSnapshot&&item.lotId).map(item=>item.lotId);
+  const [locations,warehouse,batches]=await Promise.all([
+    locationIds.length?WarehouseLocation.find({_id:{$in:locationIds},warehouseId:task.header.warehouseId}).select('_id code name').lean():[],
+    Warehouse.findById(task.header.warehouseId).select('code name').lean(),
+    missingLots.length?ProductBatch.find({_id:{$in:missingLots}}).select('_id manufacturerLot').lean():[],
+  ]);
+  return {id:String(task._id),documentNo:task.documentNo,status:task.workflowStatus,version:task.version,warehouseId:String(task.header.warehouseId),warehouseLabel:warehouse?.name||warehouse?.code||null,requestId:String(request._id),requestStatus:request.workflowStatus,receiptId:String(receipt._id),receiptNo:receipt.documentNo,
+    lines:receipt.items.filter(item=>item.details.qualityCode!=='DAMAGED').map(item=>{
+      const planned=task.items.find(row=>row.sources?.some(link=>String(link.documentId)===String(receipt._id)&&String(link.itemId)===String(item._id)));
+      const target=locations.find(row=>String(row._id)===String(planned?.details.toLocationId));
+      const source=locations.find(row=>String(row._id)===String(item.details.receivingLocationId));
+      const batch=batches.find(row=>String(row._id)===String(item.lotId));
+      return {receiptLineId:String(item._id),productName:item.productNameSnapshot,lotLabel:item.lotLabelSnapshot||batch?.manufacturerLot||null,fromLocationLabel:source?.name||source?.code||null,qtyBase:String(item.qtyBase),baseUnit:item.baseUnitSnapshot,toLocationId:planned?.details.toLocationId?String(planned.details.toLocationId):null,toLocationLabel:target?.name||target?.code||null};
+    })};
+}
+
+// This is a selection aid only. Every BF04 write command rechecks the active
+// warehouse, lot, balance, quality and source quantities inside its transaction.
+// Active warehouse staff of one warehouse who may pick and hand over transfer goods.
+export async function pickAssignees(user,warehouseId){
+  requirePermission(user,'stock_transfer:dispatch');
+  requireWarehouseAccess(user,warehouseId);
+  const users=await User.find({isActive:true,warehouseIds:warehouseId}).select('_id fullName roleId').populate({path:'roleId',populate:{path:'permissionIds'}}).lean(false);
+  return users.filter(row=>hasPermission(row,'stock_transfer:dispatch')&&currentRole(row)?.code==='WAREHOUSE').map(row=>({id:String(row._id),fullName:row.fullName}));
+}
+export async function transferOptions(user, warehouseId, mode='stock') {
+  requirePermission(user,'stock_transfer:read');
+  const warehouses=await Warehouse.find({isActive:true}).select('_id code name isActive').lean();
+  // Destination catalogue is store-wide; operational data stays warehouse-scoped.
+  if(currentRole(user)?.code==='SALES')return {warehouses:warehouses.map(dto),sourceWarehouseIds:[],locations:[],holdingPoints:[],balances:[],batches:[],products:[]};
+  const sourceWarehouseIds=warehouses.filter(row=>isOwner(user)||(user.warehouseIds||[]).some(id=>String(id)===String(row._id))).map(row=>String(row._id));
+  if(!warehouseId)return {warehouses:warehouses.map(dto),sourceWarehouseIds,locations:[],holdingPoints:[],balances:[],batches:[],products:[]};
+  // Staff who may raise requests can look at any warehouse's stock so a destination can ask for goods it does not hold.
+  if(!hasPermission(user,'stock_transfer:create'))requireWarehouseAccess(user,warehouseId);
+  const locations=await WarehouseLocation.find({warehouseId,isActive:true}).select(optionFields.location).lean();
+  if(mode==='locations'){const frozen=await stocktakeLockedLocations(locations.map(row=>row._id));return {warehouses:warehouses.map(dto),sourceWarehouseIds,locations:locations.map(row=>({...dto(row),lockedByStocktake:frozen.has(String(row._id))})),holdingPoints:[],balances:[],batches:[],products:[],units:[],conversions:[]};}
+  const holdingPoints=await StockHoldingPoint.find({locationId:{$in:locations.map(row=>row._id)}}).select(optionFields.point).lean();
+  const balances=(await InventoryBalance.find({holdingPointId:{$in:holdingPoints.map(row=>row._id)},quantityBase:{$gt:0}}).select(optionFields.balance).lean());
+  const [batches,products,units,available]=await Promise.all([
+    ProductBatch.find({_id:{$in:balances.map(row=>row.batchId)},identificationStatus:'VERIFIED'}).select(optionFields.batch).lean(),
+    Product.find({isActive:true}).select(optionFields.product + ' wholeBaseUnits').lean(),Uom.find({isActive:true}).select('code name isCarton areaMm2').lean(),freeQuantities(balances),
+  ]);
+  const conversions=await Conversion.find({productId:{$in:products.map(row=>row._id)},validFrom:{$lte:new Date()}}).select(optionFields.conversion).sort({validFrom:-1}).lean();
+  const seenConversions=new Set();
+  const currentConversions=conversions.filter(row=>{const key=JSON.stringify([String(row.productId),String(row.productBatchId||''),String(row.uomId)]);if(seenConversions.has(key))return false;seenConversions.add(key);return true;});
+  const unitById=new Map(units.map(unit=>[String(unit._id),dto(unit)]));
+  // Stocktake-locked locations (any role) stay listed but flagged, with nothing selectable.
+  const frozen=await stocktakeLockedLocations(locations.map(row=>row._id)),frozenPoints=new Set(holdingPoints.filter(row=>frozen.has(String(row.locationId))).map(row=>String(row._id)));
+  return {warehouses:warehouses.map(dto),sourceWarehouseIds,locations:locations.map(row=>({...dto(row),lockedByStocktake:frozen.has(String(row._id))})),holdingPoints:holdingPoints.map(dto),balances:balances.map(b=>{const lockedByStocktake=frozenPoints.has(String(b.holdingPointId));return {...dto(b),lockedByStocktake,availableQtyBase:lockedByStocktake?'0':available.get(String(b._id)).toFixed()};}),batches:batches.map(dto),products:products.map(dto),units:units.map(dto),conversions:currentConversions.map(row=>({...dto(row),basePerUnit:exact(row.basePerUnit).toFixed(),uom:unitById.get(String(row.uomId))||null}))};
+}
 
 // A request may be raised by staff of either warehouse: the source (push) or the destination (asking for goods).
 function requireRequestWarehouse(actor,sourceWarehouseId,destinationWarehouseId){
@@ -26,20 +252,20 @@ function addLot(map,lineId,lotId){
 }
 async function find(Model,id,session) { const row=await Model.findById(id).session(session); if(!row)throw notFoundError(); return row; }
 async function requestReplay(id,user,session) {
-  const request=await find(Request,id,session);
+  const request=await find(WarehouseTransferRequest,id,session);
   if(!canAccessWarehouse(user,request.header.sourceWarehouseId)&&!canAccessWarehouse(user,request.header.destinationWarehouseId))throw forbiddenError();
   return request;
 }
 async function dispatchReplay(id,user,session) {
-  const dispatch=await find(Dispatch,id,session),request=await find(Request,dispatch.header.requestId,session);
+  const dispatch=await find(TransferDispatch,id,session),request=await find(WarehouseTransferRequest,dispatch.header.requestId,session);
   requireWarehouseAccess(user,request.header.sourceWarehouseId);return dispatch;
 }
 async function receiptReplay(id,user,session) {
-  const receipt=await find(Receipt,id,session);
+  const receipt=await find(TransferReceipt,id,session);
   requireWarehouseAccess(user,receipt.header.warehouseId);return receipt;
 }
 async function taskReplay(id,user,session) {
-  const task=await find(Task,id,session);
+  const task=await find(TransferOrder,id,session);
   requireWarehouseAccess(user,task.header.warehouseId);
   requirePermission(user,task.header.taskKind==='PICK'?'stock_transfer:dispatch':'stock_transfer:receive');
   return task;
@@ -47,10 +273,10 @@ async function taskReplay(id,user,session) {
 const document=async(Model,prefix,user,header,session,items=[],status='OPEN')=>new Model({...await nextDocumentFields(Model,prefix,header.warehouseId||header.sourceWarehouseId,session),workflowStatus:status,version:1,createdBy:user._id,header,items});
 async function automaticPutaway(receipt,actor,session) {
   if(!receipt.items.some(item=>item.details.qualityCode!=='DAMAGED'))return null;
-  const existing=await Requirement.findOne({'header.sourceDocumentId':receipt._id}).session(session);
-  if(existing)return {requirement:existing,task:await Task.findOne({'header.requirementId':existing._id}).session(session)};
-  const requirement=await document(Requirement,'ITR',actor,{warehouseId:receipt.header.warehouseId,sourceDocumentId:receipt._id,sourceType:receipt.constructor.collection.name,taskKind:'PUTAWAY'},session);
-  const task=await document(Task,'TO',actor,{warehouseId:receipt.header.warehouseId,taskKind:'PUTAWAY',assignedTo:actor._id,requirementId:requirement._id},session);
+  const existing=await InternalTransferRequirement.findOne({'header.sourceDocumentId':receipt._id}).session(session);
+  if(existing)return {requirement:existing,task:await TransferOrder.findOne({'header.requirementId':existing._id}).session(session)};
+  const requirement=await document(InternalTransferRequirement,'ITR',actor,{warehouseId:receipt.header.warehouseId,sourceDocumentId:receipt._id,sourceType:receipt.constructor.collection.name,taskKind:'PUTAWAY'},session);
+  const task=await document(TransferOrder,'TO',actor,{warehouseId:receipt.header.warehouseId,taskKind:'PUTAWAY',assignedTo:actor._id,requirementId:requirement._id},session);
   // No physical target is invented: task lines are planned when the receiver selects destinations.
   requirement.sources=[sourceLink(receipt)];task.sources=[sourceLink(requirement)];
   await requirement.save({session});await task.save({session});return {requirement,task};
@@ -122,7 +348,7 @@ export function createRequest(user,input) {
     requireRequestWarehouse(actor,input.sourceWarehouseId,input.destinationWarehouseId);
     if(same(input.sourceWarehouseId,input.destinationWarehouseId)||await Warehouse.countDocuments({_id:{$in:[input.sourceWarehouseId,input.destinationWarehouseId]},isActive:true}).session(session)!==2)throw validationError('Chọn hai kho hoạt động khác nhau');
     const items=[];for(const [i,row]of input.lines.entries())items.push(await makeRequestItem(row,i+1,input.sourceWarehouseId,session));
-    const request=await document(Request,'TR',actor,{sourceWarehouseId:input.sourceWarehouseId,destinationWarehouseId:input.destinationWarehouseId,neededOn:input.neededOn,reason:input.reason,requestedBy:actor._id,requestedAt:new Date()},session,items,'PENDING_APPROVAL');
+    const request=await document(WarehouseTransferRequest,'TR',actor,{sourceWarehouseId:input.sourceWarehouseId,destinationWarehouseId:input.destinationWarehouseId,neededOn:input.neededOn,reason:input.reason,requestedBy:actor._id,requestedAt:new Date()},session,items,'PENDING_APPROVAL');
     await request.save({session});return{document:request};
   });
 }
@@ -170,9 +396,9 @@ export function reviewRequest(user,id,input) {
 }
 export function createDispatch(user,id,input) {
   return command(user,'CREATE_TRANSFER_DISPATCH','stock_transfer:dispatch',id,input,dispatchReplay,async(session,actor)=>{
-    const request=await find(Request,id,session);requireWarehouseAccess(actor,request.header.sourceWarehouseId);checkVersion(request,input.expectedVersion);
+    const request=await find(WarehouseTransferRequest,id,session);requireWarehouseAccess(actor,request.header.sourceWarehouseId);checkVersion(request,input.expectedVersion);
     if(request.workflowStatus!=='APPROVED')throw validationError('Yêu cầu chưa được duyệt hoặc đã đóng');
-    const existing=await Dispatch.find({'header.requestId':id,workflowStatus:{$ne:'CANCELLED'}}).session(session);
+    const existing=await TransferDispatch.find({'header.requestId':id,workflowStatus:{$ne:'CANCELLED'}}).session(session);
     const totals = new Map(), sourceTotals = new Map();
     const addTotal = (map, key, qtyBase) => {
       const total = (map.get(key) ?? exact('0')).plus(String(qtyBase));
@@ -184,7 +410,7 @@ export function createDispatch(user,id,input) {
       addTotal(totals, String(item.details.requestLineId), item.qtyBase);
       addTotal(sourceTotals, sourceKey(item.details.requestLineId, item.details.sourceBalanceId), item.qtyBase);
     }
-    const outbound=await document(Dispatch,'TD',actor,{requestId:request._id,dispatchedBy:actor._id,dispatchedAt:new Date(),approvedRevision:request.header.approvedRevision,sourceWarehouseId:request.header.sourceWarehouseId,destinationWarehouseId:request.header.destinationWarehouseId},session,[],'DRAFT');
+    const outbound=await document(TransferDispatch,'TD',actor,{requestId:request._id,dispatchedBy:actor._id,dispatchedAt:new Date(),approvedRevision:request.header.approvedRevision,sourceWarehouseId:request.header.sourceWarehouseId,destinationWarehouseId:request.header.destinationWarehouseId},session,[],'DRAFT');
     for(const [i,row]of input.lines.entries()){
       const origin=request.items.id(row.requestLineId);if(!origin)throw validationError('Dòng không thuộc TR');
       const ctx=await sourceContext(row.sourceBalanceId,session);
@@ -231,15 +457,15 @@ export function createDispatch(user,id,input) {
 }
 export function createRequirement(user,id,input) {
   return command(user,'CREATE_TRANSFER_REQUIREMENT','stock_transfer:read',id,input,taskReplay,async(session,actor)=>{
-    let source=await Dispatch.findById(id).session(session),picking=Boolean(source);
-    if(!source)source=await find(Receipt,id,session);
-    const outbound=picking?source:await find(Dispatch,source.header.dispatchId,session);
-    const request=await find(Request,outbound.header.requestId,session);
+    let source=await TransferDispatch.findById(id).session(session),picking=Boolean(source);
+    if(!source)source=await find(TransferReceipt,id,session);
+    const outbound=picking?source:await find(TransferDispatch,source.header.dispatchId,session);
+    const request=await find(WarehouseTransferRequest,outbound.header.requestId,session);
     requirePermission(actor,picking?'stock_transfer:dispatch':'stock_transfer:receive');
     const warehouseId=picking?request.header.sourceWarehouseId:request.header.destinationWarehouseId;requireWarehouseAccess(actor,warehouseId);
     if(!picking&&!input.destinations){
-      const existing=await Requirement.findOne({'header.sourceDocumentId':source._id}).session(session);
-      if(existing){const task=await Task.findOne({'header.requirementId':existing._id}).session(session);if(!task)throw validationError('Yêu cầu nội bộ thiếu TO');return {document:task,versionBefore:task.version};}
+      const existing=await InternalTransferRequirement.findOne({'header.sourceDocumentId':source._id}).session(session);
+      if(existing){const task=await TransferOrder.findOne({'header.requirementId':existing._id}).session(session);if(!task)throw validationError('Yêu cầu nội bộ thiếu TO');return {document:task,versionBefore:task.version};}
       checkVersion(source,input.expectedVersion);
       if(source.workflowStatus!=='POSTED'||request.workflowStatus!=='APPROVED')throw validationError('Nguồn chưa đủ điều kiện');
       await saveVersion(request,request.version,session);await saveVersion(source,source.version,session);
@@ -252,8 +478,8 @@ export function createRequirement(user,id,input) {
     // Lock the source document before checking the one-to-one relationship. A
     // concurrent creator will retry against the new version and see the ITR.
     await saveVersion(source,source.version,session);
-    if(await Requirement.exists({'header.sourceDocumentId':id}).session(session))throw validationError('Nguồn đã có yêu cầu nội bộ');
-    const requirement=await document(Requirement,'ITR',actor,{warehouseId,sourceDocumentId:source._id,sourceType:source.constructor.collection.name,taskKind:picking?'PICK':'PUTAWAY'},session);
+    if(await InternalTransferRequirement.exists({'header.sourceDocumentId':id}).session(session))throw validationError('Nguồn đã có yêu cầu nội bộ');
+    const requirement=await document(InternalTransferRequirement,'ITR',actor,{warehouseId,sourceDocumentId:source._id,sourceType:source.constructor.collection.name,taskKind:picking?'PICK':'PUTAWAY'},session);
     let assignee=actor;
     if(input.assigneeId&&!picking)throw validationError('Chỉ chọn người thực hiện cho TO lấy hàng');
     if(picking&&input.assigneeId&&!same(input.assigneeId,actor._id)){
@@ -265,7 +491,7 @@ export function createRequirement(user,id,input) {
         .filter(row=>currentRole(row)?.code==='WAREHOUSE'&&hasPermission(row,'stock_transfer:dispatch'));
       if(staff.length===1)assignee=staff[0];
     }
-    const task=await document(Task,'TO',actor,{warehouseId,taskKind:picking?'PICK':'PUTAWAY',assignedTo:assignee._id,requirementId:requirement._id},session);
+    const task=await document(TransferOrder,'TO',actor,{warehouseId,taskKind:picking?'PICK':'PUTAWAY',assignedTo:assignee._id,requirementId:requirement._id},session);
     const rows=source.items.filter(item=>picking||item.details.qualityCode!=='DAMAGED');
     const destinations=input.destinations??[];
     if(!picking&&(destinations.length!==rows.length||new Set(destinations.map(row=>row.receiptLineId)).size!==rows.length))throw validationError('Chọn đích cho tất cả dòng hàng tốt');
@@ -294,11 +520,11 @@ export function confirmTask(user,id,input) {
   return command(user,'CONFIRM_TRANSFER_TASK','stock_transfer:read',id,input,taskReplay,async(session,actor)=>{
     const task=await taskReplay(id,actor,session);checkVersion(task,input.expectedVersion);
     if(task.workflowStatus!=='OPEN'||!task.header.requirementId)throw validationError('Lệnh không còn mở hoặc không thuộc BF04');
-    const requirement=await find(Requirement,task.header.requirementId,session),picking=task.header.taskKind==='PICK';
+    const requirement=await find(InternalTransferRequirement,task.header.requirementId,session),picking=task.header.taskKind==='PICK';
     if(picking&&input.destinations)throw validationError('Đích cất hàng chỉ dùng cho TO PUTAWAY');
     requirePermission(actor,picking?'stock_transfer:dispatch':'stock_transfer:receive');
-    const source=await find(picking?Dispatch:Receipt,requirement.header.sourceDocumentId,session);
-    const outbound=picking?source:await find(Dispatch,source.header.dispatchId,session),request=await find(Request,outbound.header.requestId,session);
+    const source=await find(picking?TransferDispatch:TransferReceipt,requirement.header.sourceDocumentId,session);
+    const outbound=picking?source:await find(TransferDispatch,source.header.dispatchId,session),request=await find(WarehouseTransferRequest,outbound.header.requestId,session);
     if(request.workflowStatus!=='APPROVED'||source.workflowStatus!==(picking?'DRAFT':'POSTED')||requirement.workflowStatus!=='OPEN')throw validationError('Nguồn không còn hiệu lực');
     if(picking&&!same(outbound.createdBy,actor._id)&&!same(task.header.assignedTo,actor._id))throw forbiddenError('Chỉ người lập phiếu xuất hoặc người được giao lấy hàng được xác nhận');
     if(!picking&&(input.pickedLines||input.shortReason))throw validationError('Lấy thiếu chỉ dùng cho TO lấy hàng');
@@ -352,11 +578,11 @@ export function confirmTask(user,id,input) {
       }
     }
     await verifyCapacity(locations,session);await posting.save({session});
-    if(picking){outbound.handovers ??= [];outbound.handovers.push({...await nextDocumentFields(Dispatch,'HO',outbound.header.sourceWarehouseId,session),workflowStatus:'CONFIRMED',version:1,createdBy:actor._id,header:{relatedDocumentId:outbound._id,recipientName:input.recipientName,vehiclePlate:input.vehiclePlate,driverName:input.driverName,driverPhone:input.driverPhone,note:input.note,handedOverAt:new Date(),confirmedBy:actor._id},items:outbound.items.map((i,index)=>copyItem(i,i.qtyBase,{lineNo:index+1,sources:[sourceLink(outbound,i,i.qtyBase)]}))});outbound.workflowStatus='POSTED';outbound.header.dispatchedBy=actor._id;outbound.header.dispatchedAt=new Date();outbound.stockTransactionId=posting._id;await saveVersion(outbound,outbound.version,session);
-      let draftReceipt = await Receipt.findOne({ 'header.dispatchId': outbound._id, workflowStatus: 'DRAFT' }).session(session);
+    if(picking){outbound.handovers ??= [];outbound.handovers.push({...await nextDocumentFields(TransferDispatch,'HO',outbound.header.sourceWarehouseId,session),workflowStatus:'CONFIRMED',version:1,createdBy:actor._id,header:{relatedDocumentId:outbound._id,recipientName:input.recipientName,vehiclePlate:input.vehiclePlate,driverName:input.driverName,driverPhone:input.driverPhone,note:input.note,handedOverAt:new Date(),confirmedBy:actor._id},items:outbound.items.map((i,index)=>copyItem(i,i.qtyBase,{lineNo:index+1,sources:[sourceLink(outbound,i,i.qtyBase)]}))});outbound.workflowStatus='POSTED';outbound.header.dispatchedBy=actor._id;outbound.header.dispatchedAt=new Date();outbound.stockTransactionId=posting._id;await saveVersion(outbound,outbound.version,session);
+      let draftReceipt = await TransferReceipt.findOne({ 'header.dispatchId': outbound._id, workflowStatus: 'DRAFT' }).session(session);
       if (!draftReceipt) {
         draftReceipt = await document(
-          Receipt,
+          TransferReceipt,
           'MWTR',
           actor,
           {
@@ -389,16 +615,16 @@ export function confirmTask(user,id,input) {
 }
 export function receiveTransfer(user,id,input) {
   return command(user,'RECEIVE_TRANSFER','stock_transfer:receive',id,input,receiptReplay,async(session,actor)=>{
-    const outbound=await find(Dispatch,id,session);checkVersion(outbound,input.expectedVersion);
-    const request=await find(Request,outbound.header.requestId,session);requireWarehouseAccess(actor,request.header.destinationWarehouseId);
+    const outbound=await find(TransferDispatch,id,session);checkVersion(outbound,input.expectedVersion);
+    const request=await find(WarehouseTransferRequest,outbound.header.requestId,session);requireWarehouseAccess(actor,request.header.destinationWarehouseId);
     if(outbound.workflowStatus!=='POSTED'||request.workflowStatus!=='APPROVED')throw validationError('Nguồn chưa thực xuất hoặc đã đóng');
     if(same(outbound.header.dispatchedBy,actor._id))throw forbiddenError('Người nhận phải khác người xuất');
     await saveVersion(request,request.version,session);
     await guardLocations(input.lines.map(row=>row.locationId),session);
     const now = new Date();
-    const existingDraft = await Receipt.findOne({ 'header.dispatchId': outbound._id, workflowStatus: 'DRAFT' }).session(session);
+    const existingDraft = await TransferReceipt.findOne({ 'header.dispatchId': outbound._id, workflowStatus: 'DRAFT' }).session(session);
     const receipt = existingDraft ?? await document(
-      Receipt,
+      TransferReceipt,
       'MWTR',
       actor,
       {
@@ -471,7 +697,7 @@ export function receiveTransfer(user,id,input) {
     }
     if (remainingItems.length) {
       const nextDraft = await document(
-        Receipt,
+        TransferReceipt,
         'MWTR',
         actor,
         {
@@ -493,7 +719,7 @@ export function receiveTransfer(user,id,input) {
 }
 export function closeRequest(user,id,input) {
   return command(user,'CLOSE_TRANSFER_REQUEST','stock_transfer:receive',id,input,requestReplay,async(session,actor)=>{
-    const request=await find(Request,id,session);checkVersion(request,input.expectedVersion);requireWarehouseAccess(actor,request.header.destinationWarehouseId);
+    const request=await find(WarehouseTransferRequest,id,session);checkVersion(request,input.expectedVersion);requireWarehouseAccess(actor,request.header.destinationWarehouseId);
     if(request.workflowStatus!=='APPROVED')throw validationError('Yêu cầu không còn mở');
     const blocker=await completionBlocker(request,session);if(blocker)throw validationError(blocker);
     request.workflowStatus='COMPLETED';request.header.closedBy=actor._id;request.header.closedAt=new Date();
@@ -503,18 +729,18 @@ export function closeRequest(user,id,input) {
 
 export function closePartialRequest(user,id,input) {
   return command(user,'CLOSE_TRANSFER_REQUEST_PARTIAL','stock_transfer:read',id,input,requestReplay,async(session,actor)=>{
-    const request=await find(Request,id,session);checkVersion(request,input.expectedVersion);
+    const request=await find(WarehouseTransferRequest,id,session);checkVersion(request,input.expectedVersion);
     // Stopping the remaining quantity is allowed for the receiving warehouse, the shipping warehouse, or the owner.
     const byDestination=hasPermission(actor,'stock_transfer:receive')&&canAccessWarehouse(actor,request.header.destinationWarehouseId);
     const bySource=hasPermission(actor,'stock_transfer:dispatch')&&canAccessWarehouse(actor,request.header.sourceWarehouseId);
     if(!byDestination&&!bySource&&!isOwner(actor))throw forbiddenError('Chỉ kho nhận, kho xuất hoặc chủ cửa hàng được dừng phần còn lại');
     if(request.workflowStatus!=='APPROVED')throw validationError('Yêu cầu không còn mở');
-    const dispatches=await Dispatch.find({'header.requestId':id,workflowStatus:{$ne:'CANCELLED'}}).session(session);
+    const dispatches=await TransferDispatch.find({'header.requestId':id,workflowStatus:{$ne:'CANCELLED'}}).session(session);
     if(!dispatches.length||dispatches.some(row=>row.workflowStatus!=='POSTED'))throw validationError('Còn phiếu xuất chưa hoàn tất');
     const points=await StockHoldingPoint.find({dispatchLineId:{$in:dispatches.flatMap(row=>row.items.map(item=>item._id))}}).session(session);
     if(await InventoryBalance.exists({holdingPointId:{$in:points.map(row=>row._id)},quantityBase:{$gt:0}}).session(session))throw validationError('Còn hàng đang chuyển hoặc chênh lệch chưa giải quyết');
     if(await StockDiscrepancy.exists({'header.sourceRef.documentId':{$in:dispatches.map(d=>d._id)},workflowStatus:'OPEN'}).session(session))throw validationError('Còn hồ sơ chênh lệch chưa giải quyết');
-    const receipts=await Receipt.find({'header.dispatchId':{$in:dispatches.map(row=>row._id)},workflowStatus:'POSTED'}).session(session);
+    const receipts=await TransferReceipt.find({'header.dispatchId':{$in:dispatches.map(row=>row._id)},workflowStatus:'POSTED'}).session(session);
     if(!receipts.length&&!await StockDiscrepancy.exists({'header.sourceRef.documentId':{$in:dispatches.map(d=>d._id)},'header.resolutionMode':'WRITE_OFF'}).session(session))throw validationError('Chưa nhận hàng tại kho đích');
     const pendingPutaway=await putawayBlocker(receipts,session,dispatches.map(row=>row._id));if(pendingPutaway)throw validationError(pendingPutaway);
     const shipped=request.items.map(item=>{const dispatched=dispatches.flatMap(row=>row.items).filter(row=>same(row.details.requestLineId,item._id)).reduce((sum,row)=>sum.plus(String(row.qtyBase)),exact('0'));return {itemId:item._id,approvedQtyBase:String(item.approvedQtyBase),dispatchedQtyBase:dispatched.toFixed(),shortfallQtyBase:exact(String(item.approvedQtyBase)).minus(dispatched).toFixed()};});
@@ -526,10 +752,10 @@ export function closePartialRequest(user,id,input) {
 
 export function cancelRequest(user,id,input) {
   return command(user,'CANCEL_TRANSFER_REQUEST','stock_transfer:update',id,input,requestReplay,async(session,actor)=>{
-    const request=await find(Request,id,session);checkVersion(request,input.expectedVersion);requireRequestWarehouse(actor,request.header.sourceWarehouseId,request.header.destinationWarehouseId);
+    const request=await find(WarehouseTransferRequest,id,session);checkVersion(request,input.expectedVersion);requireRequestWarehouse(actor,request.header.sourceWarehouseId,request.header.destinationWarehouseId);
     if(!same(request.createdBy,actor._id))throw forbiddenError('Chỉ người lập yêu cầu mới được hủy');
     if(!['PENDING_APPROVAL','REVISION_REQUIRED','APPROVED'].includes(request.workflowStatus))throw validationError('Đơn không còn ở trạng thái có thể hủy');
-    const dispatches=await Dispatch.find({'header.requestId':id,workflowStatus:{$ne:'CANCELLED'}}).session(session);
+    const dispatches=await TransferDispatch.find({'header.requestId':id,workflowStatus:{$ne:'CANCELLED'}}).session(session);
     if(dispatches.length)throw validationError('Đơn đã phát sinh phiếu xuất; hãy hủy phiếu xuất nháp hoặc dùng dừng chuyển tiếp');
     request.workflowStatus='CANCELLED';request.cancelledBy=actor._id;request.cancelledAt=new Date();request.cancelReason=input.reason;request.header.approvalStatus='CANCELLED';
     return{document:await saveVersion(request,input.expectedVersion,session),versionBefore:input.expectedVersion};
@@ -541,7 +767,7 @@ export function updateRequest(user,id,input) {
   const request=await requestReplay(id,actor,session);checkVersion(request,input.expectedVersion);requireRequestWarehouse(actor,request.header.sourceWarehouseId,request.header.destinationWarehouseId);
   if(!same(request.createdBy,actor._id)||!['REVISION_REQUIRED','PENDING_APPROVAL'].includes(request.workflowStatus))throw validationError('Chỉ người lập được sửa yêu cầu chưa duyệt hoặc được trả lại');
   if(!same(request.header.sourceWarehouseId,input.sourceWarehouseId)||!same(request.header.destinationWarehouseId,input.destinationWarehouseId))throw validationError('Giữ nguyên kho của yêu cầu; cần kho khác thì lập đơn mới');
-  if(await Dispatch.exists({'header.requestId':id,workflowStatus:{$ne:'CANCELLED'}}).session(session))throw validationError('Đã phát sinh phiếu xuất');
+  if(await TransferDispatch.exists({'header.requestId':id,workflowStatus:{$ne:'CANCELLED'}}).session(session))throw validationError('Đã phát sinh phiếu xuất');
   const items=[];for(const [i,line]of input.lines.entries()){const previous=request.items.find(p=>same(p.productId,line.productId)&&String(p.lotId??'')===String(line.lotId??''));items.push(await makeRequestItem(line,i+1,request.header.sourceWarehouseId,session,previous));}
   request.items=items;request.header.reason=input.reason;request.header.neededOn=input.neededOn;request.workflowStatus='PENDING_APPROVAL';request.header.approvalStatus='PENDING_APPROVAL';
   return {document:await saveVersion(request,input.expectedVersion,session),versionBefore:input.expectedVersion};
@@ -552,13 +778,13 @@ export function cancelDraftDispatch(user,id,input){
  return command(user,'CANCEL_TRANSFER_DISPATCH','stock_transfer:dispatch',id,input,dispatchReplay,async(session,actor)=>{
   const dispatch=await dispatchReplay(id,actor,session);checkVersion(dispatch,input.expectedVersion);
   if(dispatch.workflowStatus!=='DRAFT'||!same(dispatch.createdBy,actor._id))throw validationError('Chỉ người lập được hủy phiếu xuất nháp chưa bàn giao');
-  const requirements=await Requirement.find({'header.sourceDocumentId':id}).session(session);
-  const tasks=await Task.find({'header.requirementId':{$in:requirements.map(r=>r._id)}}).session(session);
+  const requirements=await InternalTransferRequirement.find({'header.sourceDocumentId':id}).session(session);
+  const tasks=await TransferOrder.find({'header.requirementId':{$in:requirements.map(r=>r._id)}}).session(session);
   if(tasks.some(t=>t.workflowStatus!=='OPEN'))throw validationError('Nhiệm vụ không còn mở');
   const reservations=await StockReservation.find({$or:[{'executionRef.documentType':'transfer_dispatches','executionRef.documentId':id},{'executionRef.documentType':'transfer_orders','executionRef.documentId':{$in:tasks.map(t=>t._id)}}]}).session(session);
   for(const reservation of reservations){reservation.releasedQty=exact(reservation.releasedQty).plus(remainingReservation(reservation)).toFixed();reservation.updatedBy=actor._id;await saveVersion(reservation,reservation.version,session);await InventoryBalance.updateOne({_id:reservation.balanceId},{$inc:{version:1}},{session});}
   for(const doc of [...tasks,...requirements,dispatch]){doc.workflowStatus='CANCELLED';doc.cancelledBy=actor._id;doc.cancelledAt=new Date();doc.cancelReason=input.reason;await saveVersion(doc,doc.version,session);}
-  const request=await find(Request,dispatch.header.requestId,session);await saveVersion(request,request.version,session);
+  const request=await find(WarehouseTransferRequest,dispatch.header.requestId,session);await saveVersion(request,request.version,session);
   return {document:dispatch,versionBefore:input.expectedVersion,reason:input.reason};
  });
 }

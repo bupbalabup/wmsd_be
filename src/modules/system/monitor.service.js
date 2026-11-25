@@ -54,7 +54,8 @@ export async function monitorOverview(user) {
   requirePermission(user, "system_monitor:read");
   const since = new Date(Date.now() - 86_400_000);
   const last5m = metrics.recent.filter((r) => r.at >= Date.now() - 5 * 60_000);
-  const memory = process.memoryUsage();
+  let memory = null;
+  try { memory = process.memoryUsage(); } catch { /* not available on this runtime */ }
   const [db, openErrors, errors24h, emailCounts, eventCounts, lastScan] = await Promise.all([
     database(),
     ErrorLog.countDocuments({ resolvedAt: null }),
@@ -68,9 +69,13 @@ export async function monitorOverview(user) {
     checkedAt: new Date(),
     server: {
       status: db.state === 1 ? "OK" : "DEGRADED",
-      startedAt, uptimeSeconds: Math.round(process.uptime()),
+      // Cloudflare Workers' Node compatibility layer reports 0 for process.uptime() and memoryUsage(); the uptime
+      // is taken from this instance's start instead and memory is null ("not measurable") rather than a false 0.
+      startedAt, uptimeSeconds: Math.round((Date.now() - startedAt.getTime()) / 1000),
       node: process.version, platform: `${process.platform} ${process.arch}`, hostname: os.hostname?.() ?? null,
-      memory: { rssMb: mb(memory.rss), heapUsedMb: mb(memory.heapUsed), heapTotalMb: mb(memory.heapTotal) },
+      memory: memory?.rss > 0
+        ? { rssMb: mb(memory.rss), heapUsedMb: mb(memory.heapUsed), heapTotalMb: mb(memory.heapTotal) }
+        : null,
       loadAverage: os.loadavg?.().map((v) => Math.round(v * 100) / 100) ?? null,
       environment: process.env.NODE_ENV ?? "development",
     },

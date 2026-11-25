@@ -262,6 +262,20 @@ The user approved a 174-UC catalogue for [the English prompt set](docs/07_ra_soa
 - Applied the same 174 UC names, descriptions and numbering to [Report 3 section 4.2](docs/01_bao_cao/WMSD_Report3_Fix.docx.txt), using its existing four-column layout. Report 3 sections 4.3 and 4.4 and the detailed specifications retain their previous identifiers.
 - Validation: checked 174 unique sequential IDs, feature counts, the agreed additions and removals, Sales Order names, in-table references, local links, the replacement boundary and preservation of historical content. `npm run docs:check` and `git diff --check` passed.
 
+## 25/11/2026 — Tách controller cho chuyển kho và chuyển vị trí
+
+Theo yêu cầu người dùng, hai luồng dùng Route → Controller → Service → Model. BF04 chuyển các handler đọc và ghi từ route sang một controller chung. Gộp route, service và validation đọc/ghi thành một file mỗi lớp. Tập trung schema chênh lệch trong validation, giữ nghiệp vụ chênh lệch, kiểm tồn và hoàn tất trong các file riêng theo chức năng. Kiểm tra sau khi gộp qua 19 test, 20 handler và 6 request HTTP với model giả lập. Các test MongoDB vẫn chưa bật. Gỡ file dẫn BF04_API.md trùng trong module và cập nhật các liên kết tài liệu thiết kế hiện hành về hợp đồng chính. BF03 gọi trực tiếp service từ controller, bỏ file xuất lại hàm lifecycle. URL, payload, quyền, nghiệp vụ và model giữ nguyên. Không cần migration. Xem [BF04](docs/08_api/transfers/BF04_API.md) và [BF03](docs/08_api/location-movements/README.md).
+
+Kiểm tra 25 test liên quan đạt, một test MongoDB bỏ qua. Smoke test HTTP với model giả lập qua bảy request. Chưa chạy giao dịch trên MongoDB.
+
+## 25/11/2026 — Add the return workflows controller layer
+
+The shared workflow router delegates HTTP handling for customer returns, supplier returns and shared endpoints to a controller. Existing routes, permissions, validation, evidence cleanup and stock behavior are unchanged. No schema or data migration.
+
+## 25/11/2026 — Add the Goods Issue controller layer
+
+Goods Issue and picking confirmation now delegate HTTP response handling to a controller. Existing routes, validation, permissions, service calls and stock transactions are unchanged. No schema or data migration.
+
 ## 25/11/2026 — Let Sales return goods from a Warehouse-issued standalone sale
 
 Sales can create a customer-return request from a posted standalone SALE Goods Issue created by Warehouse when it has an external reference and is in the selected warehouse. This source path uses the posted issue quantity and outstanding return claims; it does not require a Sales Order or a customer-receipt confirmation. Other source, warehouse and quantity checks remain enforced. A focused integration test reproduces the Warehouse-created source and verifies Sales can select it and create the request in an isolated database.
@@ -269,6 +283,45 @@ Sales can create a customer-return request from a posted standalone SALE Goods I
 ## 25/11/2026 — Notify the requester about supplier acknowledgement and closure
 
 `ACK_SR` now notifies the original supplier-return requester after the Accountant records the supplier response; `CLOSE_SR` sends a final notice when the return completes. The existing worker enforces source-read and warehouse scope and deduplicates each event per recipient. Regression coverage verifies both notices in the isolated supplier lifecycle without changing stock behavior. No schema, index, permission or shared-database change.
+
+## 25/11/2026 — Seed tiếng Việt và sửa lỗi UX theo vai trò
+
+Nguồn: yêu cầu người dùng 25/11/2026 ("dữ liệu đưa vào DB là tiếng Việt", sửa lỗi chung rồi Admin, Owner, Warehouse, Sales, Accountant theo báo cáo kiểm thử UX/UI).
+
+- **BE seed:** tên vai trò, họ tên, mô tả kho, vật liệu, số tham chiếu, email/điện thoại mẫu đổi sang tiếng Việt; bỏ chữ "demo" trong ghi chú. Xem [SEED_CUA_HANG_GACH](docs/09_phat_trien/SEED_CUA_HANG_GACH.md).
+- **BE API:** kiểm tra định dạng điện thoại/tên đăng nhập khi tạo/sửa tài khoản ([USER_ACCESS_STATUS](docs/08_api/USER_ACCESS_STATUS.md)); `GET /api/warehouse-overview` thêm `openPutaways`, `openPicks`, `draftIssues` ([HIEUDT_WAREHOUSE_SCOPE](docs/08_api/HIEUDT_WAREHOUSE_SCOPE.md)).
+- **FE chung:** tiêu đề báo cáo thống nhất, trang 403 tiếng Việt, đăng nhập không nháy "Đang xác thực", nút Xuất Excel có lý do khi bị khoá, cột Thao tác ghim phải, ẩn cột trống, ngày giờ dạng DD/MM/YYYY HH:mm.
+- **Admin:** cảnh báo kho ngừng hoạt động, lỗi form tạo tài khoản có tổng hợp, mô tả quyền khi rê chuột, nhật ký ẩn mã hex, danh mục API ẩn tên trùng URL.
+- **Owner:** danh sách Đơn bán/Lệnh giao/Soạn hàng có breadcrumb, mô tả, tag trạng thái; diện tích UOM hiển thị m²; Chuyển kho gộp số đếm vào hàng lọc; Hàng lỗi thu gọn bộ lọc lô/vị trí.
+- **Warehouse:** Tổng quan kho có danh sách việc cần làm; kế hoạch kiểm kê có breadcrumb và chặn tiêu đề vô nghĩa; số phiếu kiểm hàng không ngắt dòng; chọn tháng phiếu nhập bằng Select; trạng thái rỗng Trả NCC có nút tạo.
+- **Sales:** đăng nhập vào "Tổng quan bán hàng" (có số đơn/lệnh giao đang mở); form Tạo đơn bán chia khối Chứng từ gốc/Khách hàng/Hàng trong đơn/Giao hàng, mặc định giao một lần, có tổng tiền tham chiếu; tooltip "Khả dụng"; nhóm menu "Bán hàng & xuất kho" cho mọi vai trò.
+- **Accountant:** trang "Tổng quan kế toán" làm trang đáp; modal tạo đơn mua hướng dẫn trước khi chọn đề nghị; Tham chiếu chứng từ ngoài có trạng thái rỗng tiếng Việt.
+- **Bổ sung cùng ngày:** Nhật ký hệ thống có nút Xuất Excel và chế độ "Gộp theo đối tượng"; Danh mục API có chế độ "Theo module" (`GET /api/system/api-endpoints` thêm `moduleCounts`, xem [SYSTEM_ADMIN](docs/08_api/SYSTEM_ADMIN.md)); bộ lọc thu gọn sau nút "Bộ lọc (N)" trên điện thoại (Phiếu nhập kho, Nhật ký, Danh mục API); trang đang tải dùng khung xương thống nhất thay vòng quay giữa màn hình; `.admin-page` (Tài khoản, Vai trò) bỏ căn giữa dọc nên tiêu đề không còn nhảy khi tải.
+- **Dữ liệu/triển khai:** không ghi DB. Cần seed lại và `npm run seed:sync-permissions` trên DB đích (có lệnh triển khai) để thấy dữ liệu tiếng Việt và quyền mới.
+- **Kiểm tra:** xem báo cáo bàn giao 25/11/2026 (BE `node --test` các test liên quan, FE `tsc --noEmit` và vitest).
+
+## 25/11/2026 — Cấu hình hệ thống do Admin đặt
+
+Quyết định người dùng: Admin cấu hình các con số thay vì cố định trong mã — ngưỡng tồn tối thiểu mặc định (cho sản phẩm có tồn nhưng chưa đặt ngưỡng riêng), mức cảnh báo "Sắp hết" (%) và số dòng trên bảng điều hành; Admin sửa, Chủ cửa hàng xem.
+
+- **BE:** `GET/PUT /api/settings/system`, quyền `system_setting:read` (ADMIN, OWNER) / `system_setting:update` (ADMIN), `app_settings.SYSTEM_SETTINGS` có version và audit `UPDATE_SYSTEM_SETTINGS`. Cảnh báo tồn thêm trạng thái `NEAR` và trường `source`; bảng điều hành đọc số dòng từ cấu hình. Xem [SYSTEM_ADMIN](docs/08_api/SYSTEM_ADMIN.md#cấu-hình-hệ-thống--25112026).
+- **FE:** màn hình `/system/settings` "Cấu hình hệ thống" (nhóm Quản trị hệ thống), lịch sử thay đổi; `/inventory/stock-alerts` có lọc Sắp hết và cột Loại ngưỡng.
+- **Dữ liệu/triển khai:** không ghi DB. Cần chạy `npm run seed:sync-permissions` trên DB đích để có 2 quyền mới. Giá trị mặc định giữ hành vi cũ.
+- **Kiểm tra:** BE `node --test test/system-admin.test.js`; FE vitest `src/features/system-admin src/features/dashboard src/app`, `tsc --noEmit`, eslint.
+
+## 25/11/2026 — Sửa lỗi ưu tiên sau kiểm thử UX/UI và Việt hoá giao diện
+
+Nguồn: báo cáo kiểm thử UX/UI 25/11/2026 và quyết định của người dùng (bỏ toàn bộ chính sách bán hàng theo LI-10; đổi tên hiển thị vai trò kế toán thành "Kế toán"; đưa màn hình FE-06 vào menu).
+
+- **BE:** gỡ `GET/PUT /api/settings/sales-policy`, `sales-policy.service.js` và quyền `sales_policy:read/update` (route trả 404; quyền cũ trong DB không còn hiệu lực). Ngưỡng lô tồn lâu cố định 180 ngày. `POST /api/stock-alerts/scan` chuyển sang quyền `product:update`. Cảnh báo tồn tính song song (bảng điều hành Chủ cửa hàng mất ~8 giây). Giám sát server trả `memory: null` và thời gian chạy theo đồng hồ khi nền tảng (Workers) báo 0. Tên vai trò hệ thống và mô tả quyền trả về tiếng Việt khi hiển thị (`src/shared/utils/roleNames.js`, `role.service.js`, `permissions.data.js`).
+- **FE:** màn hình `/inventory/stock-alerts` "Cảnh báo tồn thấp" thay `/settings/sales-policy`; bỏ badge cứng "12"/"Chờ duyệt" trong menu; thêm Lệnh giao hàng, Soạn hàng, Giao thất bại, Báo cáo chuyển kho vào menu; mỗi màn hình một tên cho mọi vai trò, tiêu đề viết hoa đầu câu; antd/dayjs dùng locale tiếng Việt ("No data" → "Không có dữ liệu"); nhãn trạng thái thiếu (`IN_PROGRESS`...), ngày ISO trong báo cáo vận hành, mã thao tác thô ở danh sách nhật ký; chọn ảnh chứng từ tiếng Việt và nút phụ trong form tạo đơn bán; `/purchase-orders/create` chuyển về `/replenishments`; bỏ breadcrumb "Trang chủ" lặp; trang Tổng quan bán hàng chỉ còn lối tắt tới màn hình thật; giám sát server cảnh báo email chưa cấu hình.
+- **Tài liệu:** [SYSTEM_ADMIN](docs/08_api/SYSTEM_ADMIN.md).
+- **Dữ liệu:** không ghi DB. Bản ghi `app_settings.SALES_POLICY`, quyền `sales_policy:*` và tên vai trò tiếng Anh trong DB còn nguyên. Chưa cấu hình email, chưa dọn dữ liệu test.
+- **Kiểm tra:** BE `node --test test/system-admin.test.js test/auth-account.test.js test/user-account-update.test.js`; FE `tsc --noEmit`, vitest các test liên quan (xem báo cáo bàn giao).
+
+## 25/11/2026 — Receipt routes consolidated under /receipts
+
+The duplicate goods receipt detail route `/receipt/:id` is removed; `/receipts/:id` is the only detail URL. The transfer put-away launcher moves from `/transfer-putaway/:id` to `/receipts/:id/putaway`. It keeps the same permissions (`stock_transfer:read` + `stock_transfer:receive`) and the same behaviour: create or reuse the PUTAWAY task, then open `/transfer-tasks/:id`. FE `context.md` is updated to the new URL. No API or data change.
 
 ## 25/11/2026 — Sales order and delivery schedule
 

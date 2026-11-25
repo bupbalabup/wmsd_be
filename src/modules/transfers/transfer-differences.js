@@ -1,5 +1,3 @@
-import { documentIdentifier } from '../../shared/utils/document-id.validation.js';
-import { z } from 'zod';
 import { StockDiscrepancy,TransferDispatch,TransferReceipt,WarehouseTransferRequest,ApprovalHistory,StockHoldingPoint,InventoryBalance } from '../../models/runtime.js';
 import { exact } from '../../models/model-utils.js';
 import { command,same,checkVersion,saveVersion,hash } from '../../shared/utils/document-command.js';
@@ -11,14 +9,7 @@ import { nextDocumentFields } from '../../shared/utils/document-number.js';
 import { validationError,notFoundError,forbiddenError } from '../../shared/utils/ApiError.js';
 import { effectiveQuantities } from '../sales-orders/sales-read.service.js';
 import { beginStock,splitPortions } from '../../shared/utils/stock.js';
-const oid=z.string().regex(/^[a-f\d]{24}$/i),key=z.string().min(1).max(64),reason=z.string().trim().min(1).max(2000),qty=z.string().regex(/^\d{1,14}(\.\d{1,6})?$/).refine(v=>exact(v).gt(0));
-export const proposalBody=z.object({idempotencyKey:key,expectedVersion:z.number().int().min(1),reason,lines:z.array(z.object({dispatchLineId:oid,qtyBase:qty}).strict()).min(1).max(100).refine(rows=>new Set(rows.map(r=>r.dispatchLineId)).size===rows.length)}).strict();
-export const reviewBody=z.object({idempotencyKey:key,expectedVersion:z.number().int().min(1),decision:z.enum(['APPROVE','REJECT','REVISE']),reason,
- // RECEIVED: the missing goods arrived on a later receipt. WRITE_OFF: they are lost or destroyed in transit.
- resolution:z.enum(['RECEIVED','WRITE_OFF']).optional(),liableParty:z.enum(['SOURCE_WAREHOUSE','CARRIER','DESTINATION_WAREHOUSE','UNKNOWN']).optional(),receiptId:documentIdentifier.optional()}).strict()
- .refine(v=>v.decision!=='APPROVE'||(v.resolution??(v.receiptId?'RECEIVED':undefined))!==undefined,{message:'Chọn cách xử lý chênh lệch'})
- .refine(v=>v.decision!=='APPROVE'||(v.resolution??'RECEIVED')!=='RECEIVED'||Boolean(v.receiptId),{message:'Chọn phiếu nhận đối chiếu'})
- .refine(v=>v.decision!=='APPROVE'||v.resolution!=='WRITE_OFF'||Boolean(v.liableParty),{message:'Chọn bên chịu trách nhiệm hao hụt'});
+
 async function replay(id,user,session){const row=await StockDiscrepancy.findById(id).session(session);if(!row)throw notFoundError();requireWarehouseAccess(user,row.header.warehouseId);return row;}
 async function reportReplay(id,user,session){const row=await replay(id,user,session);if(!isAssignedWarehouse(user,row.header.warehouseId))throw forbiddenError('Chỉ nhân viên được phân công kho đích được báo chênh lệch');return row;}
 export function proposeDifference(user,id,input){return command(user,'REPORT_TRANSFER_DIFFERENCE','stock_transfer:update',id,input,reportReplay,async(session,actor)=>{

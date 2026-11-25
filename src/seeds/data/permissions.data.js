@@ -35,7 +35,7 @@ export const PERMISSION_CATALOGUE = [
   { code: 'opening_stock:read', description: 'Xem tồn đầu kỳ', uc: [], roles: [OWNER] },
   { code: 'opening_stock:create', description: 'Nhập và lập tồn đầu kỳ', uc: [], roles: [OWNER] },
   { code: 'opening_stock:post', description: 'Chủ cửa hàng xác nhận và ghi tồn đầu kỳ một lần', uc: [], roles: [OWNER] },
- ...['read','create','update','activate'].map(action=>({code:'uom:'+action,description:'UOM '+action,uc:[],roles:action==='read'?BUSINESS_ROLES:[OWNER]})),
+ ...['read','create','update','activate'].map(action=>({code:'uom:'+action,description:{read:'Xem đơn vị tính',create:'Tạo đơn vị tính',update:'Sửa đơn vị tính',activate:'Ngừng/kích hoạt đơn vị tính'}[action],uc:[],roles:action==='read'?BUSINESS_ROLES:[OWNER]})),
  {code:'purchase_custody:decide',description:'Chốt thỏa thuận hàng giữ hộ NCC',uc:[],roles:[ACCOUNTANT]},
  {code:'purchase_custody:execute',description:'Thực hiện xử lý giữ hộ NCC',uc:[],roles:[WAREHOUSE]},
 
@@ -55,7 +55,7 @@ export const PERMISSION_CATALOGUE = [
   { code: 'goods_receipt_inspection:read', description: 'Xem phiếu nhập/kiểm nhận', uc: ['UC-14', 'UC-15'], roles: [OWNER, ACCOUNTANT, WAREHOUSE] },
   { code: 'goods_receipt_inspection:create', description: 'Tạo phiếu nhập từ PO tại kho được giao', uc: ['UC-16'], roles: [WAREHOUSE] },
   { code: 'goods_receipt_inspection:update', description: 'Ghi và sửa kết quả kiểm nhận, hủy phiếu nháp nhận mua và giữ hộ NCC', uc: ['UC-37'], roles: [WAREHOUSE] },
-  { code: 'goods_receipt_inspection:post', description: 'Post nhập kho (GR) sau kiểm nhận', uc: ['UC-37'], roles: [WAREHOUSE] },
+  { code: 'goods_receipt_inspection:post', description: 'Ghi sổ nhập kho sau kiểm nhận', uc: ['UC-37'], roles: [WAREHOUSE] },
   { code: 'stock_reversal:approve', description: 'Duyệt độc lập và ghi đảo giao dịch tồn', uc: ['UC-37'], roles: [OWNER] },
   { code: 'goods_receipt_inspection:reverse', description: 'Đảo phiếu nhập mua và giữ hộ NCC đã ghi sổ', uc: ['UC-37'], roles: [WAREHOUSE] },
   { code: 'purchase_order:approve_exception', description: 'Duyệt chốt thiếu PO đúng phiên bản', uc: ['UC-13'], roles: [OWNER] },
@@ -96,7 +96,7 @@ export const PERMISSION_CATALOGUE = [
   { code: 'stock_transfer:update', description: 'Sửa TR nháp / đề xuất xử lý chênh lệch', uc: ['UC-40', 'UC-44'], roles: [WAREHOUSE] },
   { code: 'stock_transfer:approve', description: 'Duyệt/từ chối/trả lại TR (không phải người lập)', uc: ['UC-41'], roles: [OWNER] },
   { code: 'stock_transfer:dispatch', description: 'Ghi xuất điều chuyển tại kho nguồn', uc: ['UC-43'], roles: [WAREHOUSE] },
-  { code: 'stock_transfer:receive', description: 'Kiểm nhận và post nhập tại kho đích (khác người xuất)', uc: ['UC-104'], roles: [WAREHOUSE] },
+  { code: 'stock_transfer:receive', description: 'Kiểm nhận và ghi sổ nhập tại kho đích (khác người xuất)', uc: ['UC-104'], roles: [WAREHOUSE] },
   { code: 'stock_transfer:approve_variance', description: 'Duyệt phương án xử lý chênh lệch điều chuyển', uc: ['UC-44'], roles: [OWNER] },
 
   // ---------- FE-06: Bán hàng, xuất kho, giao hàng (BF-06) ----------
@@ -126,7 +126,7 @@ export const PERMISSION_CATALOGUE = [
   { code: 'goods_issue:read', description: 'Xem danh sách và chi tiết phiếu xuất bán (GI-S)', uc: ['UC-69', 'UC-70'], roles: BUSINESS_ROLES },
   { code: 'goods_issue:create', description: 'Tạo phiếu xuất; Sales gửi xuất bán chờ duyệt', uc: ['UC-71'], roles: [WAREHOUSE, SALES] },
   { code: 'goods_issue:update', description: 'Cập nhật và hủy phiếu chưa thực hiện', uc: ['UC-72'], roles: [WAREHOUSE, SALES] },
-  { code: 'goods_issue:approve', description: 'Store Owner duyệt phiếu xuất bán Sales đã gửi', uc: ['UC-72'], roles: [OWNER] },
+  { code: 'goods_issue:approve', description: 'Chủ cửa hàng duyệt phiếu xuất bán do nhân viên bán hàng gửi', uc: ['UC-72'], roles: [OWNER] },
   { code: 'goods_issue:post', description: 'Xác nhận xuất kho thực tế khi bàn giao', uc: ['UC-72'], roles: [WAREHOUSE] },
 
   { code: 'fulfilment_option:read', description: 'Xem phương án đáp ứng thiếu hàng', uc: ['UC-103'], roles: [OWNER, WAREHOUSE, SALES] },
@@ -162,7 +162,7 @@ export const PERMISSION_CATALOGUE = [
   { code: 'supplier_return:read', description: 'Xem yêu cầu trả nhà cung cấp (SR)', uc: ['UC-79', 'UC-80'], roles: [OWNER, ACCOUNTANT, WAREHOUSE] },
   { code: 'supplier_return:create', description: 'Đề xuất trả NCC / cách ly', uc: ['UC-81'], roles: [WAREHOUSE] },
   { code: 'supplier_return:update', description: 'Sửa SR nháp', uc: ['UC-81'], roles: [WAREHOUSE] },
-  { code: 'supplier_return:dispatch', description: 'Post xuất trả NCC (GI-SR) theo thỏa thuận', uc: ['UC-82'], roles: [WAREHOUSE] },
+  { code: 'supplier_return:dispatch', description: 'Ghi sổ xuất trả nhà cung cấp theo thỏa thuận', uc: ['UC-82'], roles: [WAREHOUSE] },
   { code: 'supplier_return:record_agreement', description: 'Ghi thỏa thuận NCC / biên nhận (ACK)', uc: ['UC-107'], roles: [ACCOUNTANT] },
   { code: 'supplier_return:close', description: 'Đối chiếu và đóng phần kho SR (không cần Owner)', uc: ['UC-83'], roles: [ACCOUNTANT] },
 
@@ -194,11 +194,12 @@ export const PERMISSION_CATALOGUE = [
   { code: 'warehouse_layout_function:update', description: 'Thêm/sửa/xóa chức năng khu vực Kho 3D', uc: [], roles: [ADMIN] },
   // System administration and owner overview (user decision 23/11/2026).
   { code: 'dashboard:read', description: 'Xem bảng điều hành của Chủ cửa hàng (việc chờ duyệt, cảnh báo tồn, biến động nhập xuất)', uc: [], roles: [OWNER] },
-  { code: 'sales_policy:read', description: 'Xem chính sách bán hàng và ngưỡng kho', uc: [], roles: [OWNER] },
-  { code: 'sales_policy:update', description: 'Cập nhật chính sách bán hàng và ngưỡng kho', uc: [], roles: [OWNER] },
   { code: 'audit_log:read', description: 'Xem nhật ký hệ thống (mọi thao tác đã ghi audit)', uc: [], roles: [ADMIN, OWNER] },
   { code: 'api_catalogue:read', description: 'Xem danh mục API của hệ thống', uc: [], roles: [ADMIN] },
   { code: 'api_catalogue:update', description: 'Đồng bộ, thêm và sửa danh mục API', uc: [], roles: [ADMIN] },
+  // Administrator-configured numbers: default low-stock minimum, near level, dashboard rows (user decision 25/11/2026).
+  { code: 'system_setting:read', description: 'Xem cấu hình hệ thống (ngưỡng tồn mặc định, mức sắp hết, số dòng bảng điều hành)', uc: [], roles: [ADMIN, OWNER] },
+  { code: 'system_setting:update', description: 'Sửa cấu hình hệ thống', uc: [], roles: [ADMIN] },
   { code: 'system_monitor:read', description: 'Xem tình trạng server và nhật ký lỗi; đánh dấu lỗi đã xử lý', uc: [], roles: [ADMIN] },
 ];
 

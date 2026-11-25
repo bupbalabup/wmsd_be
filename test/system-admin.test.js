@@ -7,9 +7,10 @@ import { createApp } from '../src/app.js';
 import { discoverRoutes } from '../src/shared/utils/routeRegistry.js';
 import { normalizePath, errorFingerprint } from '../src/shared/utils/errorLog.js';
 import { initialEmailDelivery, notificationEmailEnabled, processNotificationEmails } from '../src/modules/notifications/email.js';
+import { evaluateThresholds } from '../src/modules/stock-alerts/stock-alert.service.js';
 
 // Mocked-model tests for the 23/11/2026 administration features. No database or SMTP connection is opened.
-const { User, AppSetting, AuditLog, ApiEndpoint, Product, Notification } = models;
+const { User, AuditLog, ApiEndpoint, Product, Notification, AppSetting } = models;
 const JWT_SECRET = process.env.JWT_SECRET || 'wmsd_default_super_secret_jwt_key_2026';
 const ownerId = 'a'.repeat(24);
 const adminId = 'b'.repeat(24);
@@ -17,12 +18,12 @@ const salesId = 'c'.repeat(24);
 
 const role = (code, permissions) => ({ code, isActive: true, permissionIds: permissions.map((p) => ({ code: p, isActive: true })) });
 const users = {
-  [ownerId]: { _id: ownerId, username: 'owner', fullName: 'Chủ', isActive: true, warehouseIds: [], roleId: role('OWNER', ['dashboard:read', 'sales_policy:read', 'sales_policy:update', 'audit_log:read', 'product:read', 'inventory:read']) },
-  [adminId]: { _id: adminId, username: 'admin', fullName: 'Quản trị', isActive: true, warehouseIds: [], roleId: role('ADMIN', ['user:read', 'api_catalogue:read', 'api_catalogue:update', 'system_monitor:read', 'audit_log:read']) },
+  [ownerId]: { _id: ownerId, username: 'owner', fullName: 'Chủ', isActive: true, warehouseIds: [], roleId: role('OWNER', ['dashboard:read', 'audit_log:read', 'product:read', 'inventory:read', 'system_setting:read']) },
+  [adminId]: { _id: adminId, username: 'admin', fullName: 'Quản trị', isActive: true, warehouseIds: [], roleId: role('ADMIN', ['user:read', 'api_catalogue:read', 'api_catalogue:update', 'system_monitor:read', 'audit_log:read', 'system_setting:read', 'system_setting:update']) },
   [salesId]: { _id: salesId, username: 'sales', fullName: 'Bán hàng', isActive: true, warehouseIds: [], roleId: role('SALES', ['product:read']) },
 };
 const query = (value) => ({
-  select: () => query(value), populate: () => query(value), sort: () => query(value), limit: () => query(value), skip: () => query(value),
+  select: () => query(value), session: () => query(value), populate: () => query(value), sort: () => query(value), limit: () => query(value), skip: () => query(value),
   lean: async () => value, then: (resolve, reject) => Promise.resolve(value).then(resolve, reject),
 });
 
@@ -59,7 +60,8 @@ test('route discovery rebuilds full URLs through nested and pathless mounts', ()
   const urls = discoverRoutes(app).map((r) => `${r.method} ${r.url}`);
   assert.deepEqual(urls, ['GET /api/flat', 'POST /api/things', 'GET /api/things/:id']);
   const all = discoverRoutes(createApp({ logRequests: false }));
-  for (const expected of ['GET /api/dashboard/owner', 'PUT /api/settings/sales-policy', 'GET /api/system/audit-logs', 'POST /api/system/api-endpoints/sync', 'GET /api/search', 'POST /api/auth/login']) {
+  assert.ok(!all.some((r) => r.url === '/api/settings/sales-policy'), 'sales policy API removed (LI-10)');
+  for (const expected of ['GET /api/dashboard/owner', 'GET /api/stock-alerts', 'GET /api/system/audit-logs', 'POST /api/system/api-endpoints/sync', 'GET /api/search', 'POST /api/auth/login', 'GET /api/settings/system', 'PUT /api/settings/system']) {
     assert.ok(all.some((r) => `${r.method} ${r.url}` === expected), expected);
   }
 });
@@ -72,39 +74,66 @@ test('error fingerprints ignore ids and numbers so one bug is one row', () => {
   assert.equal(a, b);
 });
 
-test('sales policy: defaults, validation, optimistic version and audit', async (t) => {
+test('sales policy API is removed (scope LI-10, 25/11/2026)', async (t) => {
   stubAuth();
-  let row = null;
-  mock.method(AppSetting, 'findOne', () => query(row));
-  mock.method(AppSetting, 'create', async (doc) => { row = { _id: 'd'.repeat(24), ...doc, updatedAt: new Date() }; return row; });
-  mock.method(AppSetting, 'findOneAndUpdate', async (filter, update) => {
-    if (!row || filter.version !== row.version) return null;
-    row = { ...row, ...update.$set, version: row.version + 1 };
-    return row;
-  });
-  const audits = [];
-  mock.method(AuditLog.prototype, 'save', async function save() { audits.push({ action: this.action, changes: this.changes.map((c) => c.field) }); return this; });
-  mock.method(AuditLog, 'find', () => query([]));
   const call = await api(t);
+  assert.equal((await call(ownerId, '/settings/sales-policy')).status, 404);
+  assert.equal((await call(ownerId, '/settings/sales-policy', 'PUT', { version: 0 })).status, 404);
+});
 
-  const initial = await call(ownerId, '/settings/sales-policy');
-  assert.equal(initial.status, 200);
-  assert.equal(initial.body.data.version, 0);
-  assert.equal(initial.body.data.policy.agingInventoryThresholdDays, 180);
+test('system settings: owner reads, only admin saves; validated, versioned and audited (25/11/2026)', async (t) => {
+  stubAuth();
+  let stored = null;
+  const audits = [];
+  mock.method(AppSetting, 'findOne', () => query(stored));
+  mock.method(AppSetting, 'create', async (doc) => { stored = { _id: '9'.repeat(24), ...doc }; return stored; });
+  mock.method(AppSetting, 'findOneAndUpdate', async (filter, update) => {
+    if (!stored || filter.version !== stored.version) return null;
+    stored = { ...stored, ...update.$set, version: stored.version + 1 };
+    return stored;
+  });
+  mock.method(AuditLog, 'find', () => query([]));
+  mock.method(AuditLog.prototype, 'save', async function save() { audits.push(this.action); return this; });
+  const call = await api(t);
+  const body = { defaultMinimumQty: '20', nearThresholdPercent: 25, dashboardLowStockRows: 15, dashboardAgingLotRows: 10, dashboardApprovalItems: 5, dashboardRecentDecisions: 10 };
 
-  const body = { ...initial.body.data.policy, agingInventoryThresholdDays: 90, version: 0 };
-  assert.equal((await call(ownerId, '/settings/sales-policy', 'PUT', { ...body, suggestedLossRate: 40 })).status, 400);
-  assert.equal((await call(ownerId, '/settings/sales-policy', 'PUT', { ...body, extra: 1 })).status, 400);
-  assert.equal((await call(salesId, '/settings/sales-policy', 'PUT', body)).status, 403);
+  const read = await call(ownerId, '/settings/system');
+  assert.equal(read.status, 200);
+  assert.equal(read.body.data.version, 0);
+  assert.equal(read.body.data.settings.defaultMinimumQty, '0');
+  assert.equal(read.body.data.settings.dashboardLowStockRows, 10);
+  assert.equal((await call(salesId, '/settings/system')).status, 403);
+  assert.equal((await call(ownerId, '/settings/system', 'PUT', { ...body, version: 0 })).status, 403);
+  assert.equal((await call(adminId, '/settings/system', 'PUT', { ...body, dashboardLowStockRows: 0, version: 0 })).status, 400);
+  assert.equal((await call(adminId, '/settings/system', 'PUT', { ...body, defaultMinimumQty: '-1', version: 0 })).status, 400);
 
-  const saved = await call(ownerId, '/settings/sales-policy', 'PUT', body);
+  const saved = await call(adminId, '/settings/system', 'PUT', { ...body, version: 0 });
   assert.equal(saved.status, 200);
-  assert.equal(saved.body.data.policy.agingInventoryThresholdDays, 90);
   assert.equal(saved.body.data.version, 1);
-  assert.deepEqual(audits, [{ action: 'UPDATE_SALES_POLICY', changes: ['agingInventoryThresholdDays'] }]);
+  assert.equal(saved.body.data.settings.nearThresholdPercent, 25);
+  assert.deepEqual(audits, ['UPDATE_SYSTEM_SETTINGS']);
+  assert.equal((await call(adminId, '/settings/system', 'PUT', { ...body, version: 0 })).status, 409);
+});
 
-  const stale = await call(ownerId, '/settings/sales-policy', 'PUT', { ...body, returnDaysWindow: 10, version: 0 });
-  assert.equal(stale.status, 409);
+test('low-stock: the default minimum covers stocked pairs without their own threshold', async () => {
+  const [P1, P2, W1, H1, L1, B2] = ['1', '2', '3', '4', '5', '6'].map((c) => c.repeat(24));
+  mock.method(AppSetting, 'findOne', () => query({ value: { defaultMinimumQty: '3', nearThresholdPercent: 20 } }));
+  mock.method(Product, 'find', () => query([
+    { _id: P1, sku: 'A', name: 'Gạch A', baseUnit: 'm2', stockThresholds: [{ warehouseId: W1, minimumQty: '5', targetQty: '8' }] },
+    { _id: P2, sku: 'B', name: 'Gạch B', baseUnit: 'm2', stockThresholds: [] },
+  ]));
+  mock.method(models.Warehouse, 'find', () => query([{ _id: W1, code: 'K1', name: 'Kho 1' }]));
+  // Pair discovery reads balances/points/batches/locations by id; availability reads them by warehouse (none → 0).
+  mock.method(models.InventoryBalance, 'find', (filter) => query(filter.holdingPointId ? [] : [{ holdingPointId: H1, batchId: B2 }]));
+  mock.method(models.StockHoldingPoint, 'find', (filter) => query(filter._id ? [{ _id: H1, locationId: L1 }] : []));
+  mock.method(models.ProductBatch, 'find', (filter) => query(filter._id?.$in ? [{ _id: B2, productId: P2 }] : []));
+  mock.method(models.WarehouseLocation, 'find', (filter) => query(filter._id ? [{ _id: L1, warehouseId: W1 }] : []));
+  mock.method(models.StocktakeLocationLock, 'find', () => query([]));
+  const rows = await evaluateThresholds();
+  assert.deepEqual(rows.map((row) => [row.product.sku, row.source, row.minimumQty, row.targetQty, row.status]), [
+    ['A', 'PRODUCT', '5', '8', 'BELOW'],
+    ['B', 'DEFAULT', '3', '3', 'BELOW'],
+  ]);
 });
 
 test('API catalogue: admin only; SYSTEM URLs are read-only; only MANUAL rows can be deleted', async (t) => {

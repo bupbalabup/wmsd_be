@@ -46,17 +46,17 @@ export function buildTileShopScenario(data) {
     Object.assign(w,{code:['K-GACH-01','K-GACH-02','K-GACH-03'][i],
       address:['Khu kho cạnh cửa hàng','Khu kho vệ tinh','Khu kho dự phòng cạnh cửa hàng'][i],
       lengthMm:[60000,40000,30000][i],widthMm:[50000,25000,30000][i],clearHeightMm:6000,
-      description:'Bố trí mô phỏng theo ba kho khảo sát. Các chiều đo chi tiết là dữ liệu kiểm thử.'});
+      description:['Kho chính cạnh cửa hàng, kệ lưu trữ theo dãy','Kho vệ tinh cho hàng khổ lớn','Kho dự phòng cho hàng chờ xử lý'][i]});
   });
   const names=['Nguyễn Đức Minh','Trần Văn Thành','Nguyễn Thu Hà','Phạm Văn Hùng','Lê Văn Dũng','Đỗ Thị Lan'];
   data.users.forEach((u,i)=>{
     rename(u,'fullName',names[i]);
     rename(u,'username',['admin','chucuahang','banhang01','thukho01','thukho02','ketoan01'][i]);
-    u.email=`${u.username}@tile-shop.example`;u.phone=`000000${String(i+1).padStart(4,'0')}`;
+    u.email=`${u.username}@ceratile.vn`;u.phone=`091200${String(i+1).padStart(4,'0')}`;
   });
   const addUser=(template,username,fullName,warehouses)=>{
-    const u={...template,_id:id(username),username,fullName,email:`${username}@tile-shop.example`,
-      phone:`000000${String(data.users.length+1).padStart(4,'0')}`,warehouseIds:warehouses,...stamp};
+    const u={...template,_id:id(username),username,fullName,email:`${username}@ceratile.vn`,
+      phone:`091200${String(data.users.length+1).padStart(4,'0')}`,warehouseIds:warehouses,...stamp};
     data.users.push(u);return u;
   };
   staff.push(addUser(staff[0],'thukho03','Vũ Văn Nam',[data.warehouses[2]._id]));
@@ -65,26 +65,26 @@ export function buildTileShopScenario(data) {
     addUser(roleUser('SALES'),`banhang0${i+2}`,name,data.warehouses.map(w=>w._id)));
   ['Nguyễn Ngọc Linh','Trần Minh Châu'].forEach((name,i)=>
     addUser(roleUser('ACCOUNTANT'),`ketoan0${i+2}`,name,data.warehouses.map(w=>w._id)));
-  data.roles.forEach(r=>{if(r.code==='WAREHOUSE')r.name='Warehouse Staff';if(r.code==='WAREHOUSE_LEAD')r.name='Trưởng ca kho';});
+  data.roles.forEach(r=>{if(r.code==='WAREHOUSE')r.name='Nhân viên kho';if(r.code==='WAREHOUSE_LEAD')r.name='Trưởng ca kho';});
 
-  rename(data.customers[0],'name','Nguyễn Văn An');data.customers[0].code='KH-0001';data.customers[0].phone='0000010001';
+  rename(data.customers[0],'name','Nguyễn Văn An');data.customers[0].code='KH-0001';data.customers[0].phone='0988100001';
   const customerNames=['Trần Thị Hoa','Lê Minh Đức','Phạm Văn Bình','Vũ Thu Hằng','Đặng Quang Hải','Bùi Ngọc Mai',
     'Hoàng Văn Tùng','Đỗ Thị Hạnh','Nguyễn Minh Khang','Trần Tuấn Anh','Lê Thị Phương','Phạm Đức Duy','Vũ Ngọc Yến',
     'Đặng Văn Lâm','Bùi Thị Thảo','Hoàng Minh Tâm','Đỗ Văn Quân','Nguyễn Thu Uyên','Trần Gia Bảo'];
   customerNames.forEach((name,i)=>data.customers.push({_id:id('customer:'+i),code:`KH-${String(i+2).padStart(4,'0')}`,name,
-    phone:`000001${String(i+2).padStart(4,'0')}`,...stamp}));
+    phone:`098810${String(i+2).padStart(4,'0')}`,...stamp}));
   const supplierNames=['Công ty gạch An Phú','Công ty gạch Thành Việt','Nhà phân phối Minh Khôi'];
   supplierNames.forEach((name,i)=>{
     const row=i===0?data.suppliers[0]:{_id:id('supplier:'+i),...stamp};
     rename(row,'name',name);Object.assign(row,{code:`NCC-00${i+1}`,contactName:['Trần Anh Tuấn','Nguyễn Mỹ Linh','Phạm Quang Vinh','Lê Ngọc Hân'][i],
-      phone:`000002000${i+1}`,email:`ncc${i+1}@tile-shop.example`,address:`Khu phân phối ${i+1} — địa chỉ mô phỏng`,status:'ACTIVE'});
+      phone:`0283800000${i+1}`,email:['kinhdoanh@gachanphu.vn','banhang@gachthanhviet.vn','lienhe@minhkhoi.vn'][i],address:['Lô B2, KCN Tân Uyên, Bình Dương','Số 15 Quốc lộ 1A, Biên Hòa, Đồng Nai','Số 88 Kha Vạn Cân, Thủ Đức, TP. Hồ Chí Minh'][i],status:'ACTIVE'});
     if(i)data.suppliers.push(row);
   });
   const specs=new Map();
   SHOP_PRODUCTS.forEach((spec,i)=>{
     const row=i<2?data.products[i]:{_id:id('product:'+spec.sku),...stamp};
     rename(row,'name',spec.name);
-    Object.assign(row,{sku:spec.sku,manufacturerCode:spec.manufacturerCode,material:spec.material,
+    Object.assign(row,{sku:spec.sku,manufacturerCode:spec.manufacturerCode,material:{Porcelain:'Gạch porcelain',Ceramic:'Gạch ceramic'}[spec.material]??spec.material,
       lengthMm:decimalValue(spec.lengthMm),widthMm:decimalValue(spec.widthMm),heightMm:decimalValue(spec.heightMm),color:spec.color,
       baseUnit:spec.baseUnit,wholeBaseUnits:true,isActive:true});
     delete row.nominalSize;

@@ -1,6 +1,8 @@
 import { documentIdentifier } from '../../shared/utils/document-id.validation.js';
+import { movementListFields, validDateRange } from '../../shared/utils/movement-list.js';
 import { z } from 'zod';
 import { exact } from '../../models/model-utils.js';
+
 const oid = z.string().regex(/^[a-f\d]{24}$/i).transform((v) => v.toLowerCase());
 const qty = z.string().regex(/^\d{1,14}(\.\d{1,6})?$/).refine((v) => exact(v).gt(0)).transform((v) => exact(v).toFixed());
 const key = z.string().trim().min(1).max(48).regex(/^[\w.-]+$/);
@@ -44,10 +46,31 @@ export const receiptBody = z.object({ idempotencyKey: key, expectedVersion: vers
     qualityCode: z.enum(['GOOD', 'DAMAGED']), damageReason: z.string().trim().min(1).max(1000).optional(),
   }).strict().refine((v) => v.qualityCode !== 'DAMAGED' || Boolean(v.damageReason))).min(1).max(100),
 }).strict();
-export const params = z.object({ id: documentIdentifier }).strict();
-
 export const updateRequestBody = createRequestBody.safeExtend({ expectedVersion: version });
 
 export const cancelDispatchBody=z.object({idempotencyKey:key,expectedVersion:version,reason}).strict();
 export const partialCloseBody=z.object({idempotencyKey:key,expectedVersion:version,reason}).strict();
 export const cancelRequestBody=z.object({idempotencyKey:key,expectedVersion:version,reason}).strict();
+
+const listFields = {
+  sourceWarehouseId: oid.optional(),
+  destinationWarehouseId: oid.optional(),
+  status: z.string().trim().max(180).regex(/^[A-Z_]+(?:,[A-Z_]+)*$/).transform(value => value.split(',')).optional(),
+  ...movementListFields,
+  page: z.coerce.number().int().min(1).max(100000).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+};
+export const listQuery = z.object(listFields).strict().refine(validDateRange, { message: 'from must be before to' });
+export const dispatchListQuery = z.object({ ...listFields, receivable: z.enum(['true', 'false']).optional() })
+  .strict().refine(validDateRange, { message: 'from must be before to' });
+export const detailParams = z.object({ id: documentIdentifier }).strict();
+export const optionsQuery = z.object({ warehouseId: oid.optional(), mode:z.enum(['stock','locations']).default('stock') }).strict();
+
+const differenceLineId=z.string().regex(/^[a-f\d]{24}$/i),differenceKey=z.string().min(1).max(64),differenceQty=z.string().regex(/^\d{1,14}(\.\d{1,6})?$/).refine(v=>exact(v).gt(0));
+export const differenceProposalBody=z.object({idempotencyKey:differenceKey,expectedVersion:version,reason,lines:z.array(z.object({dispatchLineId:differenceLineId,qtyBase:differenceQty}).strict()).min(1).max(100).refine(rows=>new Set(rows.map(r=>r.dispatchLineId)).size===rows.length)}).strict();
+export const differenceReviewBody=z.object({idempotencyKey:differenceKey,expectedVersion:version,decision:z.enum(['APPROVE','REJECT','REVISE']),reason,
+ // RECEIVED: the missing goods arrived on a later receipt. WRITE_OFF: they are lost or destroyed in transit.
+ resolution:z.enum(['RECEIVED','WRITE_OFF']).optional(),liableParty:z.enum(['SOURCE_WAREHOUSE','CARRIER','DESTINATION_WAREHOUSE','UNKNOWN']).optional(),receiptId:documentIdentifier.optional()}).strict()
+ .refine(v=>v.decision!=='APPROVE'||(v.resolution??(v.receiptId?'RECEIVED':undefined))!==undefined,{message:'Chọn cách xử lý chênh lệch'})
+ .refine(v=>v.decision!=='APPROVE'||(v.resolution??'RECEIVED')!=='RECEIVED'||Boolean(v.receiptId),{message:'Chọn phiếu nhận đối chiếu'})
+ .refine(v=>v.decision!=='APPROVE'||v.resolution!=='WRITE_OFF'||Boolean(v.liableParty),{message:'Chọn bên chịu trách nhiệm hao hụt'});

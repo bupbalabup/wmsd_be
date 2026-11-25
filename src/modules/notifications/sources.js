@@ -3,7 +3,7 @@ import { canAccessWarehouse, hasPermission } from '../../shared/utils/access.js'
 import { getIssue } from '../goods-issues/goods-issue.service.js';
 import { getPurchaseOrder } from '../purchase-orders/purchase-order.service.js';
 import { readRequest } from '../replenishments/replenishment.commands.js';
-import { getTransfer } from '../transfers/transfer-read.service.js';
+import { getTransfer } from '../transfers/transfer.service.js';
 import { getStocktake } from '../stocktake-closure/stocktake-closure.service.js';
 import { getDocument } from '../po-receiving/purchase-read.service.js';
 

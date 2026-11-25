@@ -6,8 +6,7 @@ import stocktakeClosureRouter from './modules/stocktake-closure/stocktake-closur
 import stocktakePlanRouter from './modules/stocktake-plans/stocktake-plan.routes.js';
 import operationalReportsRouter from './modules/operational-reports/operational-reports.routes.js';
 import locationMovementRouter from "./modules/location-movements/location-movement.routes.js";
-import transferReadRouter from "./modules/transfers/transfer-read.routes.js";
-import transferWriteRouter from "./modules/transfers/transfer-write.routes.js";
+import transferRouter from "./modules/transfers/transfer.routes.js";
 import { salesOrderRouter, outboundDeliveryRouter, pickingRouter } from "./modules/sales-orders/sales-read.routes.js";
 import { deliveryScheduleRouter, deliveryOrderRouter } from "./modules/delivery-orders/delivery-order.routes.js";
 import healthRouter from "./modules/health/health.routes.js";
@@ -41,7 +40,7 @@ router.use('/stocktake-plans',stocktakePlanRouter);
 router.use('/reports',operationalReportsRouter);
 router.use('/uoms',uomRouter);
 router.use("/location-movements", locationMovementRouter);
-router.use("/warehouse-transfers", transferWriteRouter, transferReadRouter);
+router.use("/warehouse-transfers", transferRouter);
 router.use("/sales-orders", salesOrderRouter);
 router.use("/outbound-deliveries", outboundDeliveryRouter);
 router.use("/picking-tasks", pickingRouter);
@@ -49,7 +48,8 @@ router.use("/delivery-schedules", deliveryScheduleRouter);
 router.use("/delivery-orders", deliveryOrderRouter);
 
 router.use("/health", healthRouter);
-// Administration and owner overview (23/11/2026): /system/*, /dashboard/owner, /settings/sales-policy, /stock-alerts, /search.
+// Administration and owner overview (23/11/2026): /system/*, /dashboard/owner, /stock-alerts, /search.
+// /settings/sales-policy was removed on 25/11/2026 (scope LI-10).
 router.use("/system", systemRouter);
 router.use(overviewRouter);
 router.use("/auth", authRouter);
