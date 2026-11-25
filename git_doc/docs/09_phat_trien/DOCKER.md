@@ -1,56 +1,55 @@
 # Docker (backend + frontend)
 
-Từ 23/11/2026, chạy backend bằng `npm run dev` từ thư mục repo BE. Phần dưới ghi lại cấu hình Docker trước khi gỡ Dockerfile của backend.
-
-Updated 17 November 2026. Compose uses image-contained source and dependencies; neither service mounts host source or `node_modules`.
+Updated 24 November 2026. Backend and frontend are two independent dev containers, each with its own Dockerfile. There is no nginx at runtime: the frontend image runs the Vite dev server.
 
 ## Cấu trúc file
 
 | File | Vị trí | Vai trò |
 |---|---|---|
-| `Dockerfile` | repo backend | Một file, hai target: `dev` (nodemon, source and dependencies copied into the image) và `prod` (target cuối, mặc định: chỉ dependency production, chạy user `node`, có healthcheck) |
-| `.dockerignore` | repo backend | Loại `.git`, `node_modules`, `.env*`, `test`, `git_doc`, `docs`, `*.md`, cấu hình agent khỏi build context |
-| `docker-compose.yml` | thư mục chứa cả hai dự án (workspace root, không phải repo Git) | Chạy `api` (backend, target `dev`) và `web` (frontend `Dockerfile.dev`) |
+| `Dockerfile` | repo backend | Image dev: `node:22-alpine`, `npm ci`, chạy `npm run dev` (nodemon) |
+| `Dockerfile` | repo frontend | Image dev: `node:22-alpine` + pnpm 11.27.0, chạy `pnpm exec vite --host 0.0.0.0 --port 3334` |
+| `docker-compose.yml` | workspace root (không phải repo Git) | Định nghĩa 2 service độc lập `api` và `web` |
 
-Backend không còn `Dockerfile.dev`, `docker-compose.yml` hay thư mục `docker/`; script đổi `localhost` trong `MONGODB_URI` sang `host.docker.internal` nay nằm trong target `dev` của `Dockerfile`.
+Cả hai repo có `.dockerignore` loại `node_modules`, `.env*`, `.git`, tài liệu và test. Không bind mount source vào container: muốn cập nhật code thì rebuild image.
+
+> Theo yêu cầu người dùng 23/11/2026, Dockerfiles cũ (multi-stage `dev`/`prod`, `Dockerfile.dev`, entrypoint đổi `MONGODB_URI`, image frontend nginx) đã bị xóa khi chuyển sang deploy Cloudflare Workers. Ngày 24/11/2026 các Dockerfile dev đơn giản được tạo lại theo yêu cầu chạy Docker riêng biệt, không nginx.
 
 ## Lệnh
 
+Chạy từ workspace chứa `building-material-management/` và `frontend/`:
+
 ```sh
-# From the workspace containing building-material-management/ and frontend/.
-# Run again after every source, package.json or lockfile change.
-docker compose up -d --build api web  # api http://localhost:3300, web http://localhost:3334
-docker build -t wmsd-api building-material-management   # image production
+docker compose up -d --build api   # backend: http://localhost:3300
+docker compose up -d --build web   # frontend: http://localhost:3334
 ```
 
-The API publishes host port `3300` to container port `3000` to avoid a local conflict on host port `3000`. Keep `PORT=3000` and the internal proxy target `http://api:3000`; only direct host access uses `http://localhost:3300`. Apply a port-only change with `docker compose up -d api web`; rebuilding is only required when image inputs change.
+Hai service không có `depends_on`: có thể khởi động, dừng và rebuild riêng lẻ. Sau mỗi thay đổi source, `package.json` hoặc lockfile thì chạy lại lệnh tương ứng với `--build`; `docker compose restart` không cập nhật code trong image.
 
-`api` receives `building-material-management/.env` through `env_file`; the file is not copied into the image. `web` explicitly receives `VITE_API_URL=/api` because the frontend requires it and host `.env` files are no longer mounted. Browser requests use the same-origin `/api` path; Vite proxies them to `http://api:3000` inside the Compose network.
+## Cổng và proxy
 
-Lần đầu: tạo `building-material-management/.env` từ `.env.example` (file bị gitignore; thiếu file thì `api` chạy không có biến môi trường và không kết nối được database).
+- `api`: host `3300` → container `3000`. Compose đặt `PORT=3000` để ghi đè `PORT=3333` trong `.env` local (giữ đúng mapping).
+- `web`: host `3334` → container `3334` (đúng `strictPort` trong `vite.config.ts`). `VITE_API_URL=/api` được truyền rõ cho Vite.
+- Trình duyệt gọi cùng origin `/api`; Vite proxy tới `VITE_API_PROXY_TARGET`, mặc định là `http://host.docker.internal:3300` (cổng host đã publish của `api`). Điều này giúp `web` chạy riêng vẫn tới được backend. Nếu backend chạy ở cổng khác trên host, override:
 
-Both build contexts exclude host `node_modules` and `.env*` files. The backend `dev` stage now copies source into `/app`; the frontend development Dockerfile already does so. Dependencies remain in each image rather than in named volumes. Source changes on the host do not update a running container; `docker compose restart` does not rebuild it. Use the build-and-up command above to rebuild changed images and recreate their containers.
+```sh
+VITE_API_PROXY_TARGET=http://host.docker.internal:3000 docker compose up -d --build web
+```
 
-Existing containers retain their old mounts until recreated. Old `wmsd_api-modules` and `wmsd_web-modules` volume objects are no longer referenced by this configuration; this change does not delete them. No volume cleanup or `down -v` is required.
+Cả hai service khai báo `extra_hosts: host.docker.internal:host-gateway`. Port publish dùng `0.0.0.0` (dev); chỉ dùng trên máy/local network tin cậy, không mang cấu hình này ra production.
 
-## MongoDB trên máy host
+## Biến môi trường và dữ liệu
 
-Entrypoint `dev` chỉ đổi host `localhost`/`127.0.0.1` đầu tiên trong `MONGODB_URI` thành `host.docker.internal`; URI nhiều host hoặc `[::1]` không được đổi. MongoDB replica set quảng bá thành viên ở `127.0.0.1` cần thêm `directConnection=true`, và MongoDB phải bind địa chỉ mà container tới được (không chỉ `127.0.0.1`). API vẫn khởi động khi không kết nối được database (log "Continuing server startup without active database connection"), nên mọi route DB lỗi mà container vẫn chạy.
+- Compose đọc `building-material-management/.env` qua `env_file` (không đưa secret vào image). File `.env` không có trong build context nhờ `.dockerignore`.
+- Không còn biến `AUTO_SEED`: backend không đọc biến này. Seed chỉ chạy bằng lệnh CLI tường minh, không tự động lúc khởi động container.
+- `MONGODB_URI` trong `.env` hiện trỏ tới cụm Atlas từ xa; backend kết nối trực tiếp, không cần rewrite `localhost`. Với MongoDB chạy trên host, phải bind địa chỉ container tới được và cài `directConnection=true` nếu replica set quảng báo `127.0.0.1`.
+- `.env` hiện thiếu `JWT_SECRET` / `REFRESH_TOKEN_SECRET`, backend đang rơi về giá trị mặc định trong code. Đây là rủi ro và cần được bổ sung bởi người quản lý cấu hình trước khi dùng ngoài local.
 
-## An toàn dữ liệu
+## Kiểm chứng — 24/11/2026
 
-Compose đặt `AUTO_SEED=false` theo mặc định để container không tự seed vào database dùng chung/từ xa trong `.env`. Chủ động bật bằng `AUTO_SEED=true docker compose up` chỉ với database local đã được phê duyệt; `SEED_ON_STARTUP=false` trong `.env` vẫn chặn seed, và chỉ seed khi database rỗng. Đồng bộ mật khẩu seed lúc khởi động bị bỏ qua trong container vì URI đã đổi sang `host.docker.internal` không còn là URI local.
+Đã chạy: `docker compose config --quiet`; build riêng `api` và `web`; `docker compose up -d api` rồi `docker compose up -d web`; `curl http://127.0.0.1:3300/api/health` → `{"status":"ok"}`; `curl http://127.0.0.1:3334/` → HTTP 200; `curl http://127.0.0.1:3334/api/health` → cùng JSON (chứng tỏ proxy Vite → API hoạt động); `curl http://127.0.0.1:3300/api/auth/me` → 401 (route có authenticate chạy được). Log backend báo `Connected to MongoDB.`
 
-## Verification — 17 November 2026
+Giới hạn: `/api/health` là endpoint tĩnh, không tự chứng minh mọi route DB; chỉ kiểm tra thêm một route có middleware auth. Không chạy luồng nghiệp vụ đầy đủ (đăng nhập, tạo chứng từ) trong lần này. Reviewer độc lập xác nhận giao diện render ổn ở desktop 1280×720 và mobile 390×844, không lỗi console.
 
-Passed: merged Compose assertions (no service/named volumes; build targets, ports, explicit frontend API URL/proxy and disabled auto-seed); `docker compose build --check api web` (no warnings); `docker compose build api web`; isolated, read-only, network-disabled Node filesystem checks for source/dependencies, the backend entrypoint and absence of runtime `.env` files in both images; `npm run docs:check`; `git diff --check`.
+## Historical verification (17/11/2026)
 
-Application startup, MongoDB connectivity and web-to-API HTTP requests were not run. The filesystem checks override the entrypoint and do not start the app, seed data or restart existing services. Independent review is tracked in the task handoff, not implied by a successful build.
-
-## Historical verification (15 November 2026)
-
-`docker build --check`, build target `prod` và `dev`, `docker compose config`; image prod chạy user `node`, không chứa `.env` hay `test`, `src/app.js` import được; entrypoint `dev` đổi `localhost` thành `host.docker.internal`.
-
-Image `prod` trả 200 ở `/api/health`; `web` chạy riêng (không phụ thuộc api) trả 200 ở `http://localhost:3334/`. Dockerfile frontend được sửa để build được: base `node:22-alpine` (pnpm 11.27.0 không chạy trên Node 20) và copy thêm `pnpm-workspace.yaml` (chứa `allowBuilds` cho msw). Compose đặt `command` riêng cho `web` (`pnpm exec vite --host 0.0.0.0`) vì `pnpm dev -- --host` không truyền cờ cho Vite.
-
-At that historical checkpoint, full `docker compose up` with real MongoDB, hot reload and web-to-API connectivity had not been verified. Host-source hot reload no longer applies to the current mount-free configuration. `docker build frontend` (image production nginx) hết bộ nhớ khi `pnpm build` trong máy ảo Colima 2 GiB; cần tăng bộ nhớ máy ảo hoặc đặt `NODE_OPTIONS=--max-old-space-size`.
+Cấu hình cũ (đã xóa) từng dùng target `dev`/`prod`, `Dockerfile.dev`, image frontend nginx, entrypoint đổi `localhost` trong `MONGODB_URI`, proxy nội bộ `http://api:3000` và `AUTO_SEED`. Các kết quả build/check tại thời điểm đó chỉ còn giá trị lịch sử, không mô tả cấu hình hiện tại.

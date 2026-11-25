@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 import * as m from '../src/models/runtime.js';
 import * as service from '../src/modules/return-workflows/native.service.js';
 import * as reads from '../src/modules/return-workflows/native.read.js';
+import { processNotificationEvent } from '../src/modules/notifications/worker.js';
 import { buildReviewedDemo } from '../src/seeds/rebuild/data.js';
 import { PERMISSION_CATALOGUE, ROLE_PERMISSIONS } from '../src/seeds/data/permissions.data.js';
 const enabled=process.env.RUN_RETURNS_NATIVE_TESTS==='1',id=()=>new mongoose.Types.ObjectId(),sid=v=>String(v._id??v),key=()=>String(id());
@@ -48,17 +49,24 @@ run('defect proposal, independent review, partial execution, replay and scope',a
 run('supplier proposal, agreement, dispatch, acknowledgement and close do not double-post',async()=>{
  const body={...input(),warehouseId:sid(warehouse),supplierId:sid(supplier),lines:[{originLineId:sid(receipt.items[0]),balanceId:sid(balance),qtyBase:'4'}]};
  const created=await service.createSupplierReturn(users.WAREHOUSE,body);let doc=await m.SupplierReturn.findById(created.id);const ev=await attachment(doc,users.ACCOUNTANT);
+ assert.equal((await reads.detail(users.WAREHOUSE,'supplier-returns',doc.id)).counterpartyName,supplier.name);
  await service.supplierAgreement(users.ACCOUNTANT,doc.id,{...input(),expectedVersion:doc.version,evidenceIds:[ev.id],reference:'Supplier confirmed four',lines:[{lineId:sid(doc.items[0]),qtyBase:'4'}]});doc=await m.SupplierReturn.findById(doc.id);
+ const stockBeforeDispatch=Number((await m.InventoryBalance.findById(balance._id)).quantityBase);
  const dispatch={...input(),expectedVersion:doc.version,evidenceIds:[ev.id],recipientName:'Actual carrier',lines:[{lineId:sid(doc.items[0]),qtyBase:'4'}]};await service.dispatchSupplierReturn(users.WAREHOUSE,doc.id,dispatch);await service.dispatchSupplierReturn(users.WAREHOUSE,doc.id,dispatch);
- assert.equal(String((await m.InventoryBalance.findById(balance._id)).quantityBase),'28');doc=await m.SupplierReturn.findById(doc.id);const issue=await m.SupplierReturnIssue.findOne({'header.supplierReturnId':doc._id});
+ assert.equal(Number((await m.InventoryBalance.findById(balance._id)).quantityBase),stockBeforeDispatch-4);doc=await m.SupplierReturn.findById(doc.id);const issue=await m.SupplierReturnIssue.findOne({'header.supplierReturnId':doc._id});
  await service.acknowledgeSupplierReturn(users.ACCOUNTANT,doc.id,{...input(),expectedVersion:doc.version,evidenceIds:[ev.id],lines:[{lineId:sid(issue.items[0]),qtyBase:'4',outcome:'ACCEPTED'}]});doc=await m.SupplierReturn.findById(doc.id);
- await service.closeSupplierReturn(users.ACCOUNTANT,doc.id,{...input(),expectedVersion:doc.version});assert.equal((await m.SupplierReturn.findById(doc.id)).workflowStatus,'COMPLETED');assert.equal(String((await m.InventoryBalance.findById(balance._id)).quantityBase),'28');
+ await service.closeSupplierReturn(users.ACCOUNTANT,doc.id,{...input(),expectedVersion:doc.version});assert.equal((await m.SupplierReturn.findById(doc.id)).workflowStatus,'COMPLETED');assert.equal(Number((await m.InventoryBalance.findById(balance._id)).quantityBase),stockBeforeDispatch-4);
+ while(await processNotificationEvent(new Date(0))){}
+ const notices=await m.Notification.find({sourceType:'supplier_returns',sourceId:doc._id,recipientId:users.WAREHOUSE._id});
+ assert.equal(notices.filter(notice=>notice.type==='ACK_SR').length,1);
+ assert.equal(notices.filter(notice=>notice.type==='CLOSE_SR').length,1);
 });
 run('customer custody, current inspection decision and receipt preserve physical quantity',async()=>{
  const issue=await m.SalesGoodsIssue.findOne({documentNo:{$exists:true}}).sort({occurredAt:1});const source=issue.items[0];
  const od=await m.DeliveryOrder.findOne({'items._id':source.details.outboundDeliveryLineId});const wir=await m.WarehouseIssueRequest.findById(od.header.issueRequestId);const order=await m.SalesOrder.findById(wir.header.salesOrderId);
+ const legacyCustomer=await m.Customer.findById(order.header.customerId);assert.ok(legacyCustomer?.name);order.header.customerName=undefined;await order.save();
  const sales=await m.User.findById(order.createdBy).populate({path:'roleId',populate:{path:'permissionIds'}});sales.warehouseIds=[issue.header.warehouseId];await sales.save();
- const c=await service.createCustomerReturn(sales,{...input(),warehouseId:sid(issue.header.warehouseId),lines:[{salesIssueLineId:sid(source),qtyBase:'4',reason:'Unused cartons'}]});let doc=await m.CustomerReturn.findById(c.id);const ev=await attachment(doc,users.WAREHOUSE);
+ const c=await service.createCustomerReturn(sales,{...input(),warehouseId:sid(issue.header.warehouseId),lines:[{salesIssueLineId:sid(source),qtyBase:'4',reason:'Unused cartons'}]});let doc=await m.CustomerReturn.findById(c.id);assert.equal(doc.header.customerName,legacyCustomer.name);const ev=await attachment(doc,users.WAREHOUSE);
  const inspection={...input(),expectedVersion:doc.version,evidenceIds:[ev.id],custodyLocationId:custody.id,lines:[{returnLineId:sid(doc.items[0]),qtyReceived:'4',packagingCondition:'SEALED',installationStatus:'UNUSED',damageCause:'NONE',deadlineStatus:'WITHIN',deadlineReference:'Verified contract',assessmentReason:'Unused intact goods'}]};
  await service.inspectCustomerReturn(users.WAREHOUSE,doc.id,inspection);doc=await m.CustomerReturn.findById(doc.id);
  await service.decideCustomerReturn(sales,doc.id,{...input(),expectedVersion:doc.version,decision:'APPROVE',reason:'Ordinary eligible return'});doc=await m.CustomerReturn.findById(doc.id);
@@ -75,7 +83,7 @@ run('multiple customer custody arrivals retain later packaging timestamps on rec
  const location=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'RET-MULTI-CUSTODY',locationType:'CUSTODY',usableLengthMm:5000,usableWidthMm:5000});
  const external=await legacyHistoricalSource('8'),returns=[];
  for(let i=0;i<2;i++){
-  const created=await service.createCustomerReturn(users.SALES,{...input(),warehouseId:warehouse.id,lines:[{historicalExternalLineId:sid(external.items[0]),qtyBase:'4',reason:'Unused cartons'}]});let doc=await m.CustomerReturn.findById(created.id);const ev=await attachment(doc,users.WAREHOUSE);
+  const created=await service.createCustomerReturn(users.SALES,{...input(),warehouseId:warehouse.id,lines:[{historicalExternalLineId:sid(external.items[0]),qtyBase:'4',reason:'Unused cartons'}]});let doc=await m.CustomerReturn.findById(created.id);assert.equal(doc.header.customerName,customer.name);const ev=await attachment(doc,users.WAREHOUSE);
   await service.inspectCustomerReturn(users.WAREHOUSE,doc.id,{...input(),expectedVersion:doc.version,evidenceIds:[ev.id],custodyLocationId:location.id,lines:[{returnLineId:sid(doc.items[0]),qtyReceived:'4',packagingCondition:'SEALED',installationStatus:'UNUSED',damageCause:'NONE',deadlineStatus:'WITHIN',deadlineReference:'Actual terms',assessmentReason:'Intact goods'}]});
   doc=await m.CustomerReturn.findById(doc.id);await service.decideCustomerReturn(users.SALES,doc.id,{...input(),expectedVersion:doc.version,decision:'APPROVE',reason:'Ordinary return'});returns.push({id:doc.id,evidenceId:ev.id});
  }

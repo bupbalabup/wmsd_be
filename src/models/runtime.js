@@ -44,6 +44,7 @@ export const TransferReceipt = mongoose.connection.model('TransferReceipt');
 export const SalesOrder = models.get("sales_orders");
 export const WarehouseIssueRequest = models.get("warehouse_issue_requests");
 export const DeliveryOrder = models.get("delivery_orders");
+export const DeliverySchedule = models.get("delivery_schedules");
 export const SalesGoodsIssue = models.get("sales_goods_issues");
 export const DefectReport = models.get("defect_reports");
 export const StockScrapRecord = models.get("stock_scrap_records");

@@ -1,8 +1,21 @@
-# Excel and opening-stock local setup
+# Excel and opening-stock setup
 
 16 November 2026. Source: [API contract](../08_api/EXCEL_AND_OPENING_STOCK.md). No remote rollout or application-data migration was performed.
 
 Frontend checkout for this task: `review-latest-fe`, branch `codex/excel-opening-stock`. Backend: `review-latest-be`, same branch name in the separate repository. Both branches started from the fetched main tips. Install frontend dependencies with `pnpm install --frozen-lockfile`; ExcelJS 4.4.0 is dynamically loaded for import/export. Backend has no new runtime dependency.
+
+## Atlas or existing remote database
+
+17 November 2026: user explicitly requested Atlas support and enabling the configured database. The setup command now loads `MONGODB_URI` from the backend environment or `.env`; do not paste credentials into commands or Git. From the backend directory:
+
+```powershell
+node scripts/setup-opening-stock.mjs --allow-remote
+node scripts/setup-opening-stock.mjs --allow-remote --apply
+```
+
+The first command previews; the second installs only opening-stock permissions, Owner grants, the file-import uniqueness index and missing technical warehouse counters. It does not seed business records or change stock quantities. A database name must be explicit in the URI; admin/local/config databases are refused. The same commands support Atlas SRV and standard MongoDB connection strings. Remote targets require `--allow-remote`. After applying, sign out and back in to refresh session permissions; use the current frontend/backend containing the opening-stock routes.
+
+Applied to the configured Atlas database `sep490` on 17 November 2026 under the user's explicit request. Read-back confirmed three permission records, all Owner roles granted, zero non-Owner opening-stock grants and the unique file-import index. No credentials are recorded here. This is setup verification, not an authenticated browser import/posting test.
 
 ## Existing local database
 
@@ -13,7 +26,7 @@ node scripts/setup-opening-stock.mjs 'mongodb://127.0.0.1:27017/YOUR_LOCAL_DATAB
 node scripts/setup-opening-stock.mjs 'mongodb://127.0.0.1:27017/YOUR_LOCAL_DATABASE?replicaSet=rs0' --apply
 ```
 
-The first command previews setup. The second adds only the three opening-stock permissions, their Owner-only grants, a unique index for POSTED file imports, and a zero technical stock-operation counter on warehouses missing it. Opening-stock grants are explicitly removed from all non-Owner roles, including old Warehouse or custom-role grants. All unrelated permissions/grants and business data remain intact. Re-run this setup for a local database that installed the earlier opening-stock version; it replaces that feature's broader POSTED-warehouse index after validating file-import duplicates. Historical opening records do not block index installation. It refuses non-loopback URIs and duplicate/unscoped posted file imports. Restart the application and sign in again to refresh the session's frontend permissions. Do not use a full permission reseed to install this feature.
+The first command previews setup. The second adds only the three opening-stock permissions, their Owner-only grants, a unique index for POSTED file imports, and a zero technical stock-operation counter on warehouses missing it. Opening-stock grants are explicitly removed from all non-Owner roles, including old Warehouse or custom-role grants. All unrelated permissions/grants and business data remain intact. Re-run this setup for a local database that installed the earlier opening-stock version; it replaces that feature's broader POSTED-warehouse index after validating file-import duplicates. Historical opening records do not block index installation. Without `--allow-remote`, it refuses non-loopback URIs; duplicate/unscoped posted file imports are always refused. Restart the application and sign in again to refresh the session's frontend permissions. Do not use a full permission reseed to install this feature.
 
 Configure the existing frontend API URL and proxy for the chosen local backend. The normal project port is 3334; backend is normally 3000. The implementation's browser verification uses isolated ports and synthetic users instead of the application's production connection.
 

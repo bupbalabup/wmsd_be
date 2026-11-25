@@ -60,6 +60,7 @@ export function create(user, input) {
     const order = await m.SalesOrder.findById(input.salesOrderId).session(session);
     if (!order || !active(order)) throw validationError('Đơn bán đã kết thúc');
     checkVersion(order, input.expectedVersion);
+    if (await m.DeliverySchedule.exists({ salesOrderId: order._id }).session(session)) throw validationError('Đơn có lịch giao; xuất kho qua lệnh giao hàng');
     if (await m.WarehouseIssueRequest.exists({ 'header.salesOrderId': order._id, workflowStatus: { $nin: ['CANCELLED', 'CLOSED'] } }).session(session)) throw validationError('Đơn đang có yêu cầu xuất cũ; hoàn tất hoặc hủy yêu cầu trước');
     const issue = new m.SalesGoodsIssue({ ...await nextDocumentFields(m.SalesGoodsIssue, 'GI', input.warehouseId, session), workflowStatus: 'DRAFT', version: 1, createdBy: actor._id, note: input.note,
       header: { warehouseId: input.warehouseId, fulfillmentMode: 'DIRECT', salesOrderId: order._id, customerId: order.header.customerId }, sources: [sourceLink(order)], items: [] });
@@ -153,7 +154,9 @@ export async function options(user, query) {
     const warehouses = await m.Warehouse.find({ isActive: true, ...(role(user) !== 'OWNER' && { _id: { $in: user.warehouseIds || [] } }) }).select('code name').session(session);
     const orders = await m.SalesOrder.find({ workflowStatus: { $nin: ['CANCELLED', 'CLOSED', 'COMPLETED', 'DELIVERED'] }, ...(role(user) === 'SALES' && { createdBy: user._id }) }).sort({ createdAt: -1 }).limit(100).session(session);
     const choices = [];
+    const scheduled = new Set((await m.DeliverySchedule.distinct('salesOrderId', { salesOrderId: { $in: orders.map(order => order._id) } }).session(session)).map(String));
     for (const order of orders) {
+      if (scheduled.has(String(order._id))) continue;
       if (await m.WarehouseIssueRequest.exists({ 'header.salesOrderId': order._id, workflowStatus: { $nin: ['CANCELLED', 'CLOSED'] } }).session(session)) continue;
       const lines = [];
       for (const item of order.items) {

@@ -1,3 +1,7 @@
+## 25/11/2026 — Delivery schedule
+
+Adds one delivery_schedules record per new sales order, with embedded deliveries, lines and allocations. Preserves existing SalesOrder source and evidence fields, and adds schedule references to delivery orders.
+
 ## 23/11/2026 — Mở lại PO đã đóng sau khi đảo phiếu nhập
 
 Không đổi model. Lệnh mới `REOPEN_PURCHASE_ORDER` chỉ đổi `workflowStatus` và gỡ `header.closedAt` có sẵn; PO nhận hết phần còn lại khi có dòng chốt thiếu thì về `CLOSED`. Chi tiết ở `git_doc/change_logs.md`.

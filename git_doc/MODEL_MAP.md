@@ -32,7 +32,9 @@ Mốc schema 23/11/2026: 61 collection = 58 collection nghiệp vụ + 3 collect
 
 ## Registry và các file cùng tác động
 
-The runtime uses one registry: `src/models/index.js` exports `registerModels(connection)`; `runtime.js` supplies API models. There are 61 collection schemas (`*.model.js`; 58 business + 3 system administration since 23/11/2026); `GoodsReceipt` có năm discriminator cùng collection. Nested schemas do not create collections. `registerReviewedModels` is a compatibility alias. Pure historical transforms and synthetic fixtures under `src/migrations/rebuild` and `src/seeds/rebuild` remain for regression checks.
+Từ 25/11/2026 có 62 collection. Đơn bán mới nhập tên/SĐT khách, lưu bằng chứng nguồn và lập lịch giao ngay trong cùng giao dịch. [Hợp đồng lịch giao](docs/08_api/SALES_DELIVERY_SCHEDULE.md).
+
+The runtime uses one registry: `src/models/index.js` exports `registerModels(connection)`; `runtime.js` supplies API models. There are 62 collection schemas (`*.model.js`; 59 business + 3 system administration); `GoodsReceipt` có năm discriminator cùng collection. Nested schemas do not create collections. `registerReviewedModels` is a compatibility alias. Pure historical transforms and synthetic fixtures under `src/migrations/rebuild` and `src/seeds/rebuild` remain for regression checks.
 
 [Hợp đồng API hiện hành](docs/08_api/GOODS_RECEIPTS.md). Các bản v8/Atlas trước đây là bằng chứng triển khai có ngày; lượt đồng bộ này không ghi lên Atlas.
 
@@ -96,6 +98,7 @@ receipts without an ITR use the explicit legacy open-task command. See [BF04 API
 | `internal_transfer_requirements` | Yêu cầu lấy/xếp hàng theo phiếu xuất hoặc nhận, là căn cứ tự sinh TO. | [internal-transfer-requirement.model.js](../src/models/internal-transfer-requirement.model.js) |
 | `transfer_dispatches` | Phiếu xuất điều chuyển từng đợt theo TR; chứa bàn giao và lượng thực xuất sang đang chuyển. | [transfer-dispatch.model.js](../src/models/transfer-dispatch.model.js) |
 | `sales_orders` | Đơn bán có khách hàng, giá và quy đổi trên từng dòng; lưu tham chiếu đơn nguồn. | [sales-order.model.js](../src/models/sales-order.model.js) |
+| `delivery_schedules` | One schedule per SalesOrder, with planned deliveries, quantities per line, and FIFO reservation links. | [delivery-schedule.model.js](../src/models/delivery-schedule.model.js) |
 | `warehouse_issue_requests` | Yêu cầu xuất do Sales chia từ đơn bán; mới lập chưa giữ hoặc trừ tồn. | [warehouse-issue-request.model.js](../src/models/warehouse-issue-request.model.js) |
 | `delivery_orders` | Lệnh giao một đợt từ một kho theo WIR; có lịch, người nhận, địa chỉ và lượng cam kết. | [delivery-order.model.js](../src/models/delivery-order.model.js) |
 | `sales_goods_issues` | GI_SALE/GI_OTHER: mã tham chiếu tay, sản phẩm/lượng/ghi chú; SALES tạo PENDING_APPROVAL, Owner duyệt cùng ID sang DRAFT, không đổi tồn. Kho phân bổ lô/ô vào PICK TO rồi PGI. OD/giá nguồn cũ vẫn tương thích; approval User refs và bàn giao nhúng. [Goods Issue + sơ đồ quan hệ](docs/08_api/GOODS_ISSUES.md). | [sales-goods-issue.model.js](../src/models/sales-goods-issue.model.js) |

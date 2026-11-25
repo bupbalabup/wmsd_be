@@ -13077,6 +13077,12 @@
         "target": "Warehouse"
       },
       {
+        "path": "header.deliveryId",
+        "type": "ObjectId",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "header.plannedOn",
         "type": "Date",
         "required": true,
@@ -13119,10 +13125,46 @@
         "target": ""
       },
       {
+        "path": "header.issuedBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "header.issuedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "header.handedOverBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "header.handedOverAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
         "path": "header.issueRequestId",
         "type": "DocumentIdentity",
-        "required": true,
+        "required": false,
         "target": ""
+      },
+      {
+        "path": "header.salesOrderId",
+        "type": "DocumentIdentity",
+        "required": false,
+        "target": "SalesOrder"
+      },
+      {
+        "path": "header.scheduleId",
+        "type": "DocumentIdentity",
+        "required": false,
+        "target": "DeliverySchedule"
       },
       {
         "path": "header.replacesDeliveryOrderId",
@@ -13131,10 +13173,160 @@
         "target": "DeliveryOrder"
       },
       {
+        "path": "issueReports",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "issueReports[].lineId",
+        "type": "ObjectId",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "issueReports[].soLineId",
+        "type": "ObjectId",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "issueReports[].lotId",
+        "type": "ObjectId",
+        "required": false,
+        "target": "ProductBatch"
+      },
+      {
+        "path": "issueReports[].locationId",
+        "type": "ObjectId",
+        "required": false,
+        "target": "WarehouseLocation"
+      },
+      {
+        "path": "issueReports[].balanceId",
+        "type": "ObjectId",
+        "required": false,
+        "target": "InventoryBalance"
+      },
+      {
+        "path": "issueReports[].kind",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "issueReports[].shortQtyBase",
+        "type": "Decimal128",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "issueReports[].reason",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "issueReports[].picks",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "issueReports[].picks[].balanceId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "InventoryBalance"
+      },
+      {
+        "path": "issueReports[].picks[].locationId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "WarehouseLocation"
+      },
+      {
+        "path": "issueReports[].picks[].qtyBase",
+        "type": "Decimal128",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "issueReports[].picks[].reservationId",
+        "type": "ObjectId",
+        "required": false,
+        "target": "StockReservation"
+      },
+      {
+        "path": "issueReports[].picks[]._id",
+        "type": "ObjectId",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "issueReports[].shortfallQtyBase",
+        "type": "Decimal128",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "issueReports[].status",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "issueReports[].reportedBy",
+        "type": "ObjectId",
+        "required": true,
+        "target": "User"
+      },
+      {
+        "path": "issueReports[].reportedAt",
+        "type": "Date",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "issueReports[].closedBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "issueReports[].closedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "issueReports[].stockTransactionId",
+        "type": "ObjectId",
+        "required": false,
+        "target": "StockTransaction"
+      },
+      {
+        "path": "issueReports[]._id",
+        "type": "ObjectId",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "issueReports[].adjustmentId",
+        "type": "DocumentIdentity",
+        "required": false,
+        "target": "StockAdjustment"
+      },
+      {
         "path": "updatedBy",
         "type": "ObjectId",
         "required": false,
         "target": "User"
+      },
+      {
+        "path": "stockTransactionId",
+        "type": "ObjectId",
+        "required": false,
+        "target": "StockTransaction"
       },
       {
         "path": "evidenceIds",
@@ -13547,6 +13739,202 @@
         {
           "workflowStatus": 1,
           "createdAt": -1
+        },
+        {}
+      ]
+    ]
+  },
+  {
+    "collection": "delivery_schedules",
+    "model": "DeliverySchedule",
+    "sourceFile": "src/models/delivery-schedule.model.js",
+    "fields": [
+      {
+        "path": "documentNo",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "documentKind",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "version",
+        "type": "Number",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "createdBy",
+        "type": "ObjectId",
+        "required": true,
+        "target": "User"
+      },
+      {
+        "path": "updatedBy",
+        "type": "ObjectId",
+        "required": false,
+        "target": "User"
+      },
+      {
+        "path": "deliveries",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "deliveries[].seq",
+        "type": "Number",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "deliveries[].plannedOn",
+        "type": "Date",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "deliveries[].warehouseId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "Warehouse"
+      },
+      {
+        "path": "deliveries[].status",
+        "type": "String",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "deliveries[].lines",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "deliveries[].lines[].soLineId",
+        "type": "ObjectId",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "deliveries[].lines[].lotId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "ProductBatch"
+      },
+      {
+        "path": "deliveries[].lines[].qtyBase",
+        "type": "Decimal128",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "deliveries[].lines[].allocations",
+        "type": "Array",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "deliveries[].lines[].allocations[].balanceId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "InventoryBalance"
+      },
+      {
+        "path": "deliveries[].lines[].allocations[].locationId",
+        "type": "ObjectId",
+        "required": true,
+        "target": "WarehouseLocation"
+      },
+      {
+        "path": "deliveries[].lines[].allocations[].qtyBase",
+        "type": "Decimal128",
+        "required": true,
+        "target": ""
+      },
+      {
+        "path": "deliveries[].lines[].allocations[].reservationId",
+        "type": "ObjectId",
+        "required": false,
+        "target": "StockReservation"
+      },
+      {
+        "path": "deliveries[].lines[].allocations[]._id",
+        "type": "ObjectId",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "deliveries[].lines[]._id",
+        "type": "ObjectId",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "deliveries[]._id",
+        "type": "ObjectId",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "deliveries[].doId",
+        "type": "DocumentIdentity",
+        "required": false,
+        "target": "DeliveryOrder"
+      },
+      {
+        "path": "createdAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "updatedAt",
+        "type": "Date",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "_id",
+        "type": "DocumentIdentity",
+        "required": false,
+        "target": ""
+      },
+      {
+        "path": "salesOrderId",
+        "type": "DocumentIdentity",
+        "required": true,
+        "target": "SalesOrder"
+      }
+    ],
+    "indexes": [
+      [
+        {
+          "documentNo": 1
+        },
+        {
+          "unique": true,
+          "_autoIndex": false
+        }
+      ],
+      [
+        {
+          "salesOrderId": 1
+        },
+        {
+          "unique": true
+        }
+      ],
+      [
+        {
+          "deliveries.warehouseId": 1,
+          "deliveries.plannedOn": 1,
+          "deliveries.status": 1
         },
         {}
       ]
@@ -18536,6 +18924,12 @@
         "type": "DocumentIdentity",
         "required": false,
         "target": ""
+      },
+      {
+        "path": "header.deliveryOrderId",
+        "type": "DocumentIdentity",
+        "required": false,
+        "target": "DeliveryOrder"
       },
       {
         "path": "updatedBy",

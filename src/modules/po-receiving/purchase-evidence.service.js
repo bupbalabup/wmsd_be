@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { dirname, resolve, sep } from 'node:path';
 import { PNG } from 'pngjs';
 import jpeg from 'jpeg-js';
 import { PDFDocument } from 'pdf-lib';
@@ -11,11 +13,41 @@ import { newId, command, checkVersion, saveVersion } from '../../shared/utils/do
 import { dto } from '../../shared/utils/persistence.js';
 import { findPurchase, replayPurchase } from './purchase-core.js';
 const MAX_BYTES = 5 * 1024 * 1024;
+const storageProvider = process.env.EVIDENCE_STORAGE_PROVIDER || 'cloudinary';
+if (!['cloudinary', 'local'].includes(storageProvider)) throw new Error('EVIDENCE_STORAGE_PROVIDER must be cloudinary or local');
+if (storageProvider === 'local' && process.env.NODE_ENV === 'production') throw new Error('Local evidence storage is disabled in production');
+const localStorageRoot = resolve(process.env.EVIDENCE_LOCAL_DIR || '.local/evidence-storage');
+function localStoragePath(key) {
+  if (typeof key !== 'string' || !/^sep490\/(?:returns|purchase-evidence)\/[A-Za-z0-9_-]+(?:\.pdf)?$/.test(key)) throw validationError('Đường dẫn chứng cứ không hợp lệ');
+  const path = resolve(localStorageRoot, ...key.split('/'));
+  if (!path.startsWith(`${localStorageRoot}${sep}`)) throw validationError('Đường dẫn chứng cứ không hợp lệ');
+  return path;
+}
+async function uploadLocal(buffer, options) {
+  if (options.type !== 'authenticated') throw validationError('Chứng cứ phải được lưu riêng tư');
+  const path = localStoragePath(options.public_id);
+  await mkdir(dirname(path), { recursive: true });
+  try { await writeFile(path, buffer, { flag: 'wx' }); }
+  catch (error) { if (error.code === 'EEXIST') throw new ApiError(409, 'Chứng cứ đã tồn tại'); throw error; }
+  return { public_id: options.public_id, type: 'authenticated' };
+}
+async function downloadLocal(key, format, resourceType) {
+  const mediaType = resourceType === 'raw' ? 'application/pdf' : format === 'png' ? 'image/png' : 'image/jpeg';
+  const bytes = await readFile(localStoragePath(key));
+  return `data:${mediaType};base64,${bytes.toString('base64')}`;
+}
 export const evidenceStorage = {
-  upload: (buffer, options) => new Promise((resolve, reject) => cloudinary.uploader.upload_stream({ ...options, timeout: 20000 }, (e, r) => e ? reject(new ApiError(502, 'Không lưu được chứng cứ')) : resolve(r)).end(buffer)),
-  exists: (key, resourceType) => cloudinary.api.resource(key, { resource_type: resourceType, type: 'authenticated' }),
-  destroy: (key, resourceType) => cloudinary.uploader.destroy(key, { resource_type: resourceType, type: 'authenticated', invalidate: true }),
-  download: (key, format, resourceType, expiresAt) => cloudinary.utils.private_download_url(key, format, { resource_type: resourceType, type: 'authenticated', expires_at: expiresAt, attachment: true }),
+  upload: (buffer, options) => storageProvider === 'local' ? uploadLocal(buffer, options) : new Promise((resolve, reject) => cloudinary.uploader.upload_stream({ ...options, timeout: 20000 }, (e, r) => e ? reject(new ApiError(502, 'Không lưu được chứng cứ')) : resolve(r)).end(buffer)),
+  exists: async (key, resourceType) => {
+    if (storageProvider !== 'local') return cloudinary.api.resource(key, { resource_type: resourceType, type: 'authenticated' });
+    await stat(localStoragePath(key)); return { public_id: key, type: 'authenticated' };
+  },
+  destroy: async (key, resourceType) => {
+    if (storageProvider !== 'local') return cloudinary.uploader.destroy(key, { resource_type: resourceType, type: 'authenticated', invalidate: true });
+    try { await unlink(localStoragePath(key)); return { result: 'ok' }; }
+    catch (error) { if (error.code === 'ENOENT') return { result: 'not found' }; throw error; }
+  },
+  download: async (key, format, resourceType, expiresAt) => storageProvider === 'local' ? downloadLocal(key, format, resourceType) : cloudinary.utils.private_download_url(key, format, { resource_type: resourceType, type: 'authenticated', expires_at: expiresAt, attachment: true }),
 };
 export async function inspectFile(file) {
   if (!file?.buffer?.length) throw validationError('Thiếu tệp chứng cứ');
@@ -85,7 +117,7 @@ export async function listEvidence(user,id){
 export async function downloadEvidence(user,id,evidenceId){
   await parent(user,id);const attachment=await Attachment.findOne({_id:evidenceId,ownerDocumentId:id,status:'ATTACHED',...(!priceAccess(user)&&{accessCategory:{$ne:'PURCHASE_PRICE'}})});
   if(!attachment)throw notFoundError();const expiresAt=Math.floor(Date.now()/1000)+60;
-  return {url:evidenceStorage.download(attachment.storageKey,format(attachment),resourceType(attachment),expiresAt),expiresAt:new Date(expiresAt*1000).toISOString()};
+  return {url:await evidenceStorage.download(attachment.storageKey,format(attachment),resourceType(attachment),expiresAt),expiresAt:new Date(expiresAt*1000).toISOString()};
 }
 export async function cleanupPurchaseEvidence({now=new Date(),limit=100}={}){
   let removed=0;

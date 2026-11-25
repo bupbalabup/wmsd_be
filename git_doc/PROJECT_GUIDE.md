@@ -14,6 +14,10 @@ Nguồn yêu cầu: [Report 3, phạm vi và BF-06/BF-07](docs/01_bao_cao/WMSD_R
 
 The runtime contract below describes the direct-sales implementation before customer-catalogue removal; current functional scope is defined above. Sales Order → direct Goods Issue; Sales confirms evidenced customer receipt; Warehouse receives undelivered goods inline. New CR inspection records facts only, acceptance authorizes receipt, and only receipt posts STORE stock. Legacy mode markers are absent and retain original ledgers. Optional issue header/order/customer/sourceBalance and embedded customerReceipts, CR intakeMode/handbacks, and FAILED_DELIVERY receipt goodsIssueId add no collection. See [current contract](docs/08_api/GOODS_ISSUES.md) for permissions, exact caps, schema, compatibility and setup.
 
+## Current sales and returns — 18 November 2026
+
+Customer Return may start from a posted SALE Goods Issue with or without a Sales Order. SO-linked issue lines require recorded, evidence-backed customer receipt before becoming return sources; standalone sale issue lines use posted quantity less undelivered receipts and outstanding claims. Each return uses one source document. Warehouse inspection records facts, Sales accepts or rejects, and Warehouse receipt posts accepted stock. See [current contract](docs/08_api/GOODS_ISSUES.md).
+
 17/11/2026 — Kho 3D [lớp pallet](docs/10_Kho3D/STAGE3_PALLET_LAYERS.md): nhập mã/lô/số thùng như phương án; không tạo balance/chứng từ. Cao đo phần hàng cộng đế; giữ nghĩa actualHeight lịch sử. Vượt giới hạn khu/kho chỉ cảnh báo, không chặn lưu/áp dụng theo quyết định trực tiếp người dùng.
 
 17/11/2026 — Người dùng duyệt BF03 chuyển nhiều lần trên cùng lệnh: OPEN → PARTIAL → CONFIRMED; mỗi lần chỉ ghi lượng thực chuyển của các dòng chọn. Lượng còn lại tính từ ledger, hủy chỉ phần chưa chuyển, giữ lịch sử và tồn đã chuyển. Chưa có chuyến mới được sửa kế hoạch; không tự mở thùng. Hợp đồng: docs/08_api/location-movements/README.md.
@@ -108,7 +112,7 @@ Tồn đầu từ file ghi hàng tốt của cửa hàng vào `TONDAU-NHAN`, khu
 - Xác nhận tồn phải nguyên tử với balance, transaction, movement, chứng từ, hạn mức/giữ hàng, audit và outbox. Cùng request key/payload trả lại kết quả cũ, key khác nội dung phải báo xung đột.
 - Kiểm active user, permission hiện tại, warehouseIds, nguồn, creator/approver/receiver, trạng thái, revision, freeze, số lượng còn lại và sức chứa ngay khi ghi. UI không thay kiểm quyền BE.
 - Khoá tài khoản qua lệnh đổi trạng thái phải nhập lý do. Xem quy tắc lưu lý do và ghi nhật ký trong [hợp đồng trạng thái tài khoản](docs/08_api/USER_ACCESS_STATUS.md).
-- Yêu cầu đặt lại mật khẩu qua email đang chờ triển khai. Người dùng tự yêu cầu OTP ở màn đăng nhập (UC-131) hoặc Administrator yêu cầu OTP từ chi tiết tài khoản (UC-132). Hệ thống gửi mã đến email đã đăng ký và chủ tài khoản dùng mã để tự đặt mật khẩu mới. Luồng, quyền và ngoại lệ nằm trong [Report 3](docs/01_bao_cao/WMSD_Report3_Fix.docx.txt).
+- Người dùng tự đặt lại mật khẩu qua email đã được triển khai (UC-145, trước đây UC-131; từ 23/11/2026): yêu cầu OTP ở màn đăng nhập (`POST /api/auth/forgot-password/otp`), nhập mã và mật khẩu mới (`POST /api/auth/forgot-password/reset`). Administrator yêu cầu OTP từ chi tiết tài khoản (UC-160, trước đây UC-132) vẫn đang chờ triển khai. Luồng, quyền và ngoại lệ nằm trong [Report 3](docs/01_bao_cao/WMSD_Report3_Fix.docx.txt).
 - Chứng từ đã ghi tồn, snapshot, kết quả đếm và lịch sử duyệt giữ dấu vết. Sửa sai dùng phiếu đảo/điều chỉnh có nguồn và kiểm phụ thuộc.
 - Tệp/bằng chứng theo quyền phiếu và kho. Không lộ giá mua, giá bán hoặc chứng cứ nội bộ qua DTO, export hay audit ngoài quyền.
 - Email/notification qua outbox sau commit. Lỗi gửi thư chỉ thử gửi lại.

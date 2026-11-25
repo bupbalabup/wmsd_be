@@ -60,6 +60,7 @@ async function committed(order, session) {
 export function updateSalesOrder(user, id, input) {
     return command(user, 'UPDATE_SALES_REMAINDER', 'sales_order:update', id, input, (id, a, s) => ownOrder(a, id, s), async (session, actor) => {
         const order = await ownOrder(actor, id, session);
+        if (await m.DeliverySchedule.exists({ salesOrderId: order._id }).session(session)) throw validationError('Đơn có lịch giao; dùng thao tác của lịch giao');
         checkVersion(order, input.expectedVersion);
         open(order);
         unique(input.lines, 'lineId');
@@ -106,6 +107,7 @@ async function reopening(order, receiptLineId, quantity, session) {
 export function cancelSalesRemainder(user, id, input) {
     return command(user, 'CANCEL_SALES_REMAINDER', 'sales_order:update', id, input, (id, a, s) => ownOrder(a, id, s), async (session, actor, operationId) => {
         const order = await ownOrder(actor, id, session);
+        if (await m.DeliverySchedule.exists({ salesOrderId: order._id }).session(session)) throw validationError('Đơn có lịch giao; dùng thao tác của lịch giao');
         checkVersion(order, input.expectedVersion);
         open(order);
         unique(input.lines, 'lineId');
@@ -137,6 +139,7 @@ export function createIssueRequest(user, id, input) {
     return command(user, 'CREATE_ISSUE_REQUEST', 'issue_request:create', id, input, async (id, a, s) => { const r = await m.WarehouseIssueRequest.findById(id).session(s); if (!r)
         throw notFoundError(); await ownOrder(a, r.header.salesOrderId, s); }, async (session, actor) => {
         const order = await ownOrder(actor, id, session);
+        if (await m.DeliverySchedule.exists({ salesOrderId: order._id }).session(session)) throw validationError('Đơn có lịch giao; dùng thao tác của lịch giao');
         if (await m.SalesGoodsIssue.exists({ 'header.salesOrderId': order._id, workflowStatus: { $ne: 'CANCELLED' } }).session(session)) throw validationError('Đơn đang dùng phiếu xuất trực tiếp');
         checkVersion(order, input.expectedVersion);
         open(order);
@@ -325,18 +328,35 @@ export async function listSalesOrders(user, query) {
     if (!named) {
         const ids = await m.WarehouseIssueRequest.find({ 'header.requestedWarehouseId': { $in: user.warehouseIds || [] } }).distinct('header.salesOrderId');
         const directIds = await m.SalesGoodsIssue.find({ 'header.salesOrderId': { $exists: true }, 'header.warehouseId': { $in: user.warehouseIds || [] } }).distinct('header.salesOrderId');
-        filter._id = { $in: [...ids, ...directIds] };
+        const scheduled = await m.DeliverySchedule.find({ 'deliveries.warehouseId': { $in: user.warehouseIds || [] } }).distinct('salesOrderId');
+        filter._id = { $in: [...ids, ...directIds, ...scheduled] };
     }
     if (query.q)
         filter.documentNo = new RegExp(escapeRegex(query.q), 'i');
     if (query.status)
         filter.workflowStatus = query.status;
-    return page(m.SalesOrder, filter, query, 'documentNo documentKind workflowStatus version createdAt header.customerId header.neededOn');
+    const result = await page(m.SalesOrder, filter, query, 'documentNo documentKind workflowStatus version createdAt header.customerName header.customerPhone header.neededOn');
+    const orderIds = result.items.map(row => row._id);
+    if (orderIds.length) {
+        const schedules = await m.DeliverySchedule.find({ salesOrderId: { $in: orderIds } }).select('salesOrderId deliveries.status deliveries.plannedOn deliveries.warehouseId').lean();
+        const byOrder = new Map(schedules.map(s => [String(s.salesOrderId), s.deliveries ?? []]));
+        result.items = result.items.map(item => {
+            const activeDeliveries = (byOrder.get(String(item._id)) ?? []).filter(d => d.status !== 'CANCELLED' && (named || (user.warehouseIds || []).some(id => same(id, d.warehouseId))));
+            const latestMs = activeDeliveries.reduce((max, d) => Math.max(max, +new Date(d.plannedOn)), 0);
+            return {
+                ...item,
+                deliveryCount: activeDeliveries.length,
+                latestPlannedOn: latestMs ? new Date(latestMs).toISOString() : null,
+                hasOnHoldDo: activeDeliveries.some(d => d.status === 'ON_HOLD'),
+            };
+        });
+    }
+    return result;
 }
 export async function salesOptions(user) {
-    if (!hasPermission(user, 'sales_order:create') && !hasPermission(user, 'outbound_delivery:create') && !hasPermission(user, 'picking_task:create'))
+    if (!hasPermission(user, 'sales_order:create') && !hasPermission(user, 'delivery_order:create'))
         requirePermission(user, 'sales_order:create');
-    const warehouseFilter = currentRole(user)?.code === 'OWNER' ? {} : { _id: { $in: user.warehouseIds || [] } };
+    const warehouseFilter = currentRole(user)?.code === 'OWNER' || hasPermission(user, 'sales_order:create') ? {} : { _id: { $in: user.warehouseIds || [] } };
     const warehouses = await m.Warehouse.find({ ...warehouseFilter, isActive: true }).lean();
     const ids = warehouses.map(w => w._id);
     const locations = await m.WarehouseLocation.find({ warehouseId: { $in: ids }, isActive: true }).lean();

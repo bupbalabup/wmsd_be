@@ -33,10 +33,10 @@ async function page(Model, stages, query, searchFields = ['code', 'name']) {
   return { items: result?.items || [], total: result?.count[0]?.total || 0, page: query.page, limit: query.limit };
 }
 const productContext = [join(m.ProductBatch, 'lotId', 'batch'), { $set: { manufacturerLot: first('batch.manufacturerLot') } }, join(m.Product, 'productId', 'product'), { $set: { productName: first('product.name'), productCode: first('product.sku'), unit: first('product.baseUnit'), wholeBaseUnits: first('product.wholeBaseUnits') } }];
-const sourceProjection = { _id: '$items._id', documentId: '$_id', documentNo: 1, documentKind: 1, warehouseId: '$header.warehouseId', customerId: 1, supplierId: 1, lotId: '$items.lotId', productId: '$items.productId', name: '$items.productNameSnapshot', qtyBase: '$items.qtyBase', unit: '$items.baseUnitSnapshot', version: 1, sourceKind: 1, baseUnitsPerPackage: '$items.packagingSnapshot.baseUnitsPerPackage', enteredUnit: '$items.enteredUnit', baseUnitsPerUnit: '$items.baseUnitsPerUnit', baseUnitSnapshot: '$items.baseUnitSnapshot' };
+const sourceProjection = { _id: '$items._id', documentId: '$_id', documentNo: 1, documentKind: 1, warehouseId: '$header.warehouseId', customerId: 1, customerName: 1, customerPhone: 1, supplierId: 1, lotId: '$items.lotId', productId: '$items.productId', name: '$items.productNameSnapshot', qtyBase: '$items.qtyBase', unit: '$items.baseUnitSnapshot', version: 1, sourceKind: 1, baseUnitsPerPackage: '$items.packagingSnapshot.baseUnitsPerPackage', enteredUnit: '$items.enteredUnit', baseUnitsPerUnit: '$items.baseUnitsPerUnit', baseUnitSnapshot: '$items.baseUnitSnapshot' };
 async function sourceLookup(user, query) {
   const purpose = query.purpose;
-  const stages = [{ $match: { ...scope(user, query), workflowStatus: 'POSTED', ...(query.documentId && { _id: oid(query.documentId) }) } }, { $unwind: '$items' }];
+  const stages = [{ $match: { ...scope(user, query), workflowStatus: 'POSTED', ...(purpose === 'customer-returns' && { documentKind: 'GI_SALE' }), ...(query.documentId && { _id: oid(query.documentId) }) } }, { $unwind: '$items' }];
   let Model = m.SalesGoodsIssue;
   if (purpose === 'supplier-returns' || query.sourceKind === 'RECEIPT') {
     Model = m.PurchaseReceipt;
@@ -56,8 +56,11 @@ async function sourceLookup(user, query) {
     stages.push(join(m.DeliveryOrder, 'items.details.outboundDeliveryLineId', 'delivery', 'items._id'),
       join(m.WarehouseIssueRequest, 'delivery.header.issueRequestId', 'request'), join(m.SalesOrder, 'request.header.salesOrderId', 'sale'),
       join(m.SalesOrder, 'header.salesOrderId', 'directSale'),
-      { $set: { customerId: { $ifNull: ['$header.customerId', first('sale.header.customerId')] }, salesCreatedBy: { $ifNull: [first('directSale.createdBy'), first('sale.createdBy')] } } });
-    if (hasPermission(user, 'customer_return:create') && !hasPermission(user, 'customer_return:inspect')) stages.push({ $match: { salesCreatedBy: oid(user._id) } });
+      { $set: { customerId: { $ifNull: ['$header.customerId', first('sale.header.customerId')] }, customerName: { $ifNull: ['$header.customerName', first('directSale.header.customerName'), first('sale.header.customerName')] }, customerPhone: { $ifNull: ['$header.customerPhone', first('directSale.header.customerPhone'), first('sale.header.customerPhone')] }, salesCreatedBy: { $ifNull: [first('directSale.createdBy'), first('sale.createdBy'), '$createdBy'] } } });
+    if (hasPermission(user, 'customer_return:create') && !hasPermission(user, 'customer_return:inspect')) stages.push({ $match: { $or: [
+      { salesCreatedBy: oid(user._id) },
+      { documentKind: 'GI_SALE', 'header.issueKind': 'SALE', 'header.referenceNo': { $exists: true, $ne: '' }, 'header.salesOrderId': null, 'header.fulfillmentMode': null },
+    ] } });
     if (purpose === 'customer-returns') stages.push({ $unionWith: { coll: m.ExternalReference.collection.name, pipeline: [
       { $match: { ...scope(user, query, 'warehouseId'), referenceKind: 'HISTORICAL_DELIVERY', status: 'VERIFIED', 'evidenceIds.0': { $exists: true }, ...(query.documentId && { _id: oid(query.documentId) }) } },
       { $unwind: '$items' }, { $set: { documentNo: '$referenceNo', documentKind: 'HISTORICAL_DELIVERY', header: { warehouseId: '$warehouseId' }, 'items.qtyBase': '$items.eligibleQty', 'items.baseUnitSnapshot': '$items.baseUnitSnapshot', sourceKind: 'HISTORICAL' } },
@@ -77,7 +80,10 @@ async function sourceLookup(user, query) {
     } else {
       const Source = models.get(row.documentKind) || Model, doc = await Source.findById(row.documentId);
       available = await s.effectivePosted(doc, row._id);
-      if (purpose === 'customer-returns' || purpose === 'failed-deliveries') {
+      const standaloneSale = purpose === 'customer-returns' && row.documentKind === 'GI_SALE' && doc.header.issueKind === 'SALE' && doc.header.referenceNo && !doc.header.salesOrderId && !doc.header.fulfillmentMode;
+      if (standaloneSale) {
+        available = s.standaloneSaleReturnAllowance(available, await s.undeliveredReturnedQuantity(row._id), await s.claimTotal(row._id, 'FD')).minus(await s.claimTotal(row._id, 'CR'));
+      } else if (purpose === 'customer-returns' || purpose === 'failed-deliveries') {
         const deliveries = await m.DeliveryOrder.find({ 'items._id': doc.items.id(row._id).details.outboundDeliveryLineId });
         const requests = await m.WarehouseIssueRequest.find({ _id: { $in: deliveries.map(d => d.header.issueRequestId) } });
         const orders = await m.SalesOrder.find({ _id: { $in: requests.map(r => r.header.salesOrderId) } });
@@ -89,6 +95,17 @@ async function sourceLookup(user, query) {
       }
     }
     row.availableQty = available.gt(0) ? available.toFixed() : '0';
+    if (purpose === 'customer-returns' && row.documentKind === 'GI_SALE') {
+      const issue = await m.SalesGoodsIssue.findById(row.documentId);
+      const standaloneSale = issue?.header.issueKind === 'SALE' && issue.header.referenceNo && !issue.header.salesOrderId && !issue.header.fulfillmentMode;
+      if (issue?.header.fulfillmentMode === 'DIRECT' || standaloneSale) {
+        row.sourceLots = await Promise.all((await s.postedIssueLots(issue, row._id)).map(async lot => {
+          const committed = await s.committedCustomerReturnLot(row._id, lot.lotId);
+          const remaining = exact(lot.quantityBase).minus(committed);
+          return { ...lot, availableQty: remaining.gt(0) ? remaining.toFixed() : '0' };
+        }));
+      }
+    }
     row.name = row.name || row.productName;
     delete row.batch; delete row.product;
   }

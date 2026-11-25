@@ -10,6 +10,8 @@ Worker chuyển request HTTP vào Express qua một Durable Object, nơi Mongoos
 
 Preflight CORS và health check chạy khi MongoDB chưa kết nối. Nếu API trả 503 và log hiển thị `MissingWorkerSecrets`, kiểm tra ba secret runtime của BE. Với `MongooseServerSelectionError`, kiểm tra cấu hình kết nối Atlas và danh sách IP được phép truy cập.
 
+Trước khi xử lý API cần MongoDB hoặc tác vụ theo lịch, Worker kiểm tra trạng thái kết nối Mongoose. Nếu kết nối đã ngắt, một lần mở lại được dùng chung cho các request đang chờ. Nếu mở lại thất bại, API trả 503 và lần gọi sau có thể thử kết nối lại.
+
 ```powershell
 npx wrangler@4.166.0 deploy --dry-run
 ```

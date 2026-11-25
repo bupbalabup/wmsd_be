@@ -1,5 +1,5 @@
 import { SalesOrder, WarehouseIssueRequest, DeliveryOrder, SalesGoodsIssue, FailedDeliveryReceipt,
-  StockReservation, StockTransaction, Attachment, ExternalReference, TransferOrder } from '../../models/runtime.js';
+  StockReservation, StockTransaction, DeliverySchedule, Warehouse, WarehouseLocation, TransferOrder, Attachment, ExternalReference } from '../../models/runtime.js';
 import { exact } from '../../models/model-utils.js';
 import { requirePermission, requireWarehouseAccess } from '../../shared/utils/access.js';
 import { currentRole } from '../../shared/utils/userRole.js';
@@ -8,6 +8,7 @@ import { dto, transaction, page } from '../../shared/utils/persistence.js';
 import { same } from '../../shared/utils/document-command.js';
 import { escapeRegex } from '../../shared/utils/domain.js';
 import { cloudinary } from '../../config/cloudinary.js';
+import { syncAllocationChain } from './reservation-tree.js';
 
 export function redactPrices(value) {
   if(Array.isArray(value))return value.map(redactPrices);
@@ -41,7 +42,8 @@ export async function orderSource(user,id,session,{ replay = false } = {}) {
     if (!same(order.createdBy, user._id)) throw notFoundError();
   } else if (!hasNamedSalesScope(user) &&
     !await WarehouseIssueRequest.exists({ 'header.salesOrderId': id, ...assignedRequests(user) }).session(session) &&
-    !await SalesGoodsIssue.exists({ 'header.salesOrderId': id, 'header.warehouseId': { $in: user.warehouseIds || [] } }).session(session)) {
+    !await SalesGoodsIssue.exists({ 'header.salesOrderId': id, 'header.warehouseId': { $in: user.warehouseIds || [] } }).session(session) &&
+    !await DeliverySchedule.exists({ salesOrderId: id, 'deliveries.warehouseId': { $in: user.warehouseIds || [] } }).session(session)) {
     throw notFoundError();
   }
   return order;
@@ -122,21 +124,43 @@ export async function getSalesOrder(user,id){
     const tasks=await TransferOrder.find({'sources.subjectCollection':'sales_goods_issues','sources.documentId':{$in:issues.map(i=>i._id)}}).session(session);
     const confirmations=(order.deliveryConfirmations||[]).map(c=>({...dto(c),items:c.items.filter(i=>issueIds.some(id=>same(id,i.details.salesIssueLineId))).map(dto)})).filter(c=>c.items.length);
     const result={...dto(order),issueRequests:requests.map(dto),outboundDeliveries:deliveries.map(dto),goodsIssues:issues.map(dto),failedDeliveryReceipts:returns.map(dto),tasks:tasks.map(dto),deliveryConfirmations:confirmations};
+    // Schedule-driven flow: warehouse staff see only the deliveries of their own warehouses.
+    const schedule=await DeliverySchedule.findOne({salesOrderId:id}).session(session).lean();
+    const visible=(schedule?.deliveries??[]).filter(d=>!scoped||(user.warehouseIds||[]).some(w=>same(w,d.warehouseId)));
+    // Phương án A: reflect any moved reservation chains in PLANNED/ON_HOLD deliveries when viewing SO.
+    const syncedVisible=[];
+    for(const d of visible){
+      if(['PLANNED','ON_HOLD'].includes(d.status)){
+        const lines=[];
+        for(const l of d.lines){
+          const resolved=[];
+          for(const a of l.allocations)resolved.push(...(await syncAllocationChain(a,session)).allocations);
+          lines.push({...l,allocations:resolved});
+        }
+        syncedVisible.push({...d,lines});
+      }else syncedVisible.push(d);
+    }
+    const places=syncedVisible.length?await WarehouseLocation.find({_id:{$in:syncedVisible.flatMap(d=>d.lines.flatMap(l=>l.allocations.map(a=>a.locationId)))}}).select('code name').session(session).lean():[];
+    const warehouses = visible.length ? await Warehouse.find({ _id: { $in: visible.map(d => d.warehouseId) } }).select("code name").session(session).lean() : [];
+    const deliverySchedule=schedule&&{...dto(schedule),deliveries:syncedVisible.map(d=>({...dto(d),warehouseName:warehouses.find(w=>same(w._id,d.warehouseId))?.name,lines:d.lines.map(l=>({...dto(l),allocations:l.allocations.map(a=>({...dto(a),locationCode:places.find(p=>same(p._id,a.locationId))?.code}))}))}))};
+    result.deliveryOrders=(await DeliveryOrder.find({'header.salesOrderId':id,...(scoped&&{'header.warehouseId':{$in:user.warehouseIds||[]}})}).session(session).lean()).map(dto);
+    result.hasOnHoldDo=result.deliveryOrders.some(d=>d.workflowStatus==='ON_HOLD');
     if(scoped){
-      const allowed=new Set([...requests.flatMap(row=>row.items.map(item=>String(item.details.salesOrderLineId))), ...issues.flatMap(row=>row.items.map(item=>String(item.salesOrderItemId)))]);
+      const allowed=new Set([...requests.flatMap(row=>row.items.map(item=>String(item.details.salesOrderLineId))), ...issues.flatMap(row=>row.items.map(item=>String(item.salesOrderItemId))) , ...visible.flatMap(d=>d.lines.map(l=>String(l.soLineId)))]);
       result.items=result.items.filter(item=>allowed.has(String(item._id)));
+      result.deliverySchedule=deliverySchedule;
       delete result.paymentConfirmations;delete result.evidenceIds;delete result.externalReferenceIds;
       return scopedSalesDto(user, result);
     }
-    const source=await ExternalReference.findById(order.header.externalReferenceId).session(session).lean();
-    const evidence=await Attachment.find({ownerDocumentType:'sales_orders',ownerDocumentId:id,status:'ATTACHED'}).select('_id mediaType originalName uploadedAt').session(session).lean();
     const receipts=await FailedDeliveryReceipt.find({workflowStatus:'POSTED','demandReopenings.salesOrderLineId':{$in:order.items.map(i=>i._id)}}).session(session);
     const reopenedSources=receipts.flatMap(receipt=>(receipt.demandReopenings||[]).filter(r=>order.items.id(r.salesOrderLineId)).map(row=>{
       const cancelled=(order.cancellations||[]).filter(c=>same(c.reopeningReceiptLineId,row.receiptLineId)).reduce((n,c)=>n.plus(String(c.cancelledQtyBase)),exact('0'));
       const reused=(receipt.commitmentTransfers||[]).filter(c=>same(c.reopeningReceiptLineId,row.receiptLineId)).reduce((n,c)=>n.plus(String(c.quantityBase)),exact('0'));
       return {...dto(row),receiptDocumentNo:receipt.documentNo,availableQtyBase:exact(row.reopenedQtyBase).minus(cancelled).minus(reused).toFixed()};
     }));
-    return {...result,source:source?dto(source):null,evidence:evidence.map(dto),reopenedSources};
+    const source=await ExternalReference.findById(order.header.externalReferenceId).session(session).lean();
+    const evidence=await Attachment.find({ownerDocumentType:'sales_orders',ownerDocumentId:id,status:'ATTACHED'}).select('_id mediaType originalName uploadedAt').session(session).lean();
+    return {...result,source:source?dto(source):null,evidence:evidence.map(dto),deliverySchedule,reopenedSources};
   });
 }
 export async function getSalesEvidence(user,id,evidenceId){

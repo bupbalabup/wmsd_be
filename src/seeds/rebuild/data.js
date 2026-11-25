@@ -176,6 +176,7 @@ export async function buildReviewedDemo({ consolidate = true } = {}) {
 
   if (!consolidate) return categorized;
   const result = consolidateData(categorized);
+  result.delivery_schedules = [];
   const kinds = { purchase_receipts: 'PURCHASE', customer_return_receipts: 'CUSTOMER_RETURN',
     failed_delivery_receipts: 'FAILED_DELIVERY', transfer_receipts: 'TRANSFER' };
   result.goods_receipts = [];

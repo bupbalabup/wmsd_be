@@ -149,5 +149,5 @@ This matrix records BE implementation and test evidence. Blank or `TBD` fields i
 | UC-128 | Cancel Eligible WIR Remainder | FE-06 | ACTIVE | TBD | TBD | TBD | TBD |
 | UC-129 | Confirm Customer Delivery with Photo Evidence | FE-06 | ACTIVE | TBD | TBD | TBD | TBD |
 | UC-130 | Confirm Full External Payment Receipt | FE-06 | ACTIVE | TBD | TBD | TBD | TBD |
-| UC-131 | Reset Own Password by Email | FE-09 | ACTIVE | Not started | Not tested | — | Email OTP request and verification are pending. |
-| UC-132 | Initiate User Password Reset as Administrator | FE-09 | ACTIVE | Not started | Not tested | — | The account update API accepts a password directly. Administrator-initiated email OTP and audit are pending. |
+| UC-131 | Reset Own Password by Email | FE-09 | ACTIVE | Implemented | Passed | `src/features/auth/ForgotPasswordPage.test.tsx`; BE `test/forgot-password-otp.test.js` | Email OTP request and verification work from Sign In (24/11/2026). Renumbered UC-145 in the current Report 3 catalogue. |
+| UC-132 | Initiate User Password Reset as Administrator | FE-09 | ACTIVE | Not started | Not tested | — | The account update API no longer accepts a password. Administrator-initiated email OTP is pending (UC-160 in the current Report 3). |
