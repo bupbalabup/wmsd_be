@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { listQuery, detailParams } from '../src/modules/transfers/transfer-read.validation.js';
-import { requirementBody,taskConfirmBody,commandBody } from '../src/modules/transfers/transfer-write.validation.js';
+import { listQuery, detailParams, requirementBody, taskConfirmBody, commandBody } from '../src/modules/transfers/transfer.validation.js';
 
 test('putaway destinations allow empty input for service-level all-damaged validation', () => {
   assert.equal(requirementBody.safeParse({idempotencyKey:'damaged-only',expectedVersion:1,destinations:[]}).success,true);

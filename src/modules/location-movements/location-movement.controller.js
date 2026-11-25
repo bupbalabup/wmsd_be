@@ -1,7 +1,6 @@
 import { catchAsync } from '../../shared/utils/catchAsync.js';
 import { formatApiResponse } from '../../shared/utils/ApiResponse.js';
 import * as service from './location-movement.service.js';
-import * as lifecycle from './location-movement.lifecycle.js';
 
 export const create = catchAsync(async (req, res) => {
   const result = await service.createLocationMovement(req.user, req.body);
@@ -25,13 +24,13 @@ export const options = catchAsync(async (req, res) => {
 });
 
 export const edit = catchAsync(async (req, res) => {
-  formatApiResponse(res, { data: await lifecycle.editLocationMovement(req.user, req.params.id, req.body) });
+  formatApiResponse(res, { data: await service.editLocationMovement(req.user, req.params.id, req.body) });
 });
 
 export const cancel = catchAsync(async (req, res) => {
-  formatApiResponse(res, { data: await lifecycle.cancelLocationMovement(req.user, req.params.id, req.body) });
+  formatApiResponse(res, { data: await service.cancelLocationMovement(req.user, req.params.id, req.body) });
 });
 
 export const confirm = catchAsync(async (req, res) => {
-  formatApiResponse(res, { data: await lifecycle.confirmLocationMovement(req.user, req.params.id, req.body) });
+  formatApiResponse(res, { data: await service.confirmLocationMovement(req.user, req.params.id, req.body) });
 });

@@ -8,7 +8,7 @@
 | H08 · Internal Transfer Requirement (yêu cầu thao tác trong một kho) | Phiếu xuất đợt đầu cần lấy 60 viên ra khu tập kết. Kho nhận cũng có thể yêu cầu xếp số hàng đạt đã nhận từ cửa kho vào ô lưu trữ. | Warehouse Staff của kho tương ứng |
 | H06 · Transfer Order (TO) | Lệnh chỉ rõ lấy hàng từ ô nào, đưa tới ô nào và bao nhiêu. Nhân viên xác nhận sau khi thực hiện. | Warehouse Staff của kho thực hiện |
 
-**BF03** chỉ có hai thao tác trên phần mềm. Nhân viên tạo TO chuyển vị trí rồi xác nhận TO sau khi đã di chuyển hàng. **BF04** bắt đầu bằng TR được duyệt. Mỗi phiếu xuất tham chiếu TR. Khi nhân viên tạo H08, phần mềm sinh TO lấy hàng ở kho nguồn hoặc TO xếp hàng ở kho đích, tùy chứng từ nguồn. Chức năng và mốc ghi tồn dựa trên sơ đồ người dùng đã sửa và mô tả BF04 ngày 30/10. [Luồng BF04 trong dự án](../../../../src/modules/transfers/BF04_API.md) · [Snapshot MongoDB](03_Cau_truc_DB_hien_tai.md).
+**BF03** chỉ có hai thao tác trên phần mềm. Nhân viên tạo TO chuyển vị trí rồi xác nhận TO sau khi đã di chuyển hàng. **BF04** bắt đầu bằng TR được duyệt. Mỗi phiếu xuất tham chiếu TR. Khi nhân viên tạo H08, phần mềm sinh TO lấy hàng ở kho nguồn hoặc TO xếp hàng ở kho đích, tùy chứng từ nguồn. Chức năng và mốc ghi tồn dựa trên sơ đồ người dùng đã sửa và mô tả BF04 ngày 30/10. [Luồng BF04 trong dự án](../../08_api/transfers/BF04_API.md) · [Snapshot MongoDB](03_Cau_truc_DB_hien_tai.md).
 
 ## H06 · transfer_orders · Lệnh thao tác kho
 

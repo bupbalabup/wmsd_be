@@ -17,7 +17,7 @@ import { exact } from '../../models/model-utils.js';
 import { validDateRange, escapeRegex } from '../../shared/utils/movement-list.js';
 import { enrichLineItems } from '../../shared/utils/document-items.js';
 import { getDocument } from '../po-receiving/purchase-read.service.js';
-import { transferDispatchScope } from '../transfers/transfer-read.service.js';
+import { transferDispatchScope } from '../transfers/transfer.service.js';
 import * as other from './other-receipt.service.js';
 
 const definitions = [

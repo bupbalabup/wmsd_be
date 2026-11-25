@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { listQuery, createBody, editBody, warehouseCreateBody, warehouseEditBody } from '../src/modules/warehouse-stock/validation.js';
-import { proposalBody, reviewBody } from '../src/modules/transfers/transfer-differences.js';
+import { differenceProposalBody as proposalBody, differenceReviewBody as reviewBody } from '../src/modules/transfers/transfer.validation.js';
 test('warehouse-stock queries reject operators, unknown fields, oversized pages and reversed dates',()=>{
  assert.deepEqual(listQuery.parse({}),{page:1,limit:20});
  for(const input of [{q:{$ne:''}},{limit:101},{page:0},{locationId:'bad'},{sort:'$where'},{from:'2026-11-12T00:00:00Z',to:'2026-11-11T00:00:00Z'}])assert.equal(listQuery.safeParse(input).success,false);

@@ -2,9 +2,9 @@ import test,{mock,afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import * as m from '../src/models/runtime.js';
 import { movementListPipeline } from '../src/shared/utils/movement-list.js';
-import { listQuery } from '../src/modules/transfers/transfer-read.validation.js';
+import { listQuery } from '../src/modules/transfers/transfer.validation.js';
 import { locationMovementOptions,getLocationMovement } from '../src/modules/location-movements/location-movement.service.js';
-import { transferOptions,getTransfer,getDispatch } from '../src/modules/transfers/transfer-read.service.js';
+import { transferOptions,getTransfer,getDispatch } from '../src/modules/transfers/transfer.service.js';
 import { optionFields } from '../src/shared/utils/movement-read-fields.js';
 afterEach(()=>mock.restoreAll());
 

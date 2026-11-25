@@ -1,3 +1,9 @@
+## 25/11/2026 — Tách controller cho chuyển kho và chuyển vị trí
+
+Theo yêu cầu người dùng, hai luồng dùng Route → Controller → Service → Model. BF04 chuyển các handler đọc và ghi từ route sang một controller chung. Gộp route, service và validation đọc/ghi thành một file mỗi lớp. Tập trung schema chênh lệch trong validation, giữ nghiệp vụ chênh lệch, kiểm tồn và hoàn tất trong các file riêng theo chức năng. Kiểm tra sau khi gộp qua 19 test, 20 handler và 6 request HTTP với model giả lập. Các test MongoDB vẫn chưa bật. Gỡ file dẫn BF04_API.md trùng trong module và cập nhật các liên kết tài liệu thiết kế hiện hành về hợp đồng chính. BF03 gọi trực tiếp service từ controller, bỏ file xuất lại hàm lifecycle. URL, payload, quyền, nghiệp vụ và model giữ nguyên. Không cần migration. Xem [BF04](docs/08_api/transfers/BF04_API.md) và [BF03](docs/08_api/location-movements/README.md).
+
+Kiểm tra 25 test liên quan đạt, một test MongoDB bỏ qua. Smoke test HTTP với model giả lập qua bảy request. Chưa chạy giao dịch trên MongoDB.
+
 ## 25/11/2026 — Let Sales return goods from a Warehouse-issued standalone sale
 
 Sales can create a customer-return request from a posted standalone SALE Goods Issue created by Warehouse when it has an external reference and is in the selected warehouse. This source path uses the posted issue quantity and outstanding return claims; it does not require a Sales Order or a customer-receipt confirmation. Other source, warehouse and quantity checks remain enforced. A focused integration test reproduces the Warehouse-created source and verifies Sales can select it and create the request in an isolated database.

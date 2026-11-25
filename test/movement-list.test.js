@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
 import { movementList } from '../src/shared/utils/movement-list.js';
-import { listQuery } from '../src/modules/transfers/transfer-read.validation.js';
+import { listQuery } from '../src/modules/transfers/transfer.validation.js';
 import { listSchema } from '../src/modules/location-movements/location-movement.validation.js';
 import { Warehouse } from '../src/models/runtime.js';
 
