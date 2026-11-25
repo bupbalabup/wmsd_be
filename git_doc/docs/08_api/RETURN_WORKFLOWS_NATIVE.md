@@ -61,6 +61,10 @@ All routes below are under `/api`, require active authentication, and recheck th
 
 The older 19-UC assignment is covered by these functions; split UCs are shown separately. Retired supplier Owner approval is not restored.
 
+Customer Return receipts post only the quantity actually received. A partial posting leaves the return `PARTIAL`; detail exposes the posted and remaining quantities in `items[].progress` and the positive remainder in `receivableLines`. After an uncertain response, resubmit the same payload, version and idempotency key: replay returns the original receipt reference without another stock movement. Posting the final eligible remainder completes the return. Posted Customer Return receipts have no reversal or generic reopen command.
+
+Return evidence download checks the authorized parent first and matches attached business evidence against that parent's stored `_id`, as the evidence list and upload do. The document identifier can be a current string ID or a historical ObjectId, not an arbitrary display-label alias. Evidence belonging to a different parent returns `404` without generating a download URL.
+
 ## In-app notification handoff
 
 Supplier-return events notify the next actor after creation, agreement and dispatch. Recording the supplier's acknowledgement (`ACK_SR`) now notifies the original request creator that the supplier responded; closing a completed return (`CLOSE_SR`) sends that creator a final closure notice. Notifications use the existing durable business-event worker and per-recipient deduplication. The recipient must still have `notification:read`, permission to read the source record and access to its warehouse; the notification links to the supplier-return detail.

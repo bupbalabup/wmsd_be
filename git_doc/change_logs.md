@@ -11,6 +11,12 @@
 - Restore customer return and linked receipt screens without restoring Sales Order screens or changing return permissions.
 - The create API and `CustomerReturn` header accept an optional plain-text `salesOrderReference`. Existing records remain valid without migration. Source, lot, claim and stock rules do not change. See [Return Workflows](docs/08_api/RETURN_WORKFLOWS_NATIVE.md).
 
+## 25/11/2026 — Customer return receipt retry and evidence checks
+
+- Match downloaded evidence to the authorized parent document's stored ID, consistent with upload and listing. The API and stored data are unchanged; no migration or customer-return reversal command is added.
+- Added coverage for authorizing evidence by document, posting a partial receipt and replaying it without duplicating stock, receiving the remainder, and showing both quantities and retrying the same payload in the UI. See [Return Workflows](docs/08_api/RETURN_WORKFLOWS_NATIVE.md).
+- Verification: 30 focused backend tests passed with isolated local MongoDB databases where required, and 20 focused frontend tests passed. Evidence authorization used a stubbed download signer; live storage and deployment were not exercised.
+
 ## 25/11/2026 — Đồng bộ thiết kế BF-01 với code nhận mua hiện hành
 
 - Report 4 §II.0–1 mô tả thứ tự xác thực, kiểm quyền tĩnh, validation và controller, cùng ngoại lệ phân quyền theo chứng từ và cách phân giải mã lịch sử sang _id. Ba class diagram PO, Inspection và Receipt trong draw.io theo tuyến gọi mới. Quan hệ ghi tồn đi qua StockMovement nhúng và hai đầu tham chiếu số dư.
