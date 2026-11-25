@@ -2,6 +2,14 @@
 
 **Trạng thái: đã triển khai và kiểm chứng backend; FE còn 5 lỗi jsdom trong bộ test tập trung.** Đích nghiệm thu là bán 8 viên → khách trả 4 viên → trả NCC 4 viên từ **lô khác**. Mượn cách `ReplenishmentDraftEditor` và `ReplenishmentProductTable` trình bày sản phẩm, căn cứ và đơn vị ngay trên dòng; không bê bước mua–nhập hoặc nút duyệt của luồng mua sang đây.
 
+## 26/11/2026 — FE follow-up sau khi chạy lại bộ kiểm tra
+
+- **Thay đổi:** form tạo đề nghị trả lưu rõ `salesIssueLineId` hoặc `originLineId` vào dòng của `Form.List` khi người dùng bấm “Thêm vào danh sách”. Trước đó picker đã hiển thị dòng nguồn nhưng payload có thể thiếu định danh dòng, khiến luồng tạo không giữ được căn cứ đã chọn.
+- **Thay đổi:** bộ chọn sản phẩm của phiếu xuất loại trừ sản phẩm đã có theo các field đang sống của `Form.List`, thay vì đọc snapshot `lines` cũ sau khi đổi kho. Vì vậy đổi kho xóa đúng dòng cũ nhưng vẫn cho tìm lại sản phẩm khả dụng ở kho mới.
+- **Tài liệu liên quan:** `sales-returns-fe/src/features/return-workflows/create.tsx`, `sales-returns-fe/src/features/goods-issues/GoodsIssueCreatePage.tsx`.
+- **Kiểm chứng:** `npm run typecheck` ở FE đạt. Bộ tập trung trước đó vẫn còn 5 lỗi jsdom/Ant Design: một lỗi chọn sản phẩm sau đổi kho và bốn kịch bản tạo đề nghị bị chặn bởi tương tác/fixture bắt buộc tên khách; chưa ghi các lỗi này thành bằng chứng pass.
+- **Không đổi:** API, model, quyền, quy tắc tồn hoặc migration backend; full-flow backend 8 → 4 → supplier 4 đã có trong `test/return-workflows.integration.test.js`.
+
 ## 0. Chốt phạm vi và bản chạy
 
 - Làm trên cặp checkout `trungph` của backend/frontend. Ghi SHA hai repo và DB demo cô lập trước khi kiểm thử. Đối chiếu nhánh thực tế chứ không suy ra tính năng từ ảnh hoặc dữ liệu mẫu.

@@ -2697,3 +2697,11 @@ Theo yêu cầu người dùng, gỡ Dockerfile của BE và cập nhật hướ
 - FE hiển thị form Sale, quy đổi lượng nhập → lượng gốc, snapshot khách, source reference/lot/remaining quantity và giữ ẩn Sales Order nội bộ.
 - Backend direct-sales 1/1 và return-workflows 22/22 đã đạt; FE typecheck/build và docs check đạt. Focused UI tests 27/32, còn 5 lỗi jsdom/Ant Design interaction; chưa browser visual run.
 
+## 26/11/2026 — FE giữ định danh dòng nguồn và làm mới danh sách sản phẩm khi đổi kho
+
+- **Lý do:** chạy lại bộ kiểm tra luồng bán → khách trả cho thấy form trả hàng hiển thị đúng nguồn nhưng dòng thêm vào `Form.List` không luôn mang `salesIssueLineId`/`originLineId`; màn tạo phiếu xuất cũng đọc snapshot dòng cũ khi kho vừa đổi.
+- **Hành vi sau:** khi thêm dòng nguồn, FE ghi định danh dòng vào payload tương ứng với loại đề nghị; khi đổi kho, bộ chọn sản phẩm dùng field hiện tại của `Form.List` để loại trừ trùng và cho phép chọn lại sản phẩm có tồn ở kho mới.
+- **Phạm vi:** chỉ FE tại `sales-returns-fe/src/features/return-workflows/create.tsx` và `sales-returns-fe/src/features/goods-issues/GoodsIssueCreatePage.tsx`; không đổi API, model, quyền, tồn kho hay migration.
+- **Kiểm chứng:** FE `npm run typecheck` đạt. Bộ test tập trung vẫn ghi nhận 5 lỗi jsdom/Ant Design/fixture bắt buộc tên khách; không đánh dấu chúng là pass. Backend full-flow 8 → 4 → supplier 4 giữ nguyên bằng chứng trong test hiện hành.
+- **Tài liệu chính:** cập nhật `git_doc/docs/09_phat_trien/TRUNG_SALES_RETURNS_IMPLEMENTATION_PLAN.md` cùng mục này.
+
