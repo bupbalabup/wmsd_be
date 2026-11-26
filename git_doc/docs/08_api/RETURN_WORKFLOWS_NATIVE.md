@@ -11,6 +11,41 @@ Sales can choose the purchase request first or start with a posted goods issue. 
 
 See the [transaction tests](../../../test/customer-return-order-links.integration.test.js) and [original design review](CUSTOMER_RETURN_PURCHASE_REQUEST_LINK_PLAN.md).
 
+## Partial returns and unresolved cases
+
+### Customer returns
+
+For a request covering 10 tiles, Warehouse records how many arrived, Sales decides how many to accept, and Warehouse posts the accepted tiles into stock. Each return line carries its own quantities.
+
+| What happened | Where the other 4 are | Next action |
+|---|---|---|
+| Only 6 arrived and Sales accepted 6 | With the customer. Approval releases the claim on 4. | If the 4 arrive later, open another eligible return against the original source. |
+| All 10 arrived and Sales accepted 6 | At the warehouse, still customer-owned. | In direct intake, record Handback when the customer collects the 4. Record the recipient and evidence. No Goods Issue is needed because those tiles never entered store stock. |
+| Sales accepted 10 and Warehouse posted a receipt for 6 | At the warehouse, approved and awaiting stock posting. | Post the remaining 4 on another receipt under the same return. The return stays `PARTIAL` until then. |
+
+**Who confirmed delivery?** For a direct Goods Issue, completing a line with no delivered quantity entered records the open quantity as received. Completion can use the order's customer name and the completion time, with an empty evidence list. This records the warehouse operator's entry. It does not establish that the customer signed for the goods. [Goods Issue completion](../../../src/modules/goods-issues/direct-sales.service.js) · [Customer inspection, decision and receipt](../../../src/modules/return-workflows/native.service.js)
+
+### Supplier returns
+
+| What happened | Current result |
+|---|---|
+| Proposed 10, supplier agreed to 6 | Ship 6. The other 4 stay at the warehouse. Closure after acceptance of the 6 releases the unused reservation. |
+| Agreed 10, shipped 6 | Accounting records the supplier's acceptance of 6. The request stays `PARTIAL` while 4 agreed tiles await dispatch. Warehouse ships the remaining 4 under the same request, Accounting records the second acknowledgement and closes. An older `ACKNOWLEDGED` request with a positive agreed remainder can also resume dispatch. |
+| Shipped 10, supplier confirmed 6, response pending on 4 | Accounting can record the later response against the dispatched line. Closure waits for acceptance of the full dispatched quantity. |
+| Shipped 10, supplier rejected 4 and physically sent them back | Accounting can record the rejection. Closure remains blocked. The supplier-return workflow has no receipt for the goods coming back or settlement action to close that dispute. Correcting a mistaken acknowledgement does not receive stock. |
+| Supplier-owned goods held in custody, 6 of 10 already handed over | Accounting can revise the agreement down to 6. The server rejects any quantity below the 6 already dispatched. Posted store issues and supplier custody releases both count. |
+
+[Agreement, dispatch, acknowledgement and closure](../../../src/modules/return-workflows/native.service.js) · [Available workflow actions](../../../src/modules/return-workflows/workflow.routes.js)
+
+### Other review findings
+
+| Area | Current behavior and operational consequence |
+|---|---|
+| Multi-line approvals | A line-by-line decision must include every customer return or selected defect plan line exactly once. Enter zero for each refused line. An incomplete list fails before approval is saved. Existing whole-document decisions that omit the lines array retain their behavior. [Decision handlers](../../../src/modules/return-workflows/native.service.js) |
+| Defects returned to suppliers | Supplier dispatch updates the defect report in the same transaction as the stock movement. A remaining active hold keeps the report partial. Resolving the last hold closes the report. This applies to new dispatches. [Defect execution and supplier dispatch](../../../src/modules/return-workflows/native.service.js) |
+| Lot trace | Both lot trace views follow a visible direct Goods Issue to its customer purchase request via `salesOrderId`. Legacy deliveries follow the warehouse issue request chain. The Accountant's purchasing-only view keeps its existing scope. [Lot document traversal](../../../src/modules/return-workflows/native.trace.js) |
+| Historical delivery evidence | Verification requires an uploaded file and a verified product and lot. The unique document key includes source system, reference kind and reference number. Recording the same paper slip under a different number falls outside that duplicate check. Accounting must reconcile the identifiers against the evidence. [Historical verification](../../../src/modules/return-workflows/native.read.js) · [Reference index](../../../src/models/external-reference.model.js) |
+
 ## Customer details on documents — 18 November 2026
 
 User decision: customers are not managed as catalogue records. New sales orders require `customerName` (1–160 characters) and allow `customerPhone` (up to 30 characters); the delivery address remains on the order. Creating an order does not query or create a Customer. Sales options return an empty compatibility `customers` array.
@@ -27,7 +62,7 @@ Current contract: [customer document snapshots](CUSTOMER_DOCUMENT_SNAPSHOTS.md).
 
 Latest user decision: Customer Return starts from a posted SALE Goods Issue, whether or not it has a Sales Order. No Sales Order setup is needed for the return flow. New CR uses `header.intakeMode=DIRECT`: Sales requests → Warehouse inspects actual quantity, packaging, use, damage and evidence → Sales accepts/rejects → Warehouse receives only accepted quantity as STORE stock. Inspection changes no stock and requires no custody location. Rejected handback appends `handbacks[]` with item, quantity, recipient, operator/time and evidence; it changes no stock. Reassessment is blocked after a posted receipt or handback.
 
-For an SO-linked issue, the return limit remains confirmed customer-received quantity less CR claims. For a standalone posted SALE issue, the limit is posted issue quantity less posted undelivered returns, outstanding failed-delivery claims and CR claims. The source issue and entered customer name (when needed) are saved on the return. Verified historical sources remain supported. Warehouse records physical facts; Sales checks eligibility and accepts/rejects. This flow does not issue a refund. See [current Goods Issue contract](GOODS_ISSUES.md).
+For an SO-linked issue, the return limit remains confirmed customer-received quantity less CR claims. For a standalone posted SALE issue, the limit is posted issue quantity less posted undelivered returns, CR claims. The source issue and entered customer name (when needed) are saved on the return. Verified historical sources remain supported. Warehouse records physical facts; Sales checks eligibility and accepts/rejects. This flow does not issue a refund. See [current Goods Issue contract](GOODS_ISSUES.md).
 
 Legacy documents without `intakeMode=DIRECT` retain the dated custody behavior below so existing posted balances/history remain valid. Supplier custody is unaffected.
 
@@ -58,9 +93,8 @@ All routes below are under `/api`, require active authentication, and recheck th
 | Decision/execution, UC-77/78 | POST `/defects/:id/decision`, `/execute` |
 | Customer return list/detail/request, UC-79/80/81 | GET `/customer-returns`, `/:id`; POST `/customer-returns` |
 | Ordinary / eligible exception decision, UC-82/83 | POST `/customer-returns/:id/decision`, `/exception-decision` |
-| CR inspection / FD inspection, UC-84/85 | POST `/customer-returns/:id/inspect`, `/reassess`; POST `/failed-deliveries/:id/inspect` |
-| CR receipt / FD receipt, UC-86/87 | POST `/customer-returns/:id/receipt`; POST `/failed-deliveries/:id/receipt` |
-| Failed delivery record / search / detail | POST/GET `/failed-deliveries`; GET `/failed-deliveries/:id` |
+| CR inspection / decision, UC-84 | POST `/customer-returns/:id/inspect`, `/reassess` |
+| CR receipt, UC-86 | POST `/customer-returns/:id/receipt` |
 | Customer handback (DIRECT: event only; legacy: custody release) | POST `/customer-returns/:id/handback` |
 | Supplier return search/detail/proposal, UC-88/89/90 | GET/POST `/supplier-returns`; GET `/supplier-returns/:id` |
 | Actual supplier dispatch / closure, UC-91/92 | POST `/supplier-returns/:id/dispatch`, `/close` |
@@ -86,7 +120,7 @@ Supplier-return events notify the next actor after creation, agreement and dispa
 
 For a direct or legacy standalone SALE Goods Issue, `lookup?kind=sources&purpose=customer-returns` returns `sourceLots` from the active, non-reversed stock movements for that issue line. Each lot includes its ID, manufacturer lot, issued base quantity and remaining quantity after existing Customer Return claims. This lets Sales split one return request across the lots the customer actually received. A single-lot source can default to that lot; a multi-lot source requires an explicit lot on each return line. The create payload accepts optional `lotId` for Goods Issue sources, and the server validates both the full source claim and the selected lot claim transactionally. The saved request line retains the selected lot, which the warehouse receipt uses for stock posting and traceability. No new collection or migration is required.
 
-This does not add a receipt-confirmation field to Goods Issue. SO-linked returns remain capped by the quantity Sales confirmed as received. Standalone SALE issues created with an external reference remain capped by posted issue quantity less failed-delivery returns and claims. New standalone manual SALE creation is supported through the Goods Issue form; Supplier receipt/acceptance remains a separate `ACK_SR` event on the Supplier Return, not a Goods Issue field.
+This does not add a receipt-confirmation field to Goods Issue. SO-linked returns remain capped by the quantity Sales confirmed as received. Standalone SALE issues created with an external reference remain capped by their posted issue quantity and existing customer-return claims. New standalone manual SALE creation is supported through the Goods Issue form; Supplier receipt/acceptance remains a separate `ACK_SR` event on the Supplier Return, not a Goods Issue field.
 
 ## Standalone sale snapshot and source search — 25 November 2026
 

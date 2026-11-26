@@ -1,3 +1,9 @@
+## 26/11/2026 - TrungPH partial returns and workflow review
+
+Documented where goods and outstanding quantities remain after partial customer and supplier returns. Removed failed-delivery scenarios from the current TrungPH demo scope. The [workflow reference](docs/08_api/RETURN_WORKFLOWS_NATIVE.md#partial-returns-and-unresolved-cases) records the supplier acknowledgement dead end, custody agreement revisions, dispute handling, approval defaults, defect status, legacy failed-delivery shortages, direct issue lot tracing and historical evidence checks. This entry records review findings only.
+
+The review compared backend `aaae98d` and frontend `f112bfe`. The focused backend run reported 11 passes, 7 skips and 0 failures. The findings come from tracing command and screen logic. Individual gap scenarios still lack browser or database-backed reproduction in this review.
+
 ## 26/11/2026 — Customer returns across goods issues on one purchase request
 
 Sales can select a purchase request and combine its posted goods issue lines in one return within one warehouse and intake mode. Each line retains its original issue and lot. Detail links to the request, the source issues and the filtered shipment list. The backend derives references from existing lines, so deployment requires no data migration. [Return API contract](docs/08_api/RETURN_WORKFLOWS_NATIVE.md#purchase-request-and-goods-issue-links).
