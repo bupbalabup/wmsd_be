@@ -20,6 +20,17 @@ Thêm script Python lấy dữ liệu, ảnh và script Node.js import qua dịc
 ## 26/11/2026 — Folder architecture in agent instructions (BE, FE)
 
 User request (26/11/2026): describe the folder architecture in English in the agent instruction files. BE: new "Folder architecture" section in `AGENTS.md`, copied to `CLAUDE.md` and `GEMINI.md` (entry points, `src/` layers, module file naming, request flow). FE: new "Folder architecture" section in `AGENTS.md` (app shell, feature folder layout, `shared/`, tests). Docs only; no code, contract or data change. Validation: `npm run docs:check` pass. Follow-up the same day: the Vietnamese "Quy tắc định danh chứng từ" section of the BE instruction files was translated to English ("Document identity rule"), with no change in meaning.
+## 26/11/2026 — Customer returns across goods issues on one purchase request
+
+Sales can select a purchase request and combine its posted goods issue lines in one return within one warehouse and intake mode. Each line retains its original issue and lot. Detail links to the request, the source issues and the filtered shipment list. The backend derives references from existing lines, so deployment requires no data migration. [Return API contract](docs/08_api/RETURN_WORKFLOWS_NATIVE.md#purchase-request-and-goods-issue-links).
+
+Verification: 12 focused backend tests passed, including an isolated MongoDB replica-set test of partial delivery, two shipments, ownership, warehouse scope, lot validation, rollback, replay and concurrent claims. Frontend typecheck passed. Of 57 focused frontend tests, 56 passed, including the two-shipment form test. The existing goods-issue warehouse-change test still fails. The older direct-sales integration suite is blocked at import by its obsolete evidence-storage module path. A live browser session was not tested.
+
+## 26/11/2026 — Review and plan for customer return purchase-request links
+
+Reviewed sales and goods issue changes at backend `3bcc61c` and frontend `e5f9d87`. The [implementation plan](docs/08_api/CUSTOMER_RETURN_PURCHASE_REQUEST_LINK_PLAN.md) proposes resolving the original request through the saved goods issue source, listing only authorized related issues, and keeping source eligibility tied to the issue-line claims and receipt rules. The [return API reference](docs/08_api/RETURN_WORKFLOWS_NATIVE.md) links to the proposal. This change is documentation only.
+
+Verification on the main baselines: backend 13 of 14 focused tests passed, with one stale manual SALE validation assertion. Frontend 51 of 56 focused tests passed, with one goods-issue warehouse-change failure and four customer-return form failures. MongoDB transaction and browser verification remain pending for implementation.
 
 ## 26/11/2026 — Driver handover without a confirmation step (FE)
 

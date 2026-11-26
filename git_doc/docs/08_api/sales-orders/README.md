@@ -2,6 +2,8 @@
 
 > Cập nhật 10/11/2026 cho runtime native. [Hợp đồng ba iteration HieuDT](../HIEUDT_ITERATIONS_NATIVE.md) mô tả sửa/hủy phần dư, WIR/OD, picking, quyền, kiểm kê và báo cáo. Các test pack trước chuyển DB chỉ là lịch sử.
 
+Customer returns can include several goods issues from one purchase request and warehouse. See the [return source contract](../RETURN_WORKFLOWS_NATIVE.md#purchase-request-and-goods-issue-links).
+
 Implemented routes (authenticated):
 
 | UC | Method / path | Permission |

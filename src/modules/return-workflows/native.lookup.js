@@ -23,6 +23,7 @@ function authorize(user, query) {
     : query.kind === 'holds' ? ['supplier_return:create']
     : ['defect:read', 'customer_return:read', 'failed_delivery:read', 'failed_delivery:inspect', 'supplier_return:read', 'external_reference:create'];
   if (!permissions.some(permission => hasPermission(user, permission))) requirePermission(user, permissions[0]);
+  if (query.kind === 'return-orders') requirePermission(user, 'customer_return:create');
   if (query.kind === 'sources') requirePermission(user, query.purpose === 'customer-returns' ? 'customer_return:create' : query.purpose === 'failed-deliveries' ? 'failed_delivery:inspect' : query.purpose === 'supplier-returns' ? 'supplier_return:create' : 'defect:create');
 }
 async function page(Model, stages, query, searchFields = ['code', 'name']) {
@@ -33,7 +34,7 @@ async function page(Model, stages, query, searchFields = ['code', 'name']) {
   return { items: result?.items || [], total: result?.count[0]?.total || 0, page: query.page, limit: query.limit };
 }
 const productContext = [join(m.ProductBatch, 'lotId', 'batch'), { $set: { manufacturerLot: first('batch.manufacturerLot') } }, join(m.Product, 'productId', 'product'), { $set: { productName: first('product.name'), productCode: first('product.sku'), unit: first('product.baseUnit'), wholeBaseUnits: first('product.wholeBaseUnits') } }];
-const sourceProjection = { _id: '$items._id', documentId: '$_id', documentNo: 1, documentKind: 1, warehouseId: '$header.warehouseId', referenceNo: '$header.referenceNo', customerId: 1, customerName: { $ifNull: ['$header.customerName', '$customerName'] }, customerPhone: { $ifNull: ['$header.customerPhone', '$customerPhone'] }, supplierId: 1, lotId: '$items.lotId', productId: '$items.productId', name: '$items.productNameSnapshot', qtyBase: '$items.qtyBase', unit: '$items.baseUnitSnapshot', version: 1, sourceKind: 1, baseUnitsPerPackage: '$items.packagingSnapshot.baseUnitsPerPackage', enteredUnit: '$items.enteredUnit', baseUnitsPerUnit: '$items.baseUnitsPerUnit', baseUnitSnapshot: '$items.baseUnitSnapshot' };
+const sourceProjection = { _id: '$items._id', documentId: '$_id', documentNo: 1, documentKind: 1, warehouseId: '$header.warehouseId', referenceNo: '$header.referenceNo', salesOrderId: 1, customerId: 1, customerName: { $ifNull: ['$header.customerName', '$customerName'] }, customerPhone: { $ifNull: ['$header.customerPhone', '$customerPhone'] }, supplierId: 1, lotId: '$items.lotId', productId: '$items.productId', name: '$items.productNameSnapshot', qtyBase: '$items.qtyBase', unit: '$items.baseUnitSnapshot', version: 1, sourceKind: 1, baseUnitsPerPackage: '$items.packagingSnapshot.baseUnitsPerPackage', enteredUnit: '$items.enteredUnit', baseUnitsPerUnit: '$items.baseUnitsPerUnit', baseUnitSnapshot: '$items.baseUnitSnapshot' };
 async function sourceLookup(user, query) {
   const purpose = query.purpose;
   const stages = [{ $match: { ...scope(user, query), workflowStatus: 'POSTED', ...(purpose === 'customer-returns' && { documentKind: 'GI_SALE' }), ...(query.documentId && { _id: oid(query.documentId) }) } }, { $unwind: '$items' }];
@@ -56,12 +57,18 @@ async function sourceLookup(user, query) {
     stages.push(join(m.DeliveryOrder, 'items.details.outboundDeliveryLineId', 'delivery', 'items._id'),
       join(m.WarehouseIssueRequest, 'delivery.header.issueRequestId', 'request'), join(m.SalesOrder, 'request.header.salesOrderId', 'sale'),
       join(m.SalesOrder, 'header.salesOrderId', 'directSale'),
-      { $set: { customerId: { $ifNull: ['$header.customerId', first('sale.header.customerId')] }, customerName: { $ifNull: ['$header.customerName', first('directSale.header.customerName'), first('sale.header.customerName')] }, customerPhone: { $ifNull: ['$header.customerPhone', first('directSale.header.customerPhone'), first('sale.header.customerPhone')] }, salesCreatedBy: { $ifNull: [first('directSale.createdBy'), first('sale.createdBy'), '$createdBy'] } } });
+      { $set: { salesOrderId: { $ifNull: [first('directSale._id'), first('sale._id')] }, orderNo: { $ifNull: [first('directSale.documentNo'), first('sale.documentNo')] }, customerId: { $ifNull: ['$header.customerId', first('sale.header.customerId')] }, customerName: { $ifNull: ['$header.customerName', first('directSale.header.customerName'), first('sale.header.customerName')] }, customerPhone: { $ifNull: ['$header.customerPhone', first('directSale.header.customerPhone'), first('sale.header.customerPhone')] }, salesCreatedBy: { $ifNull: [first('directSale.createdBy'), first('sale.createdBy'), '$createdBy'] } } });
     if (hasPermission(user, 'customer_return:create') && !hasPermission(user, 'customer_return:inspect')) stages.push({ $match: { $or: [
       { salesCreatedBy: oid(user._id) },
       { documentKind: 'GI_SALE', 'header.issueKind': 'SALE', 'header.referenceNo': { $exists: true, $ne: '' }, 'header.salesOrderId': null, 'header.fulfillmentMode': null },
     ] } });
-    if (purpose === 'customer-returns') stages.push({ $unionWith: { coll: m.ExternalReference.collection.name, pipeline: [
+    if (query.kind === 'return-orders') {
+      stages.push({ $match: { salesOrderId: { $ne: null } } },
+        { $group: { _id: '$salesOrderId', documentNo: { $first: '$orderNo' }, name: { $first: '$customerName' } } });
+      return page(Model, stages, query, ['documentNo', 'name']);
+    }
+    if (query.salesOrderId) stages.push({ $match: { salesOrderId: oid(query.salesOrderId) } });
+    if (purpose === 'customer-returns' && !query.salesOrderId) stages.push({ $unionWith: { coll: m.ExternalReference.collection.name, pipeline: [
       { $match: { ...scope(user, query, 'warehouseId'), referenceKind: 'HISTORICAL_DELIVERY', status: 'VERIFIED', 'evidenceIds.0': { $exists: true }, ...(query.documentId && { _id: oid(query.documentId) }) } },
       { $unwind: '$items' }, { $set: { documentNo: '$referenceNo', documentKind: 'HISTORICAL_DELIVERY', header: { warehouseId: '$warehouseId' }, 'items.qtyBase': '$items.eligibleQty', 'items.baseUnitSnapshot': '$items.baseUnitSnapshot', sourceKind: 'HISTORICAL' } },
     ] } });
@@ -114,6 +121,7 @@ async function sourceLookup(user, query) {
 export async function lookup(user, query) {
   authorize(user, query);
   if (query.warehouseId) requireWarehouseAccess(user, query.warehouseId);
+  if (query.kind === 'return-orders') return serialize(await sourceLookup(user, { ...query, purpose: 'customer-returns', sourceKind: undefined }));
   if (query.kind === 'sources') return serialize(await sourceLookup(user, query));
   if (query.kind === 'document-lines') {
     if (!query.documentId) throw s.validationError('Chọn chứng từ nguồn trước');

@@ -148,7 +148,7 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
  thirdIssue=await m.SalesGoodsIssue.findById(thirdIssue._id);const thirdProof=await attach(thirdIssue);
  await confirmCustomerReceipt(seller,thirdIssue._id,{...confirm,idempotencyKey:key(),expectedVersion:thirdIssue.version,receivedAt:new Date().toISOString(),evidenceIds:[String(thirdProof._id)],lines:[{lineId:String(thirdIssue.items[0]._id),qtyBase:'4'}]});
  const custodyLocation=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'LEGACY-CUSTODY',locationType:'CUSTODY',usableLengthMm:'5000',usableWidthMm:'5000'});
- await assert.rejects(returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),qtyBase:'1',reason:'First source'},{salesIssueLineId:String(issue.items[0]._id),qtyBase:'1',reason:'Other source'}]}), /Mỗi phiếu trả chỉ dùng một chứng từ nguồn/);
+ await assert.rejects(returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),qtyBase:'1',reason:'First source'},{salesIssueLineId:String(issue.items[0]._id),qtyBase:'1',reason:'Already claimed source'}]}), /Vượt lượng khách đã nhận/);
  for(const legacy of [false,true]) {
    const rejected=await returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),qtyBase:'2',reason:'Review rejected handback'}]});
    let rd=await m.CustomerReturn.findById(rejected.id);

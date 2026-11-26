@@ -41,8 +41,8 @@ export async function assertNoReferences(order, session) {
  * cancelled, still to deliver, reserved for the request, free stock of the lot and the shortage.
  * Free stock is counted in the warehouses of the delivery plan, or in every active warehouse without a plan.
  */
-export async function lineProgress(order, schedule, session) {
-  const issues = await requestIssues(order, session);
+export async function lineProgress(order, schedule, session, visibleIssues) {
+  const issues = visibleIssues ?? await requestIssues(order, session);
   const posted = issues.filter(doc => doc.workflowStatus === 'POSTED');
   const issued = await effectiveQuantities(posted, session);
   const issueLineIds = posted.flatMap(doc => doc.items.map(item => item._id));
