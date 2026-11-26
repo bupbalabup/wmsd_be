@@ -13,6 +13,14 @@ test('a customer return accepts an optional plain-text order reference without r
  assert.equal(v.customerCreateSchema.safeParse({body:{...body,salesOrderReference:'EXT-SO-019',lines:[{qtyBase:'2',reason:base.note}]}}).success,false);
  assert.equal(createCustomerReturnHeaderSchema().path('salesOrderReference').instance,'String');
 });
+test('customer returns can select a purchase request and scope the source lookup to it',()=>{
+ const salesOrderId='ĐBH-KD-261126-000001';
+ const query={kind:'sources',purpose:'customer-returns',warehouseId:id,salesOrderId};
+ assert.ok(v.lookupSchema.safeParse({query}).success);
+ assert.ok(v.lookupSchema.safeParse({query:{kind:'return-orders',warehouseId:id}}).success);
+ assert.equal(v.lookupSchema.safeParse({query:{...query,purpose:'supplier-returns'}}).success,false);
+ assert.ok(v.customerCreateSchema.safeParse({body:{idempotencyKey:base.idempotencyKey,warehouseId:id,salesOrderId,lines:[{salesIssueLineId:id,qtyBase:'1',reason:'Return'}]}}).success);
+});
 test('customer request parts and defect outcomes can share a source while supplier proposals stay unique',()=>{
  const part={salesIssueLineId:id,qtyBase:'2',reason:'Inspect separately'};
  assert.equal(v.customerCreateSchema.safeParse({body:{idempotencyKey:base.idempotencyKey,warehouseId:id,lines:[part,part]}}).success,true);
