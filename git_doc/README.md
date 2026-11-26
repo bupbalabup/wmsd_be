@@ -1,6 +1,6 @@
 ## Phạm vi hiện hành
 
-Theo quyết định người dùng ngày 17/11/2026, bỏ danh mục khách hàng và delivery riêng; giữ đơn bán và khách trả. Xem [phạm vi và nguồn yêu cầu](PROJECT_GUIDE.md#phạm-vi-chức-năng-hiện-hành). Mô tả triển khai cũ bên dưới không tự mở lại các chức năng đã loại khỏi phạm vi. Đây là thay đổi tài liệu; code/DB chưa được thay đổi trong lượt này.
+Phạm vi hiện hành ngày 26/11/2026 gồm đơn bán mới theo lịch giao và giữ tồn FIFO, cùng phiếu SALE độc lập theo mã ngoài (Sales gửi chờ duyệt, Owner khác duyệt, Kho vận chọn lô và ghi xuất). Khách trả bắt đầu từ phiếu xuất đã ghi sổ, hiển thị lô thực xuất và hạn mức còn lại; kiểm hàng không đổi tồn, chỉ phần được Sales chấp nhận mới ghi nhập. Trả NCC dùng thỏa thuận theo nguồn; Accountant ghi ACK riêng rồi đối chiếu/đóng, không ghi tồn lần hai. Không có danh mục khách hàng; thông tin khách là snapshot trên chứng từ. Xem [phạm vi và nguồn yêu cầu](PROJECT_GUIDE.md#phạm-vi-chức-năng-hiện-hành).
 
 > Mới 15/11/2026: [Báo cáo vận hành UC-113](docs/08_api/OPERATIONAL_REPORTS.md) — nhóm báo cáo theo vai trò, bộ lọc, chỉ đọc và giới hạn vai trò tùy chỉnh.
 > Mới 22/11/2026: kiểm kê được thiết kế lại theo phản hồi giảng viên — [kế hoạch kiểm kê định kỳ tách khỏi phiếu](docs/08_api/STOCKTAKE_PLANS.md), bỏ đếm mù, đối chiếu đơn giản (đếm lại hoặc duyệt chênh lệch theo từng dòng) và bỏ lý do chốt: [hợp đồng hiện hành](docs/08_api/STOCKTAKE_LIFECYCLE.md#redesign--22-november-2026-current-contract).
@@ -28,7 +28,7 @@ Bản v8 là snapshot lịch sử có category. Registry hiện hành có 58 col
 
 ## Tài liệu triển khai
 
-Kế hoạch chưa triển khai: [Xuất bán và trả hàng theo demo Trungph](docs/09_phat_trien/TRUNG_SALES_RETURNS_IMPLEMENTATION_PLAN.md) (25/11/2026). Giữ luồng 8 → 4 → 4 và tách quyết định mở lại xuất bán theo mã ngoài khỏi thay đổi giao diện.
+Đã triển khai luồng [xuất bán và trả hàng theo demo Trungph](docs/09_phat_trien/TRUNG_SALES_RETURNS_IMPLEMENTATION_PLAN.md): backend full-flow đã kiểm chứng; FE còn 5 lỗi tương tác jsdom/Ant Design trong bộ tập trung và chưa có browser visual run. Kịch bản 8 → 4 → 4 trả NCC dùng lô nguồn khác cho phần trả NCC.
 
 Đặc tả tính năng đang chuẩn bị: [Kho 3D — phiên bản 1](docs/10_Kho3D/README.md) (12/11/2026). Ghi các quyết định mới về mặt bằng, khu vực, pallet và cảnh báo chiều cao; chưa phải hợp đồng API hoặc tính năng đã triển khai.
 
@@ -45,9 +45,9 @@ Kế hoạch chưa triển khai: [Xuất bán và trả hàng theo demo Trungph]
 | [BF04](docs/08_api/transfers/BF04_API.md) / [quyền đọc TR](docs/08_api/transfers/README.md) | API chuyển giữa kho và phạm vi xem |
 | [RR](docs/08_api/replenishments/README.md) | Bổ sung hàng |
 | [SO / giao hàng](docs/08_api/sales-orders/README.md) | Hợp đồng API bán hàng hiện có |
-| [Goods Issue UC-69–72](docs/08_api/GOODS_ISSUES.md) | Danh sách/chi tiết, tạo/cập nhật phiếu xuất, picking và PGI bàn giao |
+| [Goods Issue UC-69–72](docs/08_api/GOODS_ISSUES.md) | Phiếu bán theo lịch đơn bán hoặc mã ngoài độc lập; picking/PGI, điều chuyển và các lệnh xuất native |
 | [Gói test FE06](docs/08_api/test_packs/fe06-iteration1/README.md) | Cách gọi API và nguồn test lịch sử |
-| [Return workflows native](docs/08_api/RETURN_WORKFLOWS_NATIVE.md) / [kết quả kiểm chứng](docs/08_api/RETURN_WORKFLOWS_VERIFICATION.md) | Port ba iteration Trungph theo schema hiện hành |
+| [Return workflows native](docs/08_api/RETURN_WORKFLOWS_NATIVE.md) / [kết quả kiểm chứng](docs/08_api/RETURN_WORKFLOWS_VERIFICATION.md) | Khách trả theo phiếu xuất/lô nguồn, trả NCC theo thỏa thuận, ACK và đối chiếu riêng |
 | [Nhật ký thay đổi](change_logs.md) | Mỗi lượt thay đổi cùng kiểm chứng và phần còn mở |
 | [Nhật ký model](../src/models/CHANGELOG.md) | Thay đổi schema và ảnh hưởng dữ liệu |
 
@@ -72,4 +72,4 @@ Model runtime hiện hành dùng 59 file collection `src/models/*.model.js` và 
 
 Current feature contract: [Excel exports and opening stock](docs/08_api/EXCEL_AND_OPENING_STOCK.md), including [local additive setup](docs/09_phat_trien/EXCEL_OPENING_SETUP.md) (16 November 2026).
 
-Current simplified sales: [API](docs/08_api/GOODS_ISSUES.md) · [local setup](docs/09_phat_trien/SIMPLIFIED_SALES_SETUP.md).
+Sales and returns: [scheduled orders](docs/08_api/SALES_DELIVERY_SCHEDULE.md) · [Goods Issue](docs/08_api/GOODS_ISSUES.md) · [return workflow](docs/08_api/RETURN_WORKFLOWS_NATIVE.md) · [local setup](docs/09_phat_trien/SIMPLIFIED_SALES_SETUP.md).
