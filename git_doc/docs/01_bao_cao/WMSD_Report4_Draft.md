@@ -2118,7 +2118,8 @@ sequenceDiagram
   W->>UI: Enter source stock, destination, quantity and reason
   UI->>C: POST /api/location-movements
   C->>S: createLocationMovement()
-  S->>K: Check source version, packaging, open tasks and location locks
+  S->>K: Load source context, split packaging, check open task quantities and guard locations
+  S->>S: Validate source version, same warehouse, distinct locations and available quantity
   S->>DB: Save RELOCATE order OPEN, version 1, assigned to creator
   S-->>C: Command receipt
   C-->>UI: 201 created (200 on replay)
@@ -2314,7 +2315,8 @@ sequenceDiagram
       opt Picker changes bin allocations or takes less than planned
         S->>DB: Align TD, ITR, TO and reservations to actual picks. Require reason for short pick
       end
-      S->>K: Consume reserved stock and move STORAGE to STAGING to IN_TRANSIT
+      S->>DB: Consume remaining reservations for the PICK order
+      S->>K: Move STORAGE to STAGING to IN_TRANSIT
       S->>DB: Save TRANSFER_DISPATCH, handover, TD POSTED and draft MWTR if absent
       S->>DB: Set ITR COMPLETED and PICK order CONFIRMED in the same transaction
       S-->>C: Confirmed PICK order
@@ -2441,7 +2443,8 @@ sequenceDiagram
     else Authorized source, destination or store owner stops the remainder
       W->>C: POST /:id/close-partial with reason
       C->>S: closePartialRequest()
-      S->>DB: Require posted dispatches, zero transit, no OPEN discrepancy, completed tasks and a shortfall
+      S->>DB: Require posted dispatches and a receipt or approved write-off
+      S->>DB: Check zero transit, no OPEN discrepancy, completed tasks and an unshipped shortfall
       S->>DB: Save TR COMPLETED with PARTIAL closure mode, actor, time and reason
     end
   end
