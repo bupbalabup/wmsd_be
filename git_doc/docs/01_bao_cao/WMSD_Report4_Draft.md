@@ -2020,62 +2020,139 @@ sequenceDiagram
 
 #### 3.1 Class Diagram
 
+One RELOCATE order groups movements within one warehouse. Each confirmed trip has its own ledger entry. The order's stockTransactionId identifies the latest entry. Each movement's sourceLineId identifies the order item whose quantity it consumes. [Relocation service](../../../src/modules/location-movements/location-movement.service.js) · [Stock operations](../../../src/shared/utils/stock.js)
+
 ```mermaid
 classDiagram
-  class LocationMovementRoutes {
-    +GET /options
-    +POST /
-    +PATCH /:id
-    +POST /:id/confirm
-    +POST /:id/cancel
+  direction LR
+  class LocationMovementController {
+    <<controller>>
+    +options()
+    +create()
+    +edit()
+    +confirm()
+    +cancel()
   }
   class LocationMovementService {
+    <<service>>
     +locationMovementOptions()
     +createLocationMovement()
     +editLocationMovement()
+    +relocationItems()
     +confirmLocationMovement()
     +cancelLocationMovement()
   }
-  class TransferOrder {
-    header.taskKind = RELOCATE
-    workflowStatus OPEN|CONFIRMED|CANCELLED
+  class StockUtils {
+    <<utility>>
+    +guardLocations()
+    +beginStock()
+    +balanceAt()
+    +moveStock()
+    +verifyCapacity()
   }
-  class InventoryBalance
-  class StockReservation
-  class StockTransaction
-  LocationMovementRoutes --> LocationMovementService
-  LocationMovementService --> TransferOrder
-  LocationMovementService --> InventoryBalance : splitPortions / moveStock
-  LocationMovementService --> StockReservation : move with stock
-  LocationMovementService --> StockTransaction
+  class TransferOrder {
+    documentNo
+    version
+    workflowStatus
+    createdBy
+    stockTransactionId
+  }
+  class DocumentItem {
+    lineKind
+    lotId
+    qtyBase
+    details
+  }
+  class StockTransaction {
+    sourceType
+    sourceId
+    operation
+    requestKey
+  }
+  class StockMovement {
+    sourceLineId
+    quantityBase
+    fromBalanceId
+    toBalanceId
+  }
+  class StockReservation {
+    demandRef
+    reservedQty
+    movedQty
+    previousReservationId
+  }
+  LocationMovementController ..> LocationMovementService : calls
+  LocationMovementService ..> StockUtils : calls
+  LocationMovementService ..> TransferOrder : creates and updates
+  StockUtils ..> StockTransaction : begins posting
+  TransferOrder "1" *-- "1..*" DocumentItem : items
+  TransferOrder "1" -- "0..*" StockTransaction : RELOCATE via sourceId
+  StockTransaction "1" *-- "1..*" StockMovement : movements
+  DocumentItem "0..*" --> "1" WarehouseLocation : fromLocationId
+  DocumentItem "0..*" --> "1" WarehouseLocation : toLocationId
+  DocumentItem "0..*" --> "1" InventoryBalance : sourceBalanceId
+  StockMovement "0..*" --> "1" InventoryBalance : fromBalanceId
+  StockMovement "0..*" --> "1" InventoryBalance : toBalanceId
+  StockHoldingPoint "0..1" --> "1" WarehouseLocation : LOCATION
+  InventoryBalance "0..*" --> "1" StockHoldingPoint : holdingPointId
+  InventoryBalance "0..*" --> "1" ProductBatch : batchId
+  StockReservation "0..*" --> "1" InventoryBalance : balanceId
 ```
 
-#### 3.2 Sequence — Create and confirm relocation
+#### 3.2 Sequence — Plan, confirm trips and cancel the remainder
 
 ```mermaid
 sequenceDiagram
   autonumber
-  actor W as Warehouse Staff
-  participant FE as /location-moves/create
-  participant API as /api/location-movements
-  participant S as LocationMovementService
-  participant DB as MongoDB
-  W->>FE: Select warehouse, source location, rows or whole location
-  FE->>API: GET /options?warehouseId=
-  W->>FE: Whole cartons/pieces + one destination
-  FE->>API: POST / {warehouseId, reason, lines[sourceBalanceId, sourceBalanceVersion, toLocationId, enteredUnit, enteredQty]}
-  S->>DB: same warehouse, different active locations, verified lot, free qty after open tasks, no lock
-  S->>DB: simulate packaging split (no carton opening)
-  S->>DB: TransferOrder RELOCATE OPEN
-  opt change before execution
-    W->>API: PATCH /:id or POST /:id/cancel (creator only)
+  actor W as Warehouse Staff (creator)
+  participant UI as MoveForm / MoveActions
+  participant C as location-movement.controller.js
+  participant S as location-movement.service.js
+  participant K as stock.js
+  participant DB as Mongoose / MongoDB
+  W->>UI: Select warehouse
+  UI->>C: GET /api/location-movements/options?warehouseId=…
+  C->>S: locationMovementOptions()
+  S-->>C: Accessible locations, batches, packaging and balances
+  C-->>UI: Form options
+  W->>UI: Enter source stock, destination, quantity and reason
+  UI->>C: POST /api/location-movements
+  C->>S: createLocationMovement()
+  S->>K: Check source version, packaging, open tasks and location locks
+  S->>DB: Save RELOCATE order OPEN, version 1, assigned to creator
+  S-->>C: Command receipt
+  C-->>UI: 201 created (200 on replay)
+  opt Creator edits an OPEN order
+    UI->>C: PATCH /:id with expectedVersion
+    C->>S: editLocationMovement()
+    S->>DB: Revalidate plan, save items and increment version
   end
-  W->>API: POST /:id/confirm {lines[lineId, actualQtyBase]}
-  alt actual ≠ planned or missing line
-    S-->>FE: 400 (no partial confirmation)
-  else all lines equal plan
-    S->>DB: source −q, destination +q, reservations moved, capacity check
-    S->>DB: one StockTransaction, TO CONFIRMED
+  loop Each trip while OPEN or PARTIAL
+    W->>UI: Enter actual quantities for selected lines
+    UI->>C: POST /:id/confirm with expectedVersion and actual quantities
+    C->>S: confirmLocationMovement()
+    S->>DB: Check creator, order version and prior RELOCATE postings per line
+    S->>S: Require distinct selected lines and positive quantities within remainder
+    S->>K: Guard locations and begin one RELOCATE transaction
+    loop Each selected order line
+      S->>K: balanceAt() and moveStock() for actual quantity
+      K->>DB: Debit source, credit destination and move reservations as needed
+    end
+    S->>K: verifyCapacity()
+    S->>DB: Save posting and refresh matching source balance versions
+    alt All lines fully moved
+      S->>DB: Save CONFIRMED, confirmedBy, confirmedAt and latest posting ID
+    else Quantity remains
+      S->>DB: Save PARTIAL and latest posting ID
+    end
+    S-->>C: Updated status and version
+    C-->>UI: Trip confirmed
+  end
+  opt Creator cancels an OPEN or PARTIAL order
+    UI->>C: POST /:id/cancel with expectedVersion and reason
+    C->>S: cancelLocationMovement()
+    S->>DB: Guard source locations and save CANCELLED with actor, time and reason
+    Note over S,DB: Earlier trips and their stock effects remain posted
   end
 ```
 
@@ -2083,133 +2160,291 @@ sequenceDiagram
 
 #### 4.1 Class Diagram
 
+A transfer request (TR) can have several dispatches (TD). Each posted dispatch can have several transfer receipts (MWTR). A dispatch or a posted receipt with good stock can each source one internal transfer requirement (ITR), which generates one transfer order (TO). The PICK order and dispatch share a posting. Receipt, put-away and approved transit loss each generate a separate posting. [Transfer service](../../../src/modules/transfers/transfer.service.js) · [Variance handling](../../../src/modules/transfers/transfer-differences.js) · [Completion rules](../../../src/modules/transfers/transfer-completion.js)
+
 ```mermaid
 classDiagram
-  class TransferWriteService {
+  direction LR
+  class TransferController {
+    <<controller>>
+    +createRequest()
+    +confirmTask()
+    +receiveTransfer()
+  }
+  class TransferService {
+    <<service>>
     +createRequest()
     +updateRequest()
+    +cancelRequest()
     +reviewRequest()
     +createDispatch()
     +cancelDraftDispatch()
     +createRequirement()
     +confirmTask()
     +receiveTransfer()
+    -automaticPutaway()
+    -planPutaway()
     +closeRequest()
     +closePartialRequest()
   }
   class TransferDifferences {
     +proposeDifference()
     +reviewDifference()
+    -settleWithReceipt()
+    -writeOffTransit()
   }
-  class WarehouseTransferRequest
+  class TransferCompletion {
+    +completeTransferIfReady()
+    +completionBlocker()
+    +putawayBlocker()
+  }
+  class WarehouseTransferRequest {
+    workflowStatus
+    items
+    header
+  }
   class TransferDispatch {
-    handovers[]
+    workflowStatus
+    stockTransactionId
   }
-  class InternalTransferRequirement
+  class TransferReceipt {
+    documentKind
+    stockTransactionId
+  }
+  class InternalTransferRequirement {
+    workflowStatus
+    header
+  }
   class TransferOrder {
-    taskKind PICK|PUTAWAY
+    workflowStatus
+    stockTransactionId
   }
-  class GoodsReceipt {
-    documentKind TRANSFER
+  class StockDiscrepancy {
+    workflowStatus
+    resolutionEvents
+    header
   }
-  class StockDiscrepancy
-  class StockHoldingPoint {
-    IN_TRANSIT per dispatch line
+  class StockMovement {
+    sourceLineId
+    quantityBase
+    fromBalanceId
+    toBalanceId
   }
-  TransferWriteService --> WarehouseTransferRequest
-  TransferWriteService --> TransferDispatch
-  TransferWriteService --> InternalTransferRequirement
-  TransferWriteService --> TransferOrder
-  TransferWriteService --> GoodsReceipt
-  TransferWriteService --> StockHoldingPoint
-  TransferDifferences --> StockDiscrepancy
-  TransferDifferences --> GoodsReceipt : approve against
+  TransferController ..> TransferService : calls
+  TransferService ..> TransferDifferences : re-exports commands
+  TransferService ..> TransferCompletion : checks closure
+  TransferDifferences ..> TransferCompletion : after resolution
+  WarehouseTransferRequest "0..1" -- "0..*" ApprovalHistory : request reviews
+  StockDiscrepancy "0..1" -- "0..*" ApprovalHistory : variance reviews
+  WarehouseTransferRequest "1" -- "0..*" TransferDispatch : requestId
+  TransferDispatch "1" *-- "0..*" Handover : handovers
+  TransferDispatch "1" -- "0..*" StockDiscrepancy : source dispatch
+  TransferDispatch "1" -- "0..*" TransferReceipt : dispatchId
+  GoodsReceipt <|-- TransferReceipt : TRANSFER discriminator
+  TransferReceipt "1" -- "0..*" DefectReport : damaged lines
+  DefectReport "1" *-- "0..*" StockHold : holds
+  TransferDispatch "0..1" -- "0..1" InternalTransferRequirement : PICK source
+  TransferReceipt "0..1" -- "0..1" InternalTransferRequirement : PUTAWAY source
+  InternalTransferRequirement "1" -- "1" TransferOrder : requirementId
+  TransferOrder "0..1" --> "0..1" StockTransaction : stockTransactionId
+  TransferDispatch --> StockTransaction : posted dispatch
+  TransferReceipt --> StockTransaction : posted receipt
+  StockDiscrepancy ..> StockTransaction : WRITE_OFF posts TRANSFER_LOSS
+  StockTransaction "1" *-- "1..*" StockMovement : movements
+  StockReservation "0..*" --> "1" InventoryBalance : balanceId
+  InventoryBalance "0..*" --> "1" StockHoldingPoint : LOCATION or IN_TRANSIT
+  StockMovement "0..*" --> "1" InventoryBalance : fromBalanceId
+  StockMovement "0..*" --> "0..1" InventoryBalance : toBalanceId
 ```
 
-#### 4.2 Sequence — Request, approval and draft dispatch
+Each BF-04 movement debits one source balance. A transfer between holding points also credits one destination balance. A TRANSFER_LOSS movement debits the in-transit balance only. A reservation identifies the TR line through demandRef. Its executionRef changes from the draft TD to the PICK order when the task is created.
+
+#### 4.2 Sequence — Request, approval, draft dispatch and handover
+
+Write routes in sections 4.2–4.4 use the prefix `/api/warehouse-transfers`. Staff act through the application. Write commands carry an idempotency key, and updates check the version of the target document.
 
 ```mermaid
 sequenceDiagram
   autonumber
-  actor WS as Source Warehouse Staff
-  actor O as Store Owner
-  participant API as /api/warehouse-transfers
-  participant S as TransferWriteService
-  participant DB as MongoDB
-  WS->>API: GET /options?warehouseId=
-  WS->>API: POST / {sourceWarehouseId, destinationWarehouseId, reason, lines}
-  S->>DB: TR PENDING_APPROVAL
-  O->>API: POST /:id/review {decision}
-  alt REVISE
-    S->>DB: TR REVISION_REQUIRED
-    WS->>API: PUT /:id (creator edits, resubmits)
-  else REJECT
-    S->>DB: TR REJECTED
-  else APPROVE (Owner ≠ creator)
-    S->>DB: ApprovalHistory, TR APPROVED (no reservation)
+  actor W as Warehouse Staff via UI
+  actor O as Authorized reviewer via UI
+  participant C as transfer.controller.js
+  participant S as transfer.service.js
+  participant K as stock.js
+  participant DB as Mongoose / MongoDB
+  W->>C: POST / from source or destination warehouse scope
+  C->>S: createRequest()
+  S->>DB: Save TR PENDING_APPROVAL
+  loop While TR is active with no uncancelled dispatch and a user takes action
+    alt Creator edits PENDING_APPROVAL or REVISION_REQUIRED
+      W->>C: PUT /:id
+      C->>S: updateRequest()
+      S->>DB: Keep warehouses, save edited lines and set PENDING_APPROVAL
+    else Creator cancels PENDING_APPROVAL, REVISION_REQUIRED or APPROVED
+      W->>C: POST /:id/cancel with reason
+      C->>S: cancelRequest()
+      S->>DB: Ensure no uncancelled TD and save TR CANCELLED
+    else Independent reviewer decides on PENDING_APPROVAL
+      O->>C: POST /:id/review
+      C->>S: reviewRequest()
+      alt APPROVE
+        S->>DB: Check free stock, save approved quantities, ApprovalHistory and TR APPROVED
+      else REVISE or REJECT
+        S->>DB: Save ApprovalHistory and TR REVISION_REQUIRED or REJECTED
+      end
+    end
   end
-  WS->>API: POST /:id/outbound-deliveries {lines[requestLineId, sourceBalanceId, stagingLocationId, qtyBase]}
-  S->>DB: GOOD/STORE, verified lot, ≤ approved remainder
-  S->>DB: TransferDispatch DRAFT + StockReservation on source
-  opt cancel draft
-    WS->>API: POST /dispatches/:id/cancel {reason}
-    S->>DB: release reservation, cancel open ITR/TO, restore TR allowance
+  loop Source warehouse ships an approved remainder
+    W->>C: POST /:id/outbound-deliveries
+    C->>S: createDispatch()
+    S->>DB: Enforce line allowance and eligible stock, save TD DRAFT and reserve source stock
+    opt Create a picking task for this draft
+      W->>C: POST /documents/:id/internal-requirements
+      C->>S: createRequirement()
+      S->>DB: Save OPEN ITR and PICK order, move reservation executionRef to TO
+    end
+    alt TD creator cancels draft before handover and all related tasks are open
+      W->>C: POST /dispatches/:id/cancel with reason
+      C->>S: cancelDraftDispatch()
+      S->>DB: Release remaining reservations, cancel TD and related ITRs and TOs, update TR version
+      Note over W,DB: With no uncancelled dispatch the TR creator may cancel the eligible request
+    else TD creator or assigned picker confirms OPEN PICK task
+      W->>C: POST /tasks/:id/confirm with recipient name
+      C->>S: confirmTask()
+      opt Picker changes bin allocations or takes less than planned
+        S->>DB: Align TD, ITR, TO and reservations to actual picks. Require reason for short pick
+      end
+      S->>K: Consume reserved stock and move STORAGE to STAGING to IN_TRANSIT
+      S->>DB: Save TRANSFER_DISPATCH, handover, TD POSTED and draft MWTR if absent
+      S->>DB: Set ITR COMPLETED and PICK order CONFIRMED in the same transaction
+      S-->>C: Confirmed PICK order
+      C-->>W: Handover confirmed
+    end
   end
 ```
 
-#### 4.3 Sequence — Pick with handover, receipt, put-away and close
+#### 4.3 Sequence — Destination receipts and per-receipt put-away
 
 ```mermaid
 sequenceDiagram
   autonumber
-  actor WS as Source Warehouse Staff
-  actor WD as Destination Warehouse Staff
-  participant API as /api/warehouse-transfers
-  participant S as TransferWriteService
-  participant DB as MongoDB
-  WS->>API: POST /documents/:dispatchId/internal-requirements
-  S->>DB: one ITR + one PICK TO (unique), reservation → task
-  WS->>API: POST /tasks/:pickToId/confirm {recipientName, vehiclePlate?}
-  S->>DB: source → staging → IN_TRANSIT point (atomic), handover, TD POSTED
-  WD->>API: GET /dispatches?receivable=true
-  WD->>API: POST /dispatches/:id/receipts {lines[dispatchLineId, locationId, qtyBase, qualityCode, damageReason?]}
-  S->>DB: receiver ≠ dispatcher, qty ≤ transit
-  S->>DB: GoodsReceipt TRANSFER: GOOD → RECEIVING, DAMAGED → QUARANTINE, transit −qty
-  alt receipt has GOOD lines
-    WD->>API: POST /documents/:receiptId/internal-requirements {destinations}
-    S->>DB: one ITR + PUTAWAY TO
-    WD->>API: POST /tasks/:putawayToId/confirm
-    S->>DB: RECEIVING → STORAGE
-  else all DAMAGED
-    Note over S: no empty TO is created
+  actor W as Destination Warehouse Staff via UI
+  participant C as transfer.controller.js
+  participant S as transfer.service.js
+  participant K as stock.js
+  participant DB as Mongoose / MongoDB
+  participant F as transfer-completion.js
+  loop Each receipt against a POSTED dispatch with stock in transit and an APPROVED request
+    W->>C: POST /dispatches/:id/receipts with actual quantities, quality and receiving locations
+    C->>S: receiveTransfer()
+    S->>DB: Check dispatch version and destination scope, require receiver different from dispatcher
+    S->>DB: Use existing draft MWTR or create a receipt
+    loop Each receipt line
+      alt GOOD
+        S->>K: moveStock() from IN_TRANSIT to RECEIVING
+      else DAMAGED
+        S->>K: moveStock() from IN_TRANSIT to QUARANTINE
+        S->>DB: Save DefectReport with damage reason and ACTIVE hold for the damaged quantity
+      end
+    end
+    S->>K: verifyCapacity()
+    S->>DB: Save TRANSFER_RECEIPT and MWTR POSTED
+    opt Receipt contains GOOD stock
+      S->>DB: Create one OPEN ITR and one OPEN PUTAWAY order for this receipt
+      Note over S,DB: Destination storage bins are chosen when the task is planned for confirmation
+    end
+    opt Stock remains in transit
+      S->>DB: Create next draft MWTR for the remainder
+    end
+    S->>F: completeTransferIfReady()
+    S-->>C: Posted MWTR and task reference if created
+    C-->>W: Receipt posted
   end
-  WD->>API: POST /:id/close
-  S->>DB: all approved dispatched, transit = 0, putaway done, no open difference → COMPLETED
-  opt remaining approved qty will not be sent
-    WD->>API: POST /:id/close-partial {reason}
+  loop Each open PUTAWAY task for a receipt containing GOOD stock
+    W->>C: GET /tasks/:id
+    C->>S: getPutawayTask()
+    S-->>C: GOOD receipt lines and any planned targets
+    C-->>W: Task detail
+    W->>C: GET /options?warehouseId=...&mode=locations
+    C->>S: transferOptions()
+    S-->>C: Warehouse locations
+    C-->>W: Display active STORAGE choices
+    W->>C: POST /tasks/:id/confirm with a STORAGE destination for every GOOD line
+    C->>S: confirmTask()
+    S->>S: planPutaway() validates receipt lines and destination bins
+    S->>K: Move RECEIVING to STORAGE and check capacity
+    S->>DB: Save TRANSFER_PUTAWAY, ITR COMPLETED and TO CONFIRMED
+    S->>F: completeTransferIfReady()
+    S-->>C: Confirmed task
+    C-->>W: Put-away confirmed
   end
 ```
 
-#### 4.4 Sequence — Transfer difference
+Each put-away task can be confirmed as soon as its receipt is posted. Later receipts against the same dispatch can generate additional tasks. A receipt containing only damaged stock generates no put-away task.
+
+#### 4.4 Sequence — Transit discrepancy and closure
 
 ```mermaid
 sequenceDiagram
   autonumber
-  actor WD as Destination Warehouse Staff
-  actor O as Store Owner
-  participant API as /api/warehouse-transfers
-  participant D as TransferDifferences
-  participant DB as MongoDB
-  WD->>API: POST /dispatches/:id/differences {reason, lines[dispatchLineId, qtyBase]}
-  D->>DB: qty ≤ transit, no duplicate open record → StockDiscrepancy (CLCK) OPEN
-  O->>API: POST /differences/:id/review {decision, receiptId?}
-  alt APPROVE (Owner ≠ reporter)
-    D->>DB: receiptId = later POSTED receipt of the same dispatch with enough unused qty
-    D->>DB: ApprovalHistory + resolutionEvents, record resolved
-  else REJECT / REVISE
-    D->>DB: decision history, record stays OPEN
+  actor W as Warehouse Staff via UI
+  actor O as Authorized reviewer via UI
+  participant C as transfer.controller.js
+  participant D as transfer-differences.js
+  participant S as transfer.service.js
+  participant F as transfer-completion.js
+  participant DB as Mongoose / MongoDB
+  opt Destination staff report missing goods on a POSTED TD for an APPROVED TR
+    W->>C: POST /dispatches/:id/differences with reason and quantities
+    C->>D: proposeDifference()
+    D->>DB: Check destination assignment, transit quantity and existing OPEN claims
+    D->>DB: Save StockDiscrepancy OPEN
+    O->>C: POST /differences/:id/review for another person's report
+    C->>D: reviewDifference()
+    alt APPROVE with RECEIVED
+      D->>DB: Check later POSTED MWTR, same TD, sufficient unused effective quantity on each line
+      D->>DB: Link receipt and resolution events, set discrepancy RESOLVED
+    else APPROVE with WRITE_OFF
+      D->>DB: Debit in-transit source, post TRANSFER_LOSS and record liable party
+      D->>DB: Link posting in resolution events, set discrepancy RESOLVED
+    else REJECT or REVISE
+      D->>DB: Set REJECTED or RETURNED respectively, leave unreceived goods in transit
+    end
+    D->>DB: Save ApprovalHistory and discrepancy
+    opt Discrepancy is RESOLVED
+      D->>F: completeTransferIfReady()
+    end
   end
-  Note over D: posted quantities are never edited, no automatic loss write-off
+  Note over S,F: Receipt posting and PUTAWAY confirmation also call completeTransferIfReady()
+  opt Automatic full closure check
+    F->>DB: Check effective receipts plus written-off losses against dispatch and approval per TR line
+    F->>DB: Check every active TD posted, zero transit, no OPEN discrepancy, all required tasks finished
+    opt All checks pass on an APPROVED TR
+      F->>DB: Save TR COMPLETED, closedBy and closedAt
+    end
+  end
+  opt Destination explicitly requests full closure of an APPROVED TR
+    W->>C: POST /:id/close
+    C->>S: closeRequest()
+    S->>F: completionBlocker()
+    F-->>S: Blocking reason or no blocker
+    alt Blocked
+      S-->>C: Validation error
+    else Ready
+      S->>DB: Save TR COMPLETED, closedBy and closedAt
+    end
+  end
+  opt An approved quantity remains unshipped
+    alt Source continues shipping
+      W->>C: POST /:id/outbound-deliveries for the next dispatch
+      C->>S: createDispatch()
+    else Authorized source, destination or store owner stops the remainder
+      W->>C: POST /:id/close-partial with reason
+      C->>S: closePartialRequest()
+      S->>DB: Require posted dispatches, zero transit, no OPEN discrepancy, completed tasks and a shortfall
+      S->>DB: Save TR COMPLETED with PARTIAL closure mode, actor, time and reason
+    end
+  end
 ```
 
 ### 5. BF-05 Stocktake, reconciliation and adjustment — Closure implemented; planning/counting design target
