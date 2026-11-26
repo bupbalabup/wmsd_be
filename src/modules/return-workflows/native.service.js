@@ -79,11 +79,16 @@ async function returnSource(input,user,session){
 }
 export async function createCustomerReturn(user,input){return command(user,'CREATE_CR','customer_return:create',null,input,replay(m.CustomerReturn),async(session,actor,operationId)=>{
  requireWarehouseAccess(actor,input.warehouseId);
- const doc=await envelope(m.CustomerReturn,actor,{warehouseId:input.warehouseId,openedBy:actor._id,openedAt:new Date(),...(input.salesOrderReference&&{salesOrderReference:input.salesOrderReference})},[]);let intakeMode,sourceDocumentId;const requestedByLot=new Map();
+ const doc=await envelope(m.CustomerReturn,actor,{warehouseId:input.warehouseId,openedBy:actor._id,openedAt:new Date(),...(input.salesOrderReference&&{salesOrderReference:input.salesOrderReference})},[]);let intakeMode,sourceGroup;const requestedByLot=new Map();
  for(const row of input.lines){const c=await returnSource(row,actor,session);if(intakeMode&&intakeMode!==c.intakeMode)throw validationError('Không thể kết hợp nguồn trả hàng trực tiếp và nguồn giao hàng cũ');intakeMode=c.intakeMode;await s.assertWholeQuantity(c.item.productId,row.qtyBase,session);if(!same(c.warehouseId,input.warehouseId))throw validationError('Nguồn sai kho');
-  if(sourceDocumentId && !same(sourceDocumentId,c.doc._id))throw validationError('Mỗi phiếu trả chỉ dùng một chứng từ nguồn');
+  if(row.salesIssueLineId && c.doc.workflowStatus!=='POSTED')throw validationError('Phiếu xuất chưa ghi sổ');
+  if(c.so && hasPermission(actor,'customer_return:create') && !hasPermission(actor,'customer_return:inspect') && !same(c.so.createdBy,actor._id))throw notFoundError();
+  if(input.salesOrderId && (!c.so || !same(input.salesOrderId,c.so._id)))throw validationError('Phiếu xuất không thuộc yêu cầu mua hàng đã chọn');
+  const parent=c.so ?? c.doc, group=parent.constructor.collection.name+':'+parent._id;
+  if(sourceGroup && sourceGroup!==group)throw validationError('Các dòng phải cùng yêu cầu mua hàng hoặc cùng một chứng từ nguồn độc lập');
+  sourceGroup=group;
   const customerName=c.customerName||input.customerName;if(!customerName)throw validationError('Nhập tên khách hàng cho phiếu xuất chưa có thông tin khách');
-  sourceDocumentId=c.doc._id;doc.header.customerId=c.customerId;doc.header.customerName=customerName;doc.header.customerPhone=c.customerPhone||input.customerPhone;
+  doc.header.customerId=c.customerId;doc.header.customerName=customerName;doc.header.customerPhone=c.customerPhone||input.customerPhone;
   const sourceKey=String(c.item._id);
   if(exact(row.qtyBase).plus(await s.claimTotal(c.item._id,'CR',session)).gt(c.allowance))throw validationError('Vượt lượng khách đã nhận còn được trả');
   let lotId=c.item.lotId;

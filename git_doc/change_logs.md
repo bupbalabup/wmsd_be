@@ -1,3 +1,15 @@
+## 26/11/2026 — Customer returns across goods issues on one purchase request
+
+Sales can select a purchase request and combine its posted goods issue lines in one return within one warehouse and intake mode. Each line retains its original issue and lot. Detail links to the request, the source issues and the filtered shipment list. The backend derives references from existing lines, so deployment requires no data migration. [Return API contract](docs/08_api/RETURN_WORKFLOWS_NATIVE.md#purchase-request-and-goods-issue-links).
+
+Verification: 12 focused backend tests passed, including an isolated MongoDB replica-set test of partial delivery, two shipments, ownership, warehouse scope, lot validation, rollback, replay and concurrent claims. Frontend typecheck passed. Of 57 focused frontend tests, 56 passed, including the two-shipment form test. The existing goods-issue warehouse-change test still fails. The older direct-sales integration suite is blocked at import by its obsolete evidence-storage module path. A live browser session was not tested.
+
+## 26/11/2026 — Review and plan for customer return purchase-request links
+
+Reviewed sales and goods issue changes at backend `3bcc61c` and frontend `e5f9d87`. The [implementation plan](docs/08_api/CUSTOMER_RETURN_PURCHASE_REQUEST_LINK_PLAN.md) proposes resolving the original request through the saved goods issue source, listing only authorized related issues, and keeping source eligibility tied to the issue-line claims and receipt rules. The [return API reference](docs/08_api/RETURN_WORKFLOWS_NATIVE.md) links to the proposal. This change is documentation only.
+
+Verification on the main baselines: backend 13 of 14 focused tests passed, with one stale manual SALE validation assertion. Frontend 51 of 56 focused tests passed, with one goods-issue warehouse-change failure and four customer-return form failures. MongoDB transaction and browser verification remain pending for implementation.
+
 ## 26/11/2026 — Driver handover without a confirmation step (FE)
 
 User decision (26/11/2026): type the driver name and press "Bàn giao"; no extra confirmation. FE `goods-issues/DirectSales.tsx`: the handover form of a direct sales issue sends `POST /goods-issues/:id/post` on submit instead of opening the review dialog; the uncertain-result retry is kept. Other actions (Hoàn tất, cancel, receipts) keep their confirmation. No BE or contract change. Validation: new test in `goods-issues/pages.test.tsx`; folder 24/25 (pre-existing failure "clears selected products when the warehouse changes…"); `tsc --noEmit` and eslint pass.
