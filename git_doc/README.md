@@ -40,7 +40,7 @@ Bản v8 là snapshot lịch sử có category. Registry hiện hành có 58 col
 | [Docker](docs/09_phat_trien/DOCKER.md) | Dockerfile backend, compose ở thư mục gốc workspace |
 | [DB rebuild](docs/09_phat_trien/DB_REBUILD.md) | Registry mới, migration lịch sử và giới hạn runtime |
 | [Đọc code RR → nhập → cất hàng](docs/09_phat_trien/HUONG_DAN_CODE_RR_NHAP_CAT_HANG.md) | Từng hàm, biến, truy vấn MongoDB và rủi ro của luồng mua hàng |
-| [Giải thích và đối chiếu 25 sơ đồ BF-01](docs/04_so_do/WMSD_BF01_Diagrams_Review.md) | Ảnh từng trang, ký hiệu UML, lý do nối và đối chiếu với code RR, PO, kiểm nhận, nhập mua và giữ hộ |
+| [Giải thích và đối chiếu 26 sơ đồ BF-01](docs/04_so_do/WMSD_BF01_Diagrams_Review.md) | Mermaid cho từng trang, ký hiệu UML và đối chiếu với code RR, PO, kiểm nhận, nhập mua và giữ hộ |
 | [BF03](docs/08_api/location-movements/README.md) | API chuyển vị trí cùng kho trên runtime hiện có |
 | [BF04](docs/08_api/transfers/BF04_API.md) / [quyền đọc TR](docs/08_api/transfers/README.md) | API chuyển giữa kho và phạm vi xem |
 | [RR](docs/08_api/replenishments/README.md) | Bổ sung hàng |

@@ -1,3 +1,7 @@
+## 26/11/2026 — Folder architecture in agent instructions (BE, FE)
+
+User request (26/11/2026): describe the folder architecture in English in the agent instruction files. BE: new "Folder architecture" section in `AGENTS.md`, copied to `CLAUDE.md` and `GEMINI.md` (entry points, `src/` layers, module file naming, request flow). FE: new "Folder architecture" section in `AGENTS.md` (app shell, feature folder layout, `shared/`, tests). Docs only; no code, contract or data change. Validation: `npm run docs:check` pass. Follow-up the same day: the Vietnamese "Quy tắc định danh chứng từ" section of the BE instruction files was translated to English ("Document identity rule"), with no change in meaning.
+
 ## 26/11/2026 — Driver handover without a confirmation step (FE)
 
 User decision (26/11/2026): type the driver name and press "Bàn giao"; no extra confirmation. FE `goods-issues/DirectSales.tsx`: the handover form of a direct sales issue sends `POST /goods-issues/:id/post` on submit instead of opening the review dialog; the uncertain-result retry is kept. Other actions (Hoàn tất, cancel, receipts) keep their confirmation. No BE or contract change. Validation: new test in `goods-issues/pages.test.tsx`; folder 24/25 (pre-existing failure "clears selected products when the warehouse changes…"); `tsc --noEmit` and eslint pass.
