@@ -8,16 +8,17 @@ export const evidenceParams = z.object({ id: documentIdentifier, evidenceId: obj
 const label = (max) => z.string().trim().min(1).max(max);
 const quantity = z.string().regex(/^(?:0|[1-9]\d{0,13})(?:\.\d{1,6})?$/).refine((v) => /[1-9]/.test(v));
 export const createOrderBody = z.object({
-  idempotencyKey: label(70), customerName: label(160), customerPhone: z.string().trim().max(30).optional(), neededOn: z.iso.datetime({ offset: true }), deliveryAddress: label(500),
-  evidenceReceipt: label(4000), currencyCode: z.string().regex(/^[A-Z]{3}$/),
+  idempotencyKey: label(70), customerName: label(160), customerPhone: z.string().trim().max(30).optional(), neededOn: z.iso.datetime({ offset: true }).optional(), deliveryAddress: label(500),
+  // 26/11/2026: the request is a copy of the customer's slip. Source document, evidence photo, lot, unit and delivery plan are optional.
+  evidenceReceipt: label(4000).optional(), currencyCode: z.string().regex(/^[A-Z]{3}$/).default('VND'),
   source: z.object({ sourceSystem: z.enum(['MISA', 'PAPER']), referenceNo: label(100),
-    referenceDate: z.iso.datetime({ offset: true }).optional(), sourceVersion: label(100).optional() }).strict(),
-  lines: z.array(z.object({ sourceLineKey: label(100), productId: objectId, enteredUnit: label(60), lotId: objectId, unitSellingPrice: decimalStringSchema(),
+    referenceDate: z.iso.datetime({ offset: true }).optional(), sourceVersion: label(100).optional() }).strict().optional(),
+  lines: z.array(z.object({ sourceLineKey: label(100).optional(), productId: objectId, enteredUnit: label(60).optional(), lotId: objectId.optional(), unitSellingPrice: decimalStringSchema(),
     quantity: z.string().regex(/^(?:0|[1-9]\d{0,13})(?:\.\d{1,6})?$/).refine((v) => /[1-9]/.test(v)),
      }).strict()).min(1).max(200),
   deliveries: z.array(z.object({ plannedOn: z.iso.datetime({ offset: true }), warehouseId: objectId,
-    lines: z.array(z.object({ lineKey: label(100), quantity }).strict()).min(1).max(200) }).strict()).min(1).max(50),
-}).strict().refine((v) => new Set(v.lines.map((line) => line.sourceLineKey)).size === v.lines.length, { message: 'Duplicate source lines' });
+    lines: z.array(z.object({ lineKey: label(100), quantity }).strict()).min(1).max(200) }).strict()).min(1).max(50).optional(),
+}).strict().refine((v) => { const keys = v.lines.map((line) => line.sourceLineKey).filter(Boolean); return new Set(keys).size === keys.length; }, { message: 'Duplicate source lines' });
 const unitQuantity = quantity;
 const deliveryPlan = z.object({ id: objectId.optional(), plannedOn: z.iso.datetime({ offset: true }), warehouseId: objectId,
   lines: z.array(z.object({ lineKey: label(100), quantity: unitQuantity }).strict()).min(1).max(200) }).strict();

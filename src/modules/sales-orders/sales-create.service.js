@@ -24,20 +24,25 @@ export async function uploadSourceEvidence(user,file){
 export function createSalesOrder(user,input){
   return command(user,'CREATE_SALES_ORDER','sales_order:create',null,input,(id,actor,session)=>orderSource(actor,id,session,{ replay: true }),async(session,actor)=>{
     let evidence;
-    try{evidence=jwt.verify(input.evidenceReceipt,secret(),{algorithms:['HS256'],audience:'sales-source-evidence'});}catch{throw validationError('Bằng chứng không hợp lệ hoặc hết hạn');}
-    if(evidence.actorId!==String(actor._id))throw forbiddenError('Bằng chứng không thuộc người tạo');
-    const reference=new ExternalReference({...input.source,referenceKind:'SALES_ORDER',correlationId:'so:'+newId(),items:[]});
+    if(input.evidenceReceipt){
+      try{evidence=jwt.verify(input.evidenceReceipt,secret(),{algorithms:['HS256'],audience:'sales-source-evidence'});}catch{throw validationError('Bằng chứng không hợp lệ hoặc hết hạn');}
+      if(evidence.actorId!==String(actor._id))throw forbiddenError('Bằng chứng không thuộc người tạo');
+    }
     const numbers=await nextDocumentFields(SalesOrder, 'SO', null, session);
+    // Without a source document the request is its own reference (typed from the customer's slip).
+    const reference=new ExternalReference({...(input.source??{sourceSystem:'PAPER',referenceNo:numbers.documentNo}),referenceKind:'SALES_ORDER',correlationId:'so:'+newId(),items:[]});
     const order=new SalesOrder({...numbers,workflowStatus:'OPEN',version:1,createdBy:actor._id,
-      externalReferenceIds:[reference._id],header:{externalReferenceId:reference._id,customerName:input.customerName,customerPhone:input.customerPhone,neededOn:input.neededOn,deliveryAddressSnapshot:input.deliveryAddress},
+      externalReferenceIds:[reference._id],header:{externalReferenceId:reference._id,customerName:input.customerName,customerPhone:input.customerPhone,neededOn:input.neededOn??new Date().toISOString(),deliveryAddressSnapshot:input.deliveryAddress},
       items:[],currencyCode:input.currencyCode,orderAmount:'0'});
     const rows=new Map();
     const productLots=new Set();
     let amount=exact('0');
-    for(const [index,line]of input.lines.entries()){
+    for(const [index,rawLine]of input.lines.entries()){
+      const baseUnit=rawLine.enteredUnit?undefined:(await Product.findById(rawLine.productId).select('baseUnit').session(session).lean())?.baseUnit;
+      const line={...rawLine,sourceLineKey:rawLine.sourceLineKey??String(index+1),enteredUnit:rawLine.enteredUnit??baseUnit};
       const item=await makeItem({...line,enteredQty:line.quantity},index+1,session,{lineKind:'SALES_ORDER'});
       const pair=`${item.productId}:${item.lotId}`;
-      if(productLots.has(pair))throw validationError('Hai dòng không được trùng sản phẩm và lô');
+      if(productLots.has(pair))throw validationError(item.lotId?'Hai dòng không được trùng sản phẩm và lô':'Mỗi sản phẩm chỉ nhập một dòng');
       productLots.add(pair);
       const product=await Product.findById(item.productId).select('wholeBaseUnits').session(session).lean();
       const uom=await Uom.findOne({code:item.enteredUnit}).session(session).lean();
@@ -48,6 +53,9 @@ export function createSalesOrder(user,input){
       rows.set(line.sourceLineKey,{soLine:order.items[index],product,uom});
     }
     order.orderAmount=amount.toFixed();
+    // Delivery plan and stock reservation only when the caller supplies deliveries; otherwise Warehouse issues directly from the request.
+    let schedule;
+    if (input.deliveries?.length) {
     const warehouses = new Map((await Warehouse.find({ _id: { $in: input.deliveries.map(d => d.warehouseId) }, isActive: true }).session(session).lean()).map(w => [String(w._id), w]));
     const today = vnDay();
     const planned = input.deliveries.map((d, index) => ({ ...d, day: vnDay(d.plannedOn), index })).sort((a, b) => a.day.localeCompare(b.day) || a.index - b.index);
@@ -72,15 +80,19 @@ export function createSalesOrder(user,input){
       if (!(totals.get(key) ?? exact('0')).eq(String(soLine.qtyBase))) throw validationError(`Dòng ${key}: tổng các lần giao ${(totals.get(key) ?? exact('0')).toFixed()} khác số lượng SO ${soLine.qtyBase} (đơn vị gốc)`);
     for (const delivery of deliveries)
       for (const line of delivery.lines) await allocateAndReserve({ order, scheduleId, delivery, line, soLine: line.soLine, warehouse: delivery.warehouse, actor, session });
-    const schedule = new DeliverySchedule({ _id: scheduleId, documentNo, version: 1, createdBy: actor._id, salesOrderId: order._id,
+    schedule = new DeliverySchedule({ _id: scheduleId, documentNo, version: 1, createdBy: actor._id, salesOrderId: order._id,
       deliveries: deliveries.map(({ warehouse, lines, ...d }) => ({ ...d, lines: lines.map(({ soLine, ...l }) => l) })) });
+    }
     // Recording a source does not invent D07/D08 verification or its approver.
     await reference.save({session});
-    const attachment=await new Attachment({ownerDocumentType:'sales_orders',ownerDocumentId:order._id,ownerRevision:1,purpose:'SOURCE_ORDER',
-      originalName:evidence.originalName,mediaType:evidence.mediaType,sizeBytes:evidence.sizeBytes,storageKey:evidence.storageKey,checksum:evidence.checksum,
-      uploadedBy:actor._id,uploadedAt:new Date(evidence.iat*1000),accessCategory:'SALES_PRICE',status:'ATTACHED'}).save({session});
-    order.evidenceIds=[attachment._id];
+    if(evidence){
+      const attachment=await new Attachment({ownerDocumentType:'sales_orders',ownerDocumentId:order._id,ownerRevision:1,purpose:'SOURCE_ORDER',
+        originalName:evidence.originalName,mediaType:evidence.mediaType,sizeBytes:evidence.sizeBytes,storageKey:evidence.storageKey,checksum:evidence.checksum,
+        uploadedBy:actor._id,uploadedAt:new Date(evidence.iat*1000),accessCategory:'SALES_PRICE',status:'ATTACHED'}).save({session});
+      order.evidenceIds=[attachment._id];
+    }
     await order.save({session});
+    if(!schedule)return {document:order,resultRefs:[]};
     await schedule.save({session});
     return {document:order,resultRefs:[{documentType:'delivery_schedules',documentId:schedule._id}]};
   });
