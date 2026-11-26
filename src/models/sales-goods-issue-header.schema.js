@@ -19,6 +19,9 @@ export function createSalesGoodsIssueHeaderSchema() {
     issuedToName: text(160, { required: false }),
     issuedAt: date(false),
     issuedBy: ref("User", false),
+    // 26/11/2026: a direct sales issue is locked once completed after the driver handover.
+    completedAt: date(false),
+    completedBy: ref("User", false),
   });
   return schema;
 }

@@ -31,6 +31,8 @@ export const pickingBody = operation.extend({
   allocations: z.array(z.object({ lineId: objectId, sourceBalanceId: objectId, locationId: objectId, qtyBase: qty }).strict()).min(1).max(200).optional(),
 }).strict().refine(v => !!v.destinations !== !!v.allocations, 'Choose destinations or explicit allocations');
 export const cancelBody = operation.extend({ reason: note.min(1) }).strict();
+export const deliveredBody = operation.extend({ lines: rows(z.object({ lineId: objectId, qtyBase: z.string().regex(/^(?:0|[1-9]\d{0,13})(?:\.\d{1,6})?$/) }), 'lineId') }).strict();
+export const completeBody = operation.extend({ recipientName: z.string().trim().min(1).max(160).optional() }).strict();
 export const postBody = operation.extend({ recipientName: z.string().trim().min(1).max(160),
   vehiclePlate: z.string().trim().min(1).max(20).optional(),
 }).strict();

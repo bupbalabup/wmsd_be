@@ -3,11 +3,16 @@ import { currentRole } from '../../shared/utils/userRole.js';
 import { nextDocumentFields } from '../../shared/utils/document-number.js';
 import { copyItem, sourceLink } from '../../shared/utils/document-copy.js';
 import { dto } from '../../shared/utils/persistence.js';
-import { freeQuantity, stocktakeLockedLocations } from '../../shared/utils/stock.js';
+import { freeQuantities, freeQuantity, remainingReservation, stocktakeLockedLocations } from '../../shared/utils/stock.js';
 const { m, exact, same, command, checkVersion, saveVersion, requireWarehouseAccess, requirePermission, validationError, notFoundError, sum } = s;
 const role = user => currentRole(user)?.code;
 const replay = (id, user, session) => access(user, id, session);
 const active = doc => !['CANCELLED', 'CLOSED', 'COMPLETED', 'DELIVERED'].includes(doc.workflowStatus);
+// Stock already held on a balance for this request (delivery plan reservations); an issue of the request may use it.
+async function heldForOrder(balanceId, orderId, session) {
+  const rows = await m.StockReservation.find({ balanceId, 'demandRef.documentId': orderId }).session(session).lean();
+  return rows.reduce((total, row) => { const left = remainingReservation(row); return left.gt(0) ? total.plus(left) : total; }, exact('0'));
+}
 
 export async function access(user, id, session, write = false) {
   const issue = await m.SalesGoodsIssue.findById(id).session(session);
@@ -60,7 +65,6 @@ export function create(user, input) {
     const order = await m.SalesOrder.findById(input.salesOrderId).session(session);
     if (!order || !active(order)) throw validationError('Yêu cầu mua hàng của khách đã kết thúc');
     checkVersion(order, input.expectedVersion);
-    if (await m.DeliverySchedule.exists({ salesOrderId: order._id }).session(session)) throw validationError('Đơn có lịch giao; xuất kho qua lệnh giao hàng');
     if (await m.WarehouseIssueRequest.exists({ 'header.salesOrderId': order._id, workflowStatus: { $nin: ['CANCELLED', 'CLOSED'] } }).session(session)) throw validationError('Đơn đang có yêu cầu xuất cũ; hoàn tất hoặc hủy yêu cầu trước');
     const issue = new m.SalesGoodsIssue({ ...await nextDocumentFields(m.SalesGoodsIssue, 'GI', input.warehouseId, session), workflowStatus: 'DRAFT', version: 1, createdBy: actor._id, note: input.note,
       header: { warehouseId: input.warehouseId, fulfillmentMode: 'DIRECT', salesOrderId: order._id, customerId: order.header.customerId }, sources: [sourceLink(order)], items: [] });
@@ -72,7 +76,8 @@ export function create(user, input) {
       if (exact(row.qtyBase).plus(planned).gt(await remainingOrder(order, item, session))) throw validationError('Vượt số lượng yêu cầu mua hàng của khách còn được xuất');
       await s.assertWholeQuantity(item.productId, row.qtyBase, session);
       const ctx = await stockSource(actor, row.sourceBalanceId, input.warehouseId, item.productId, item.lotId, session);
-      if (exact(row.qtyBase).plus(sum(issue.items.filter(i => same(i.sourceBalanceId, row.sourceBalanceId)))).gt(await freeQuantity(ctx.balance, session))) throw validationError('Không đủ tồn tự do');
+      const usable = (await freeQuantity(ctx.balance, session)).plus(await heldForOrder(ctx.balance._id, order._id, session));
+      if (exact(row.qtyBase).plus(sum(issue.items.filter(i => same(i.sourceBalanceId, row.sourceBalanceId)))).gt(usable)) throw validationError('Không đủ tồn tự do');
       issue.items.push(copyItem(item, row.qtyBase, { lineNo: issue.items.length + 1, lineKind: 'SALES_GOODS_ISSUE', details: {}, lotId: ctx.batch._id, sourceBalanceId: ctx.balance._id,
         enteredUnit: item.baseUnitSnapshot, baseUnitsPerUnit: '1', enteredQty: row.qtyBase, packagingSnapshot: ctx.balance.packagingPortions[0]?.packagingSnapshot,
         salePriceSnapshot: { saleUnit: item.enteredUnit, baseUnitsPerSaleUnit: item.baseUnitsPerUnit, unitSellingPrice: item.unitSellingPrice, salesOrderRevision: item.priceRevision },
@@ -92,7 +97,8 @@ export async function post(issue, order, actor, input, session) {
     await s.lockSource(order, soItem, session);
     if ((await remainingOrder(order, soItem, session)).lt(0)) throw validationError('Số lượng yêu cầu mua hàng của khách đã thay đổi');
     await stockSource(actor, item.sourceBalanceId, issue.header.warehouseId, item.productId, item.lotId, session);
-    await s.takeStock(item.sourceBalanceId, String(item.qtyBase), item._id, posting, actor, session, { allowOpening: true });
+    // Consumes the request's own holds on the balance first, so planned stock is not counted twice.
+    await s.takeStock(item.sourceBalanceId, String(item.qtyBase), item._id, posting, actor, session, { allowOpening: true, reservationDocumentId: order._id });
   }
   await posting.save({ session });
   issue.workflowStatus = 'POSTED'; issue.postedAt = new Date(); issue.postedBy = actor._id; issue.stockTransactionId = posting._id;
@@ -102,12 +108,105 @@ export async function post(issue, order, actor, input, session) {
   await saveVersion(order, order.version, session);
   return posting;
 }
+/** Quantity of an issue line handed over and not yet settled as received or brought back. */
+async function openQuantity(issue, item, session) {
+  return (await s.effectivePosted(issue, item._id, session)).minus(confirmedQuantity(issue, item._id)).minus(await returnedQuantity(item._id, session)).minus(await s.claimTotal(item._id, 'FD', session));
+}
+const assertOpen = issue => { if (issue.header.completedAt) throw validationError('Phiếu xuất đã hoàn tất, không sửa được'); };
+
+/** Draft direct issue: change line quantities within the request remainder and the usable stock of the source. */
+export async function updateDraft(issue, order, actor, input, session) {
+  if (issue.workflowStatus !== 'DRAFT') throw validationError('Chỉ sửa phiếu nháp');
+  requireWarehouseAccess(actor, issue.header.warehouseId);
+  for (const row of input.lines) {
+    const item = issue.items.id(row.lineId); if (!item) throw validationError('Dòng không thuộc phiếu');
+    const soItem = order.items.id(item.salesOrderItemId); if (!soItem) throw validationError('Dòng yêu cầu mua hàng của khách không tồn tại');
+    await s.lockSource(order, soItem, session);
+    await s.assertWholeQuantity(item.productId, row.qtyBase, session);
+    // remainingOrder already counts this draft; give its current quantity back before checking the new one.
+    if (exact(row.qtyBase).gt((await remainingOrder(order, soItem, session)).plus(String(item.qtyBase)))) throw validationError('Vượt số lượng yêu cầu mua hàng của khách còn được xuất');
+    const ctx = await stockSource(actor, item.sourceBalanceId, issue.header.warehouseId, item.productId, item.lotId, session);
+    const others = sum(issue.items.filter(i => same(i.sourceBalanceId, item.sourceBalanceId) && !same(i._id, item._id)));
+    if (exact(row.qtyBase).plus(others).gt((await freeQuantity(ctx.balance, session)).plus(await heldForOrder(ctx.balance._id, order._id, session)))) throw validationError('Không đủ tồn tự do');
+    item.qtyBase = row.qtyBase; item.enteredQty = row.qtyBase;
+    item.sources = [sourceLink(order, soItem, row.qtyBase)];
+  }
+  if (input.note !== undefined) issue.note = input.note;
+  issue.updatedBy = actor._id;
+}
+
+/** After handover and before completion: record how much the customer really takes on each line. */
+export function setDeliveredQuantities(user, id, input) {
+  return command(user, 'SET_ISSUE_DELIVERED_QTY', 'goods_issue:update', id, input, replay, async (session, actor) => {
+    if (role(actor) === 'SALES') throw new s.ApiError(403, 'Kho cập nhật số lượng thực giao');
+    const { issue } = await access(actor, id, session, true);
+    checkVersion(issue, input.expectedVersion);
+    if (issue.workflowStatus !== 'POSTED') throw validationError('Phiếu chưa bàn giao cho tài xế');
+    assertOpen(issue);
+    for (const row of input.lines) {
+      const item = issue.items.id(row.lineId); if (!item) throw validationError('Dòng không thuộc phiếu');
+      await s.assertWholeQuantity(item.productId, row.qtyBase, session);
+      if (exact(row.qtyBase).gt(await openQuantity(issue, item, session))) throw validationError('Số lượng thực giao vượt lượng đã bàn giao');
+      item.deliveredQtyBase = row.qtyBase;
+    }
+    issue.updatedBy = actor._id;
+    return { document: await saveVersion(issue, input.expectedVersion, session), versionBefore: input.expectedVersion };
+  });
+}
+
+/**
+ * Complete a handed-over direct issue (26/11/2026): the delivered quantity of each line is recorded as received by the
+ * customer, what the customer did not take goes back as good stock to the line's source location, and the issue locks.
+ */
+export function complete(user, id, input) {
+  return command(user, 'COMPLETE_DIRECT_ISSUE', 'goods_issue:post', id, input, replay, async (session, actor) => {
+    if (role(actor) === 'SALES') throw new s.ApiError(403, 'Kho hoàn tất phiếu xuất');
+    const { issue, order } = await access(actor, id, session, true);
+    checkVersion(issue, input.expectedVersion);
+    if (issue.workflowStatus !== 'POSTED') throw validationError('Phiếu chưa bàn giao cho tài xế');
+    assertOpen(issue);
+    const now = new Date();
+    const back = [];
+    for (const item of issue.items) {
+      await s.lockSource(issue, item, session);
+      const open = await openQuantity(issue, item, session);
+      if (!open.gt(0)) continue;
+      const wanted = item.deliveredQtyBase == null ? open : exact(String(item.deliveredQtyBase));
+      const taken = wanted.gt(open) ? open : wanted;
+      if (taken.gt(0)) {
+        issue.customerReceipts ??= [];
+        issue.customerReceipts.push({ issueLineId: item._id, quantityBase: taken.toFixed(), recipientName: input.recipientName || order.header?.customerName || 'Khách hàng', receivedAt: now, recordedBy: actor._id, recordedAt: now, evidenceIds: [] });
+      }
+      if (open.minus(taken).gt(0)) back.push({ item, qtyBase: open.minus(taken).toFixed() });
+    }
+    let posting;
+    const resultRefs = [];
+    if (back.length) {
+      const receipt = await s.envelope(m.FailedDeliveryReceipt, actor, { warehouseId: issue.header.warehouseId, goodsIssueId: issue._id, receivedAt: now, receivedBy: actor._id }, [], 'DRAFT', 'Khách không lấy hết, nhập lại khi hoàn tất phiếu xuất');
+      posting = s.beginStock(receipt, actor, 'GR_FD', input);
+      for (const { item, qtyBase } of back) {
+        const ctx = await s.sourceContext(item.sourceBalanceId, session);
+        if (!ctx.location) throw validationError('Không xác định được vị trí lấy hàng để nhập lại');
+        receipt.items.push(copyItem(item, qtyBase, { lineNo: receipt.items.length + 1, lineKind: 'FAILED_DELIVERY_RECEIPT', details: { salesIssueLineId: item._id }, sources: [sourceLink(issue, item, qtyBase, 'UNDELIVERED_RETURN')] }));
+        await s.postIn(receipt, receipt.items.at(-1), actor, session, posting, { locationId: ctx.location._id, qualityCode: 'GOOD' });
+      }
+      await s.savePosted(receipt, posting, actor, session);
+      resultRefs.push(s.ref(receipt));
+    }
+    issue.header.completedAt = now; issue.header.completedBy = actor._id; issue.updatedBy = actor._id;
+    const document = await saveVersion(issue, input.expectedVersion, session);
+    await updateOrderProgress(order, session);
+    await saveVersion(order, order.version, session);
+    return { document, versionBefore: input.expectedVersion, ...(posting && { stockTransactionId: posting._id }), resultRefs };
+  });
+}
 export function confirmCustomerReceipt(user, id, input) {
   return command(user, 'CONFIRM_ISSUE_CUSTOMER_RECEIPT', 'delivery_confirmation:confirm', id, input, replay, async (session, actor) => {
     if (role(actor) !== 'SALES') throw new s.ApiError(403, 'Sales xác nhận khách nhận hàng');
     const { issue, order } = await access(actor, id, session);
     checkVersion(issue, input.expectedVersion);
     if (issue.workflowStatus !== 'POSTED') throw validationError('Phiếu chưa ghi xuất');
+    assertOpen(issue);
     if (new Date(input.receivedAt) > new Date() || new Date(input.receivedAt) < issue.postedAt) throw validationError('Thời điểm nhận phải từ lúc xuất kho đến hiện tại');
     await s.evidence(issue, input.evidenceIds, session);
     for (const row of input.lines) {
@@ -130,6 +229,7 @@ export function receiveUndelivered(user, id, input) {
     const { issue, order } = await access(actor, id, session, true);
     checkVersion(issue, input.expectedVersion);
     if (issue.workflowStatus !== 'POSTED') throw validationError('Phiếu chưa ghi xuất');
+    assertOpen(issue);
     await s.evidence(issue, input.evidenceIds, session);
     const receipt = await s.envelope(m.FailedDeliveryReceipt, actor, { warehouseId: issue.header.warehouseId, goodsIssueId: issue._id, receivedAt: new Date(), receivedBy: actor._id }, [], 'DRAFT', input.reason);
     const posting = s.beginStock(receipt, actor, 'GR_FD', input);
@@ -154,27 +254,40 @@ export async function options(user, query) {
     const warehouses = await m.Warehouse.find({ isActive: true, ...(role(user) !== 'OWNER' && { _id: { $in: user.warehouseIds || [] } }) }).select('code name').session(session);
     const orders = await m.SalesOrder.find({ workflowStatus: { $nin: ['CANCELLED', 'CLOSED', 'COMPLETED', 'DELIVERED'] }, ...(role(user) === 'SALES' && { createdBy: user._id }) }).sort({ createdAt: -1 }).limit(100).session(session);
     const choices = [];
-    const scheduled = new Set((await m.DeliverySchedule.distinct('salesOrderId', { salesOrderId: { $in: orders.map(order => order._id) } }).session(session)).map(String));
+    const held = await m.StockReservation.find({ 'demandRef.documentId': { $in: orders.map(order => order._id) } }).session(session).lean();
+    const lots = new Map((await m.ProductBatch.find({ _id: { $in: orders.flatMap(order => order.items.map(item => item.lotId)).filter(Boolean) } }).select('manufacturerLot').session(session).lean()).map(lot => [String(lot._id), lot.manufacturerLot]));
     for (const order of orders) {
-      if (scheduled.has(String(order._id))) continue;
       if (await m.WarehouseIssueRequest.exists({ 'header.salesOrderId': order._id, workflowStatus: { $nin: ['CANCELLED', 'CLOSED'] } }).session(session)) continue;
       const lines = [];
       for (const item of order.items) {
         const left = await remainingOrder(order, item, session);
-        if (left.gt(0)) lines.push({ id: String(item._id), productId: String(item.productId), lotId: item.lotId && String(item.lotId), name: item.productNameSnapshot, unit: item.baseUnitSnapshot, remainingQtyBase: left.toFixed() });
+        if (!left.gt(0)) continue;
+        // Stock held for this line per balance; the form adds it to the free stock of that balance.
+        const heldByBalance = {};
+        for (const row of held.filter(r => same(r.demandRef?.itemId, item._id))) {
+          const qty = remainingReservation(row);
+          if (qty.gt(0)) heldByBalance[String(row.balanceId)] = exact(heldByBalance[String(row.balanceId)] ?? '0').plus(qty).toFixed();
+        }
+        lines.push({ id: String(item._id), productId: String(item.productId), lotId: item.lotId && String(item.lotId), lotCode: item.lotId ? lots.get(String(item.lotId)) ?? null : null,
+          name: item.productNameSnapshot, unit: item.baseUnitSnapshot, enteredUnit: item.enteredUnit, baseUnitsPerUnit: String(item.baseUnitsPerUnit),
+          orderedQtyBase: String(item.qtyBase), remainingQtyBase: left.toFixed(), heldByBalance });
       }
-      if (lines.length) choices.push({ id: String(order._id), documentNo: order.documentNo, version: order.version, lines });
+      if (lines.length) choices.push({ id: String(order._id), documentNo: order.documentNo, version: order.version, customerName: order.header?.customerName ?? null, lines });
     }
     const locations = await m.WarehouseLocation.find({ warehouseId: { $in: warehouses.map(w => w._id) }, isActive: true, locationType: 'STORAGE', isPickable: true }).session(session);
     const points = await m.StockHoldingPoint.find({ type: 'LOCATION', locationId: { $in: locations.map(l => l._id) } }).session(session);
     const balances = await m.InventoryBalance.find({ holdingPointId: { $in: points.map(p => p._id) }, ownerType: 'STORE', qualityStatus: 'GOOD', quantityBase: { $gt: 0 } }).session(session);
     const batches = await m.ProductBatch.find({ _id: { $in: balances.map(b => b.batchId) }, identificationStatus: 'VERIFIED' }).session(session);
     const stockSources = [], frozen = await stocktakeLockedLocations(locations.map(l => l._id), session);
+    // One batch of queries for every balance instead of several per balance (the per-balance loop took over a minute on Atlas).
+    const free = await freeQuantities(balances, session);
     for (const balance of balances) {
       const batch = batches.find(b => same(b._id, balance.batchId)); if (!batch) continue;
       const point = points.find(p => same(p._id, balance.holdingPointId)), location = locations.find(l => same(l._id, point.locationId));
       if (frozen.has(String(location._id))) continue; // locked by a stocktake: nothing selectable
-      const available = await freeQuantity(balance, session); if (!available.gt(0)) continue;
+      const available = free.get(String(balance._id)) ?? exact('0');
+      const heldHere = held.some(r => same(r.balanceId, balance._id) && remainingReservation(r).gt(0));
+      if (!available.gt(0) && !heldHere) continue;
       stockSources.push({ id: String(balance._id), productId: String(batch.productId), lotId: String(batch._id), warehouseId: String(location.warehouseId), label: location.code + ' · ' + batch.manufacturerLot + ' · ' + available.toFixed(), availableQtyBase: available.toFixed() });
     }
     return { warehouses: warehouses.map(dto), orders: choices, stockSources };

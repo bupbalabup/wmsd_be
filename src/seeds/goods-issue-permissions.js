@@ -5,7 +5,6 @@ import { transaction } from '../shared/utils/persistence.js';
 export function grantGoodsIssueUpdatePermission() {
   return transaction(async session => {
     const grants = [
-      ['goods_issue:create', 'Tạo phiếu xuất', ['SALES']],
       ['goods_issue:update', 'Cập nhật phiếu xuất', ['SALES', 'WAREHOUSE']],
       ['goods_issue:approve', 'Duyệt phiếu xuất Sales gửi', ['OWNER']],
     ];

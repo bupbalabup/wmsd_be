@@ -7,6 +7,7 @@ import {
   code,
   integer,
   date,
+  decimal,
   rules,
 } from "./model-utils.js";
 import { objectId, id, opt, version } from "./schema-helpers.js";
@@ -56,6 +57,8 @@ export function createSalesGoodsIssueSchema() {
     salesOrderItemId: id(false),
     sourceBalanceId: ref('InventoryBalance', false),
     salePriceSnapshot: createSalesGoodsIssueSalePriceSnapshotSchema(),
+    // 26/11/2026: quantity the customer actually takes, editable after handover until the issue is completed.
+    deliveredQtyBase: decimal({ required: false }),
   });
   attachDocumentItems(schema, item);
   addDocumentIndexesAndRules(schema);

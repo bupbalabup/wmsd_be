@@ -1,4 +1,4 @@
-Current sales has two paths. New Sales Orders use the [delivery schedule and FIFO reservations](SALES_DELIVERY_SCHEDULE.md). Sales may also create a standalone SALE against an external order reference; a different Store Owner approves the same issue, then Warehouse picks the source lot and posts it. The standalone flow and the earlier SO-linked direct flow are distinguished below. Customer returns start from a posted issue and retain its actual source lot and remaining cap; inspection does not change stock, and Warehouse posts only the quantity Sales accepts. Supplier dispatch, supplier ACK and closure are separate; ACK and closure do not post stock again. See the [return workflow contract](RETURN_WORKFLOWS_NATIVE.md) and [25 November demo acceptance guide](../09_phat_trien/TRUNG_DEMO_LOCAL.md#nghiệm-thu-kế-hoạch-xuất-bán-và-trả-hàng--25112026).
+Current sales path (26/11/2026): Warehouse issues from the customer purchase request (section below); Sales cannot create goods issues. New Sales Orders use the [delivery schedule and FIFO reservations](SALES_DELIVERY_SCHEDULE.md). Until 26/11/2026 Sales could also create a standalone SALE against an external order reference; a different Store Owner approves the same issue, then Warehouse picks the source lot and posts it. The standalone flow and the earlier SO-linked direct flow are distinguished below. Customer returns start from a posted issue and retain its actual source lot and remaining cap; inspection does not change stock, and Warehouse posts only the quantity Sales accepts. Supplier dispatch, supplier ACK and closure are separate; ACK and closure do not post stock again. See the [return workflow contract](RETURN_WORKFLOWS_NATIVE.md) and [25 November demo acceptance guide](../09_phat_trien/TRUNG_DEMO_LOCAL.md#nghiệm-thu-kế-hoạch-xuất-bán-và-trả-hàng--25112026).
 
 Backend sequence: the Goods Issue routes and shared picking-confirmation route validate and authorize the request, then call the [Goods Issue controller](../../../src/modules/goods-issues/goods-issue.controller.js). The controller calls the existing service and formats the response. URLs, permissions and inventory behavior are unchanged.
 
@@ -13,6 +13,30 @@ Historical verification requires customer name text and optional phone from the 
 Validation: focused sales/return contract tests and the local direct-sales transaction test passed using an isolated database on the local rs0 replica set (port 27017). The transaction fixture creates a new sale and return with no Customer record, and separately verifies legacy custody compatibility. No Atlas write or migration was performed.
 
 Current contract: [customer document snapshots](CUSTOMER_DOCUMENT_SNAPSHOTS.md).
+
+# Sales goods issue from a Customer Purchase Request — 26 November 2026
+
+User decision (26/11/2026): on the goods issue screen, "Xuất bán hàng" starts from a customer purchase request. Warehouse picks the request, sees what is still to deliver and issues at most that much now; the rest stays open, so one request is delivered in one or more goods issues (rounds). This reuses the SO-linked DIRECT path below with these changes:
+
+- Requests with a delivery schedule are no longer rejected by `POST /goods-issues` with `salesOrderId` or skipped by `GET /goods-issues/direct-options` (the delivery-order screens are detached). Requests with an active legacy issue request are still excluded.
+- The usable quantity of a source balance is its free stock plus the request's own open reservations on it (delivery-plan holds). Posting calls `takeStock` with the request as `reservationDocumentId`, so those holds are consumed first and stock is not counted twice.
+- `direct-options` order rows add `customerName`; line rows add `lotCode`, `enteredUnit`, `baseUnitsPerUnit`, `orderedQtyBase` and `heldByBalance` (`{balanceId: qtyBase}` held for that line). Stock sources also list balances that only hold stock for a listed request (`availableQtyBase` stays the free quantity and may be 0).
+- The cap per line is unchanged: ordered minus non-cancelled issued, plus quantity received back as undelivered, minus cancellations.
+- Delivery-schedule statuses are not advanced by these issues. Editing the request is locked once an issue references it (see [delivery schedule](SALES_DELIVERY_SCHEDULE.md)).
+- FE: the create form fills one row per open line with the full remainder in cartons and the first usable location; Warehouse lowers the quantity or adds rows from other locations. The detail page opens the DIRECT workspace (post, customer receipt, undelivered receipt), and DIRECT sales issues are visible again in the list.
+
+Sales cannot create goods issues (user decision 26/11/2026): `POST /goods-issues` rejects the SALES role for every kind with 403 "Sales không lập phiếu xuất; Kho lập phiếu xuất từ yêu cầu mua hàng của khách", the seed no longer grants `goods_issue:create` to SALES (existing databases keep the grant until an administrator removes it, but the service check applies), and the FE hides the create action and shows that message to Sales. Standalone external-reference SALE issues created earlier stay readable and keep their approval and posting commands.
+
+On the issue detail the quantity editor works in the request's unit (carton): detail rows of a direct issue add `saleUnit`, `saleUnitName` and `baseUnitsPerSaleUnit` from the request line, the input converts cartons to base units and the commands still receive `qtyBase`.
+
+Lifecycle of a direct sales issue (user decision 26/11/2026): each issue is one round; a request can have several because earlier stock may have been short.
+
+1. `DRAFT`: `PUT /goods-issues/:id` (`goods_issue:update`, not Sales) changes line `qtyBase` within the request remainder and the usable stock of the line's source; the source itself is changed by cancelling and recreating.
+2. `POST /goods-issues/:id/post` is shown as **Bàn giao cho tài xế**; `recipientName` is the driver. Stock leaves the warehouse and the goods count as on the way to the customer.
+3. While `header.completedAt` is empty, `POST /goods-issues/:id/delivered-quantities` (`goods_issue:update`, not Sales) `{expectedVersion, idempotencyKey, lines:[{lineId, qtyBase}]}` records `items[].deliveredQtyBase`, the quantity the customer really takes (0 to the open handed-over quantity). It can be changed any number of times.
+4. `POST /goods-issues/:id/complete` (`goods_issue:post`, not Sales) `{expectedVersion, idempotencyKey, recipientName?}` appears after the handover. For each line the delivered quantity (default: all open quantity) is recorded as a customer receipt (no evidence; recipient defaults to the request's customer name), and the rest is received back as GOOD stock into the line's source location through a posted FAILED_DELIVERY receipt, so the request reopens that quantity for a later issue. Then `header.completedAt/completedBy` are set and the issue is locked: delivered quantities, customer receipt and undelivered receipt are rejected. Detail capabilities add `canSetDelivered` and `canComplete`; `canEdit` is true for a draft the viewer may change.
+
+Open point: returned goods go back to the original pick location as good stock without inspection or evidence; use "Nhận lại hàng chưa giao" before completing when the goods need another location or quality.
 
 # Historical SO-linked direct Goods Issue — 17 November 2026
 
@@ -74,7 +98,7 @@ Run the existing permission synchronization against the intended database to add
 
 ## Standalone external-reference issue — current contract restored 25 November 2026
 
-Standalone SALE was introduced on 16 November, paused for the 17 November SO-linked decision, and restored on 25 November as a separate supported path. Sales submits the external-reference SALE for approval; a different Store Owner approves the same issue; Warehouse then picks the actual lot and posts it. The SALE details below describe this current standalone path. Older OD-backed records keep their compatibility behavior, and scheduled Sales Orders use the separate flow linked above.
+Standalone SALE was introduced on 16 November, paused for the 17 November SO-linked decision, restored on 25 November as a separate supported path, and closed to new Sales submissions on 26 November (history below). Sales submits the external-reference SALE for approval; a different Store Owner approves the same issue; Warehouse then picks the actual lot and posts it. The SALE details below describe this current standalone path. Older OD-backed records keep their compatibility behavior, and scheduled Sales Orders use the separate flow linked above.
 
 ### Previous Goods Issue — UC-69–72
 

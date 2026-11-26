@@ -17,6 +17,8 @@ export const detail = respond((user, { params }) => service.getIssue(user, param
 export const update = command(service.updateIssue);
 export const confirmCustomerReceipt = command(direct.confirmCustomerReceipt);
 export const receiveUndelivered = command(direct.receiveUndelivered);
+export const setDelivered = command(direct.setDeliveredQuantities);
+export const complete = command(direct.complete);
 export const approve = command(service.approveIssue);
 export const createPicking = command(service.createIssuePicking);
 export const confirmIssuePicking = command(confirmPicking);

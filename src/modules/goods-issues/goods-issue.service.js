@@ -110,7 +110,8 @@ export function createIssue(user, input) {
 }
 function createManualIssue(user, input) {
   return command(user, 'CREATE_MANUAL_GOODS_ISSUE', 'goods_issue:create', null, input, replay, async (session, actor) => {
-    if (sales(actor) && input.issueKind !== 'SALE') throw forbiddenError('Sales chỉ được tạo phiếu xuất bán');
+    // 26/11/2026: Sales does not create goods issues; Warehouse issues from the customer purchase request.
+    if (sales(actor)) throw forbiddenError('Sales không lập phiếu xuất; Kho lập phiếu xuất từ yêu cầu mua hàng của khách');
     requireWarehouseAccess(actor, input.warehouseId);
     if (!await m.Warehouse.exists({ _id: input.warehouseId, isActive: true }).session(session)) throw validationError('Kho không còn hoạt động');
     const issue = new m.SalesGoodsIssue({ ...await nextDocumentFields(m.SalesGoodsIssue, input.issueKind === 'OTHER' ? 'GI_OTHER' : 'GI', input.warehouseId, session),
@@ -151,9 +152,14 @@ export function approveIssue(user, id, input) {
 }
 export function updateIssue(user, id, input) {
   return command(user, 'UPDATE_GOODS_ISSUE', 'goods_issue:update', id, input, replay, async (session, actor) => {
-    const { issue, delivery } = await issueSource(actor, id, session, true);
-    if (issue.header.fulfillmentMode === 'DIRECT') throw validationError('Hủy và lập lại phiếu để đổi nguồn tồn');
+    const { issue, delivery, order } = await issueSource(actor, id, session, true);
     checkVersion(issue, input.expectedVersion);
+    // 26/11/2026: a draft direct issue may change its quantities; the source stays (cancel and recreate to change it).
+    if (issue.header.fulfillmentMode === 'DIRECT') {
+      if (sales(actor)) throw forbiddenError('Kho sửa phiếu xuất');
+      await direct.updateDraft(issue, order, actor, input, session);
+      return { document: await saveVersion(issue, input.expectedVersion, session), versionBefore: input.expectedVersion };
+    }
     if (!(manual(issue) && sales(actor) ? issue.workflowStatus === 'PENDING_APPROVAL' : issue.workflowStatus === 'DRAFT') || (await tasksFor(id, session)).length) throw validationError('Chỉ sửa phiếu trước khi lập lệnh soạn và đúng trạng thái');
     if (input.lines.length !== issue.items.length) throw validationError('Cập nhật đủ các dòng đã lập');
     const reservations = await reservationsFor(id, session);
@@ -404,7 +410,14 @@ export async function getIssue(user, id) {
         sourceLocations: labels(sourceLocations), stagingLocations: labels(work.map(i => i.details.toLocationId)), preparedQtyBase: prepared, issuedQtyBase: issued.get(String(item._id))?.toFixed() ?? '0' };
     });
     if (issue.header.fulfillmentMode === 'DIRECT') {
+      // 26/11/2026: request line unit (carton) so the issue screen can show and edit quantities in cartons.
+      const requestItems = (await m.SalesOrder.findById(issue.header.salesOrderId).select('items._id items.enteredUnit items.baseUnitsPerUnit').session(session).lean())?.items ?? [];
+      const saleUnits = await m.Uom.find({ code: { $in: [...new Set(requestItems.map(item => item.enteredUnit))] } }).select('code name').session(session).lean();
       for (const row of rows) {
+        const requestItem = requestItems.find(item => same(item._id, row.salesOrderItemId));
+        row.saleUnit = requestItem?.enteredUnit ?? row.baseUnitSnapshot;
+        row.saleUnitName = saleUnits.find(unit => unit.code === requestItem?.enteredUnit)?.name ?? row.saleUnit;
+        row.baseUnitsPerSaleUnit = requestItem ? String(requestItem.baseUnitsPerUnit) : '1';
         row.customerReceivedQtyBase = direct.confirmedQuantity(issue, row.id || row._id).toFixed();
         row.undeliveredReturnedQtyBase = (await direct.returnedQuantity(row.id || row._id, session)).toFixed();
         row.unconfirmedQtyBase = exact(row.issuedQtyBase).minus(row.customerReceivedQtyBase).minus(row.undeliveredReturnedQtyBase).toFixed();
@@ -412,8 +425,11 @@ export async function getIssue(user, id) {
       const operate = isOwner(user) || (user.warehouseIds || []).some(w => same(w, issue.header.warehouseId));
       const receipts = await m.FailedDeliveryReceipt.find({ 'items.details.salesIssueLineId': { $in: issue.items.map(i => i._id) }, workflowStatus: 'POSTED' }).session(session);
       return { ...await present(issue, context, session), items: rows, tasks: [], stagingLocations: [], undeliveredReceipts: receipts.map(dto),
-        capabilities: { canEdit: false, canCancel: operate && issue.workflowStatus === 'DRAFT' && hasPermission(user, 'goods_issue:update'), canCreatePicking: false, canPost: operate && issue.workflowStatus === 'DRAFT' && hasPermission(user, 'goods_issue:post'),
-          canConfirmCustomer: rows.some(row => exact(row.unconfirmedQtyBase).gt(0)) && sales(user) && hasPermission(user, 'delivery_confirmation:confirm') && issue.workflowStatus === 'POSTED', canReceiveUndelivered: rows.some(row => exact(row.unconfirmedQtyBase).gt(0)) && operate && !sales(user) && hasPermission(user, 'failed_delivery:post') && issue.workflowStatus === 'POSTED' } };
+        capabilities: { canEdit: operate && !sales(user) && issue.workflowStatus === 'DRAFT' && hasPermission(user, 'goods_issue:update'),
+          canSetDelivered: operate && !sales(user) && issue.workflowStatus === 'POSTED' && !issue.header.completedAt && hasPermission(user, 'goods_issue:update') && rows.some(row => exact(row.unconfirmedQtyBase).gt(0)),
+          canComplete: operate && !sales(user) && issue.workflowStatus === 'POSTED' && !issue.header.completedAt && hasPermission(user, 'goods_issue:post'),
+          canCancel: operate && issue.workflowStatus === 'DRAFT' && hasPermission(user, 'goods_issue:update'), canCreatePicking: false, canPost: operate && issue.workflowStatus === 'DRAFT' && hasPermission(user, 'goods_issue:post'),
+          canConfirmCustomer: !issue.header.completedAt && rows.some(row => exact(row.unconfirmedQtyBase).gt(0)) && sales(user) && hasPermission(user, 'delivery_confirmation:confirm') && issue.workflowStatus === 'POSTED', canReceiveUndelivered: !issue.header.completedAt && rows.some(row => exact(row.unconfirmedQtyBase).gt(0)) && operate && !sales(user) && hasPermission(user, 'failed_delivery:post') && issue.workflowStatus === 'POSTED' } };
     }
     const operate = isOwner(user) || (user.warehouseIds || []).some(w => same(w, issue.header.warehouseId));
     const mayEdit = manual(issue) && sales(user) ? same(issue.createdBy, user._id) && issue.workflowStatus === 'PENDING_APPROVAL' : operate && issue.workflowStatus === 'DRAFT';

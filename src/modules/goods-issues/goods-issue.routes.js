@@ -28,6 +28,8 @@ router.put('/:id', checkPermission('goods_issue:update'), validateIssue({ params
 for (const [path, permission, schema, handler] of [
   ['customer-receipt', 'delivery_confirmation:confirm', schemas.customerReceiptBody, controller.confirmCustomerReceipt],
   ['receive-undelivered', 'failed_delivery:post', schemas.undeliveredBody, controller.receiveUndelivered],
+  ['delivered-quantities', 'goods_issue:update', schemas.deliveredBody, controller.setDelivered],
+  ['complete', 'goods_issue:post', schemas.completeBody, controller.complete],
   ['approve', 'goods_issue:approve', schemas.cancelBody.pick({ idempotencyKey: true, expectedVersion: true }).strict(), controller.approve],
   ['picking-tasks', 'picking_task:create', schemas.pickingBody, controller.createPicking],
   ['cancel', 'goods_issue:update', schemas.cancelBody, controller.cancel],
