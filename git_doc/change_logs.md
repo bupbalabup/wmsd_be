@@ -1,3 +1,7 @@
+## 27/11/2026 — BF-03 and BF-04 diagrams in Report 4
+
+Aligned the two class diagrams and four sequences in Report 4 sections II.3–4 with the current relocation, transfer, variance and completion services. BF-03 now shows per-trip postings and partial cancellation. BF-04 covers request edits and cancellation, draft dispatch cancellation and reservation release, per-receipt put-away, both RESOLVED outcomes, and a source-only transit loss. Updated the four BF-04 pages in the companion project’s WMSD_TOBE_BF03_BF04_UML.drawio. Documentation only. Rendered all six report diagrams and the four edited draw.io pages, checked XML references, and ran the relocation, transfer completion and pick-allocation unit tests (14 passed).
+
 ## 26/11/2026 — Driver handover without a confirmation step (FE)
 
 User decision (26/11/2026): type the driver name and press "Bàn giao"; no extra confirmation. FE `goods-issues/DirectSales.tsx`: the handover form of a direct sales issue sends `POST /goods-issues/:id/post` on submit instead of opening the review dialog; the uncertain-result retry is kept. Other actions (Hoàn tất, cancel, receipts) keep their confirmation. No BE or contract change. Validation: new test in `goods-issues/pages.test.tsx`; folder 24/25 (pre-existing failure "clears selected products when the warehouse changes…"); `tsc --noEmit` and eslint pass.
