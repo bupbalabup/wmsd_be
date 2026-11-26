@@ -1,4 +1,4 @@
-New orders created after the 25 November 2026 delivery schedule release use [the scheduled flow](SALES_DELIVERY_SCHEDULE.md). The direct goods issue and return rules below cover orders created before the release.
+Current sales has two paths. New Sales Orders use the [delivery schedule and FIFO reservations](SALES_DELIVERY_SCHEDULE.md). Sales may also create a standalone SALE against an external order reference; a different Store Owner approves the same issue, then Warehouse picks the source lot and posts it. The standalone flow and the earlier SO-linked direct flow are distinguished below. Customer returns start from a posted issue and retain its actual source lot and remaining cap; inspection does not change stock, and Warehouse posts only the quantity Sales accepts. Supplier dispatch, supplier ACK and closure are separate; ACK and closure do not post stock again. See the [return workflow contract](RETURN_WORKFLOWS_NATIVE.md) and [25 November demo acceptance guide](../09_phat_trien/TRUNG_DEMO_LOCAL.md#nghiệm-thu-kế-hoạch-xuất-bán-và-trả-hàng--25112026).
 
 Backend sequence: the Goods Issue routes and shared picking-confirmation route validate and authorize the request, then call the [Goods Issue controller](../../../src/modules/goods-issues/goods-issue.controller.js). The controller calls the existing service and formats the response. URLs, permissions and inventory behavior are unchanged.
 
@@ -14,9 +14,9 @@ Validation: focused sales/return contract tests and the local direct-sales trans
 
 Current contract: [customer document snapshots](CUSTOMER_DOCUMENT_SNAPSHOTS.md).
 
-# Goods Issue — current sales flow, 17 November 2026
+# Historical SO-linked direct Goods Issue — 17 November 2026
 
-Decision source: the user's latest explicit instruction restores Sales Order and simplifies sales to **Sales Order → Phiếu xuất kho**. New manual-reference SALE creation is rejected by the public API; existing manual-sale records keep their legacy execution. New sales do not require WIR, OD, picking, delivery tracking or customer custody. This section supersedes the 16 November manual-sale decision retained below for compatibility.
+Decision snapshot from 17 November: Sales Order-linked direct issues replaced the earlier mandatory SO → WIR → OD chain. At that point, new manual-reference SALE creation was rejected. The 25 November release later restored standalone external-reference SALE as a separate path; it is documented below. Keep this dated section for pre-schedule SO-linked records and do not apply it as the sole current sales flow.
 
 ## New sales and responsibilities
 
@@ -57,12 +57,6 @@ Latest user decision: create transfer dispatches exclusively in **Tạo phiếu 
 
 The create route accepts goods_issue:create or stock_transfer:dispatch. An account with only the latter sees TRANSFER only; it cannot create Sale/Other/Supplier Return/Scrap issues through this change. Approval, read scope and assigned source warehouse still apply server-side, and query parameters are only initial UI selection. No role grants or database models change. Transfer creation freezes reason, source and quantities during pending/uncertain commands, retries the same payload/key and avoids loading unrelated issue catalogues. See [BF04 current flow](transfers/BF04_API.md#main-flow).
 
-## Transfer dispatch creation — 17 November 2026
-
-Latest user decision: create transfer dispatches exclusively in **Tạo phiếu xuất kho**, reason **Xuất điều chuyển**. The transfer request detail lists its dispatches/receipts and navigates to the shared create page with reason=TRANSFER and an encoded transferId; it no longer embeds stock selection or dispatch creation. The shared page selects an approved request, enters quantities for one dispatch, calls the existing native POST /warehouse-transfers/:id/outbound-deliveries, then returns to the parent request. Parent/line references, version, availability/approval caps and transactional checks are preserved. It creates a TransferDispatch, not a duplicate SalesGoodsIssue; later picking/confirmation/receiving/putaway retain their existing workflow.
-
-The create route accepts goods_issue:create or stock_transfer:dispatch. An account with only the latter sees TRANSFER only; it cannot create Sale/Other/Supplier Return/Scrap issues through this change. Approval, read scope and assigned source warehouse still apply server-side, and query parameters are only initial UI selection. No role grants or database models change. Transfer creation freezes reason, source and quantities during pending/uncertain commands, retries the same payload/key and avoids loading unrelated issue catalogues. See [BF04 current flow](transfers/BF04_API.md#main-flow).
-
 ## Persistence and compatibility
 
 No collection, stored ID rewrite or backfill. Additive optional fields:
@@ -78,9 +72,9 @@ The [focused current relationship view](../03_thiet_ke/DB_Current_2026-11-12_58/
 
 Run the existing permission synchronization against the intended database to add `delivery_confirmation:confirm` to SALES before exposing this UI. No remote database was changed. See [local verification/setup](../09_phat_trien/SIMPLIFIED_SALES_SETUP.md).
 
-## Dated compatibility contract — 16 November 2026
+## Standalone external-reference issue — current contract restored 25 November 2026
 
-The remaining text describes manual/external and old OD-backed issue records. Its SALE creation/picking requirements do not govern the new DIRECT mode above.
+Standalone SALE was introduced on 16 November, paused for the 17 November SO-linked decision, and restored on 25 November as a separate supported path. Sales submits the external-reference SALE for approval; a different Store Owner approves the same issue; Warehouse then picks the actual lot and posts it. The SALE details below describe this current standalone path. Older OD-backed records keep their compatibility behavior, and scheduled Sales Orders use the separate flow linked above.
 
 ### Previous Goods Issue — UC-69–72
 
@@ -89,7 +83,7 @@ The remaining text describes manual/external and old OD-backed issue records. It
 - **UC-71:** Create goods issue (`POST /api/goods-issues`)
 - **UC-72:** Update goods issue (`PUT /api/goods-issues/:id`, `POST /api/goods-issues/:id/approve|picking-tasks|cancel|post`)
 
-Decision source: user confirmation on 16/11/2026 & 17/11/2026. UC-71 is Create goods issue and UC-72 is Update goods issue. The latest decision replaces the mandatory SO → WIR → OD prerequisite for new sale issues.
+Decision history: UC-71 is Create goods issue and UC-72 is Update goods issue. The 17 November SO-linked flow replaced the mandatory SO → WIR → OD prerequisite for its records. The 25 November standalone flow is an independent external-reference path and does not create an SO, WIR or OD.
 
 ## One create form, five reasons
 
@@ -265,13 +259,15 @@ All commands retain exact replay payloads/keys, optimistic versions, audit/outbo
 and transaction rollback. The UI preserves uncertain writes, including query
 refresh failures, and confirms approval/picking/posting/cancellation explicitly.
 
-## Standalone sale and customer snapshot — 25 November 2026
+## Standalone sale acceptance evidence — 25 November 2026
 
 `POST /goods-issues` accepts a manual `SALE` with `warehouseId`, external
 `referenceNo`, optional `customerName`/`customerPhone`, and product lines. Sales
 creates `PENDING_APPROVAL`; a different Owner moves the same document to `DRAFT`.
 Neither action changes stock. Warehouse picking selects the source lot and bin,
-then posting is the only outbound stock reduction.
+then posting is the only outbound stock reduction. The local acceptance scenario,
+including the 8 → 4 → 4 return and supplier-return sequence, is recorded in
+[TRUNG_DEMO_LOCAL](../09_phat_trien/TRUNG_DEMO_LOCAL.md#nghiệm-thu-kế-hoạch-xuất-bán-và-trả-hàng--25112026).
 
 The implementation was verified with an isolated 8-piece fixture: the issue was
 created and approved without reservation or stock movement, picked and posted,
