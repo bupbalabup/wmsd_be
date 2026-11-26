@@ -1,3 +1,7 @@
+## 27/11/2026 — BF-03 and BF-04 diagrams in Report 4
+
+Aligned the two class diagrams and four sequences in Report 4 sections II.3–4 with the current relocation, transfer, variance and completion services. BF-03 now shows per-trip postings and partial cancellation. BF-04 covers request edits and cancellation, draft dispatch cancellation and reservation release, per-receipt put-away, both RESOLVED outcomes, and a source-only transit loss. Updated the four BF-04 pages in the companion project’s WMSD_TOBE_BF03_BF04_UML.drawio. Documentation only. Rendered all six report diagrams and the four edited draw.io pages, checked XML references, and ran the relocation, transfer completion and pick-allocation unit tests (14 passed).
+
 
 ## 26/11/2026 — Đồng bộ sơ đồ tổng quan MongoDB với main
 
