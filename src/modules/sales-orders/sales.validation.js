@@ -8,7 +8,7 @@ export const evidenceParams = z.object({ id: documentIdentifier, evidenceId: obj
 const label = (max) => z.string().trim().min(1).max(max);
 const quantity = z.string().regex(/^(?:0|[1-9]\d{0,13})(?:\.\d{1,6})?$/).refine((v) => /[1-9]/.test(v));
 export const createOrderBody = z.object({
-  idempotencyKey: label(70), customerName: label(160), customerPhone: z.string().trim().max(30).optional(), neededOn: z.iso.datetime({ offset: true }).optional(), deliveryAddress: label(500),
+  idempotencyKey: label(70), customerName: label(160), customerPhone: z.string().trim().max(30).optional(), neededOn: z.iso.datetime({ offset: true }).optional(), deliveryAddress: z.string().trim().max(500).optional(),
   // 26/11/2026: the request is a copy of the customer's slip. Source document, evidence photo, lot, unit and delivery plan are optional.
   evidenceReceipt: label(4000).optional(), currencyCode: z.string().regex(/^[A-Z]{3}$/).default('VND'),
   source: z.object({ sourceSystem: z.enum(['MISA', 'PAPER']), referenceNo: label(100),

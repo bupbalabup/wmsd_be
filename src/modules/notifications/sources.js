@@ -26,6 +26,8 @@ export const sources = {
   supplier_returns: ['/supplier-returns', scoped('supplier_return:read', m.SupplierReturn)],
   defect_reports: ['/defective-goods', scoped('defect:read', m.DefectReport)],
   // Low-stock alerts (23/11/2026): readable by anyone who may read inventory; warehouse scope is checked on the item.
+  // Shortage alerts on customer purchase requests (26/11/2026) for Owner and Accountant.
+  sales_orders: ['/orders', async (user, id) => hasPermission(user, 'sales_order:read') && Boolean(await m.SalesOrder.exists({ _id: id }))],
   products: ['/products', async (user, id) => hasPermission(user, 'inventory:read') && Boolean(await m.Product.exists({ _id: id }))],
 };
 

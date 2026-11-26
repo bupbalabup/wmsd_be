@@ -9,6 +9,7 @@ import { same } from '../../shared/utils/document-command.js';
 import { escapeRegex } from '../../shared/utils/domain.js';
 import { cloudinary } from '../../config/cloudinary.js';
 import { syncAllocationChain } from './reservation-tree.js';
+import { lineProgress, orderReferences } from './sales-progress.service.js';
 
 export function redactPrices(value) {
   if(Array.isArray(value))return value.map(redactPrices);
@@ -143,11 +144,16 @@ export async function getSalesOrder(user,id){
     const places=syncedVisible.length?await WarehouseLocation.find({_id:{$in:syncedVisible.flatMap(d=>d.lines.flatMap(l=>l.allocations.map(a=>a.locationId)))}}).select('code name').session(session).lean():[];
     const warehouses = visible.length ? await Warehouse.find({ _id: { $in: visible.map(d => d.warehouseId) } }).select("code name").session(session).lean() : [];
     const deliverySchedule=schedule&&{...dto(schedule),deliveries:syncedVisible.map(d=>({...dto(d),warehouseName:warehouses.find(w=>same(w._id,d.warehouseId))?.name,lines:d.lines.map(l=>({...dto(l),allocations:l.allocations.map(a=>({...dto(a),locationCode:places.find(p=>same(p._id,a.locationId))?.code}))}))}))};
+    const references=await orderReferences(order,session);
+    result.references=references;
+    result.canEdit=order.workflowStatus==='OPEN'&&!references.length&&Boolean(schedule)&&same(order.createdBy,user._id);
+    result.lineProgress=await lineProgress(order,schedule,session);
     result.deliveryOrders=(await DeliveryOrder.find({'header.salesOrderId':id,...(scoped&&{'header.warehouseId':{$in:user.warehouseIds||[]}})}).session(session).lean()).map(dto);
     result.hasOnHoldDo=result.deliveryOrders.some(d=>d.workflowStatus==='ON_HOLD');
     if(scoped){
       const allowed=new Set([...requests.flatMap(row=>row.items.map(item=>String(item.details.salesOrderLineId))), ...issues.flatMap(row=>row.items.map(item=>String(item.salesOrderItemId))) , ...visible.flatMap(d=>d.lines.map(l=>String(l.soLineId)))]);
       result.items=result.items.filter(item=>allowed.has(String(item._id)));
+      result.lineProgress=result.lineProgress.filter(row=>allowed.has(row.lineId));
       result.deliverySchedule=deliverySchedule;
       delete result.paymentConfirmations;delete result.evidenceIds;delete result.externalReferenceIds;
       return scopedSalesDto(user, result);

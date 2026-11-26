@@ -1,5 +1,5 @@
 import { Schema, embeddedOptions, text, ref, date } from "./model-utils.js";
-import { revision } from "./schema-helpers.js";
+import { revision, opt } from "./schema-helpers.js";
 
 // Embedded schema; no standalone collection.
 export function createWarehouseIssueRequestHeaderSchema() {
@@ -8,7 +8,7 @@ export function createWarehouseIssueRequestHeaderSchema() {
       salesOrderId: ref("BusinessDocument"),
       requestedWarehouseId: ref("Warehouse"),
       neededOn: date(),
-      deliveryAddressSnapshot: text(500),
+      deliveryAddressSnapshot: opt(500),
     },
     embeddedOptions,
   );

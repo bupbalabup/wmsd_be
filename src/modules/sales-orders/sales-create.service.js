@@ -11,6 +11,7 @@ import { orderSource } from './sales-read.service.js';
 import { vnDay, vnMidnight } from '../../shared/utils/vn-date.js';
 import { toBaseQuantity } from '../../shared/utils/conversions.js';
 import { allocateAndReserve } from './sales-schedule.service.js';
+import { notifySalesShortage } from './sales-progress.service.js';
 import { createHash } from 'node:crypto';
 const secret=()=>process.env.JWT_SECRET||'wmsd_default_super_secret_jwt_key_2026';
 export async function uploadSourceEvidence(user,file){
@@ -54,7 +55,7 @@ export function createSalesOrder(user,input){
     }
     order.orderAmount=amount.toFixed();
     // Delivery plan and stock reservation only when the caller supplies deliveries; otherwise Warehouse issues directly from the request.
-    let schedule;
+    let schedule, createShortages = [];
     if (input.deliveries?.length) {
     const warehouses = new Map((await Warehouse.find({ _id: { $in: input.deliveries.map(d => d.warehouseId) }, isActive: true }).session(session).lean()).map(w => [String(w._id), w]));
     const today = vnDay();
@@ -78,8 +79,15 @@ export function createSalesOrder(user,input){
     });
     for (const [key, { soLine }] of rows)
       if (!(totals.get(key) ?? exact('0')).eq(String(soLine.qtyBase))) throw validationError(`Dòng ${key}: tổng các lần giao ${(totals.get(key) ?? exact('0')).toFixed()} khác số lượng SO ${soLine.qtyBase} (đơn vị gốc)`);
+    // Short stock does not block the request: free stock is reserved and the shortage is noted so Purchasing can raise a purchase order.
+    const shortages = [];
     for (const delivery of deliveries)
-      for (const line of delivery.lines) await allocateAndReserve({ order, scheduleId, delivery, line, soLine: line.soLine, warehouse: delivery.warehouse, actor, session });
+      for (const line of delivery.lines) {
+        const result = await allocateAndReserve({ order, scheduleId, delivery, line, soLine: line.soLine, warehouse: delivery.warehouse, actor, session, allowShortfall: true });
+        if (result?.shortfall) shortages.push(result.message);
+      }
+    if (shortages.length) order.note = `Chưa đủ hàng khả dụng khi tạo, cần bổ sung hàng: ${shortages.join('; ')}`.slice(0, 2000);
+    createShortages = shortages;
     schedule = new DeliverySchedule({ _id: scheduleId, documentNo, version: 1, createdBy: actor._id, salesOrderId: order._id,
       deliveries: deliveries.map(({ warehouse, lines, ...d }) => ({ ...d, lines: lines.map(({ soLine, ...l }) => l) })) });
     }
@@ -92,6 +100,7 @@ export function createSalesOrder(user,input){
       order.evidenceIds=[attachment._id];
     }
     await order.save({session});
+    await notifySalesShortage(order, createShortages, session);
     if(!schedule)return {document:order,resultRefs:[]};
     await schedule.save({session});
     return {document:order,resultRefs:[{documentType:'delivery_schedules',documentId:schedule._id}]};

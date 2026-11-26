@@ -10,12 +10,15 @@ import { orderSource } from './sales-read.service.js';
 import { guardLocations, fifoCandidates, remainingReservation, sourceContext } from '../../shared/utils/stock.js';
 import { resolveActiveReservations, releaseReservationTree } from './reservation-tree.js';
 import { createInAppNotification } from '../delivery-orders/delivery-notifications.js';
+import { assertNoReferences, notifySalesShortage } from './sales-progress.service.js';
 
 export const lotLabel = async (lotId, session) => (await m.ProductBatch.findById(lotId).select('manufacturerLot').session(session).lean())?.manufacturerLot ?? String(lotId);
 
 // Split `quantity` of one lot in one warehouse over pick locations, oldest receipt first,
 // and hold each part. Throws with the missing quantity when the warehouse cannot cover it.
-export async function allocateAndReserve({ order, scheduleId, delivery, line, soLine, warehouse, actor, session, quantity = line.qtyBase }) {
+// With allowShortfall the reservation takes what is free and reports the rest instead of failing, so a request can be recorded
+// before stock exists and the shortage can drive a purchase order (26/11/2026).
+export async function allocateAndReserve({ order, scheduleId, delivery, line, soLine, warehouse, actor, session, quantity = line.qtyBase, allowShortfall = false }) {
   const candidates = await fifoCandidates(delivery.warehouseId, line.lotId, session);
   let left = exact(quantity);
   for (const candidate of candidates) {
@@ -37,6 +40,7 @@ export async function allocateAndReserve({ order, scheduleId, delivery, line, so
   }
   if (left.gt(0)) {
     const product = await m.Product.findById(soLine.productId).select('name').session(session).lean();
+    if (allowShortfall) return { shortfall: left.toFixed(), message: `lần giao ${delivery.seq}, kho ${warehouse.code ?? warehouse.name}, ${product?.name ?? 'sản phẩm'} lô ${await lotLabel(line.lotId, session)} thiếu ${left.toFixed()} (đơn vị gốc)` };
     throw validationError(`Không đủ hàng khả dụng: lần giao ${delivery.seq}, kho ${warehouse.code ?? warehouse.name}, ${product?.name ?? 'sản phẩm'} lô ${await lotLabel(line.lotId, session)} còn thiếu ${left.toFixed()} (đơn vị gốc)`);
   }
 }
@@ -128,6 +132,8 @@ export function updateSalesOrderSchedule(user, id, input) {
   return command(user, 'UPDATE_SALES_ORDER', 'sales_order:update', id, input, (id, actor, session) => orderSource(actor, id, session, { replay: true }), async (session, actor) => {
     const order = await editableOrder(actor, id, session);
     checkVersion(order, input.expectedVersion);
+    // 26/11/2026: a request can be edited only while no goods issue, delivery order or issue request references it.
+    await assertNoReferences(order, session);
     const schedule = await orderSchedule(id, session);
     // 1. Header
     const header = input.header ?? {};
@@ -257,10 +263,14 @@ export function updateSalesOrderSchedule(user, id, input) {
       for (const before of w.previous?.lines ?? []) if (!w.lines.some(l => same(l.soLine._id, before.soLineId))) await releaseAll(before.allocations, actor, session);
       next.push(delivery);
     }
+    const shortages = [];
     for (const delivery of next) {
       for (const line of delivery.lines) {
         const missing = exact(line.qtyBase).minus(total(line.allocations));
-        if (missing.gt(0)) await allocateAndReserve({ order, scheduleId: schedule._id, delivery, line, soLine: line.soLine, warehouse: delivery.warehouse, actor, session, quantity: missing.toFixed() });
+        if (missing.gt(0)) {
+          const result = await allocateAndReserve({ order, scheduleId: schedule._id, delivery, line, soLine: line.soLine, warehouse: delivery.warehouse, actor, session, quantity: missing.toFixed(), allowShortfall: true });
+          if (result?.shortfall) shortages.push(result.message);
+        }
       }
       // Resume ON_HOLD DO in-place (keep same _id & documentNo, rebuild pick lines, close OPEN reports, notify warehouse)
       if (delivery.doId) {
@@ -334,10 +344,14 @@ export function updateSalesOrderSchedule(user, id, input) {
     const finalDeliveries = [...old.filter(d => !EDITABLE.includes(d.status)), ...cancelled, ...next.map(({ warehouse, lines, ...d }) => ({ ...d, lines: lines.map(({ soLine, ...l }) => l) }))].sort((a, b) => a.seq - b.seq);
     settle(order, finalDeliveries);
     order.updatedBy = actor._id;
+    // The shortage note always reflects the latest plan.
+    if (shortages.length) order.note = `Chưa đủ hàng khả dụng, cần bổ sung hàng: ${shortages.join('; ')}`.slice(0, 2000);
+    else if (/^Chưa đủ hàng khả dụng/.test(order.note ?? '')) order.note = undefined;
     schedule.deliveries = finalDeliveries;
     schedule.updatedBy = actor._id;
     const saved = await saveVersion(order, input.expectedVersion, session);
     await saveVersion(schedule, schedule.version, session);
+    await notifySalesShortage(saved, shortages, session);
     return {
       document: saved,
       versionBefore: input.expectedVersion,

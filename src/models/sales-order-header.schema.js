@@ -10,7 +10,7 @@ export function createSalesOrderHeaderSchema() {
       customerName: opt(160),
       customerPhone: opt(30),
       neededOn: date(),
-      deliveryAddressSnapshot: text(500),
+      deliveryAddressSnapshot: opt(500),
     },
     embeddedOptions,
   );

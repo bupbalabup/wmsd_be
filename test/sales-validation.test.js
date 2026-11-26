@@ -21,7 +21,7 @@ test('SO creation validates source identity, decimal strings and strict business
     lines: [{ sourceLineKey: '1', productId: id, lotId: id, enteredUnit:'PIECE', unitSellingPrice:'1000', quantity: '2' }], deliveries: [{ plannedOn: '2026-11-02T00:00:00+07:00', warehouseId: id, lines: [{ lineKey: '1', quantity: '2' }] }] };
   assert.equal(createOrderBody.safeParse(valid).success, true);
   // 26/11/2026: a request copied from the customer's slip needs only name, phone, address and priced lines.
-  const slip = { idempotencyKey: 'slip', customerName: 'Nguyễn Văn An', customerPhone: '0900000000', deliveryAddress: 'Address', lines: [{ productId: id, unitSellingPrice: '155000', quantity: '80' }] };
+  const slip = { idempotencyKey: 'slip', customerName: 'Nguyễn Văn An', customerPhone: '0900000000', lines: [{ productId: id, unitSellingPrice: '155000', quantity: '80' }] };
   const parsed = createOrderBody.safeParse(slip);
   assert.equal(parsed.success, true);
   assert.equal(parsed.data.currencyCode, 'VND');

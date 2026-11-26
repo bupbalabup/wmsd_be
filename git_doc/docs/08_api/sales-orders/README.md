@@ -61,6 +61,12 @@ WIR/OD history, cancellations, failed-delivery reopenings and payment
 confirmation metadata. Warehouse responses omit external-source and evidence
 metadata. Evidence entries never expose storage keys, hashes or download URLs.
 Internal notes and financial amounts are not projected.
+
+From 26/11/2026 SO detail also returns:
+
+- `references`: goods issues, delivery orders and warehouse issue requests that reference the request and are not cancelled or rejected, each `{type,label,id,documentNo,workflowStatus,path}`.
+- `canEdit`: true when the request is `OPEN`, has a delivery schedule, has no `references` and the viewer created it.
+- `lineProgress`: one row per line with `orderedQtyBase`, `issuedQtyBase` (posted goods issues after reversals), `returnedUndeliveredQtyBase` (posted failed-delivery receipts), `deliveredQtyBase` (issued minus returned), `cancelledQtyBase`, `remainingQtyBase`, `reservedQtyBase` (open holds for the request), `availableQtyBase` (free stock of the lot in the plan's warehouses, or every active warehouse without a plan), `shortageQtyBase` (remaining minus reserved minus available, never below 0), the lot code, conversion snapshot, and the posted `issues` with their quantity. Scoped users see only the rows of the lines they may see.
 The evidence endpoint applies the same source access rules, excludes Warehouse,
 and returns a signed private download URL valid for 60 seconds with no-store headers.
 

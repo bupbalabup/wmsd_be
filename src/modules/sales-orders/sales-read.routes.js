@@ -43,6 +43,10 @@ salesOrderRouter.post('/', checkPermission('sales_order:create'), catchAsync(asy
 salesOrderRouter.put('/:id', checkPermission('sales_order:update'), catchAsync(async (req, res) => {
   formatApiResponse(res, { data: await updateSalesOrderSchedule(req.user, parse(detailParams, req.params).id, parse(updateOrderBody, req.body)) });
 }));
+// 26/11/2026: same command as PUT /:id for clients that only send POST document commands.
+salesOrderRouter.post('/:id/update', checkPermission('sales_order:update'), catchAsync(async (req, res) => {
+  formatApiResponse(res, { data: await updateSalesOrderSchedule(req.user, parse(detailParams, req.params).id, parse(updateOrderBody, req.body)) });
+}));
 salesOrderRouter.post('/:id/cancel', checkPermission('sales_order:cancel'), catchAsync(async (req, res) => {
   formatApiResponse(res, { data: await cancelSalesOrder(req.user, parse(detailParams, req.params).id, parse(cancelOrderBody, req.body)) });
 }));
