@@ -1,3 +1,12 @@
+## 26/11/2026 — Sửa khoảng cách và căn chỉnh các biểu mẫu (FE)
+
+- **Lý do & nguồn:** Theo phản hồi của người dùng về màn tạo phiếu xuất: trường lý do bị lệch hàng và phần ghi chú sát nút gửi; đồng thời rà soát các biểu mẫu khác có cùng cách ghép trường.
+- **Hành vi trước / sau:** Không đổi quy trình, kiểm tra dữ liệu hay quyền. `GoodsIssueCreatePage.tsx` dùng cùng cấu trúc `Form.Item` cho lý do và kho, thêm khoảng cách dọc giữa ô quy đổi/số lượng, và đặt nhóm thông tin phiếu trong vùng có `space-y-4` để tách ghi chú khỏi nút gửi. Thêm khoảng cách hàng cho các dòng soạn hàng và xuất bán; thêm khoảng cách giữa trường và nút trong form thao tác xuất trực tiếp, khôi phục mật khẩu, tạo vai trò, sửa nhà cung cấp và sửa đơn mua nháp. Các form kiểm kê đã được rà soát và giữ nguyên vì quy tắc `.operations-page` hiện cấp `16px` dưới mỗi trường.
+- **File FE ảnh hưởng** (repository `sales-returns-fe`): `src/features/goods-issues/GoodsIssueCreatePage.tsx`, `DirectSales.tsx`, `ManualPickingForm.tsx`; `src/features/auth/ForgotPasswordPage.tsx`; `src/features/accounts/detail/RolePermissionsPage.tsx`, `src/features/accounts/accounts.css`; `src/features/suppliers/components/SupplierEditModal.tsx`; `src/features/purchase-orders/detail/components/EditPurchaseOrderDraftModal.tsx`.
+- **Dữ liệu:** Không đổi API, model, quyền, database hay migration.
+- **Tài liệu:** Nhật ký `git_doc/change_logs.md`.
+- **Kiểm chứng thực tế:** FE `npm run build` đạt (`tsc --noEmit` và Vite build); kiểm tra trình duyệt tại `/goods-issues/create` trên desktop và viewport 390px xác nhận hai trường nguồn thẳng hàng và nút gửi tách khỏi ghi chú. Chưa kiểm tra trực quan các màn còn lại và không chạy test nghiệp vụ.
+
 ## 25/11/2026 — Hiển thị lý do hủy, lý do duyệt giảm số lượng và gọn bảng Đề nghị nhập hàng (BE + FE)
 
 - **Lý do & quyết định nguồn:** Theo yêu cầu người dùng ngày 25/11/2026 trên nhánh `minhtd`: bổ sung hiển thị lý do hủy phiếu (kèm tên người hủy và thời điểm hủy), lý do duyệt giảm số lượng từng dòng, bỏ cột "Quyết định mới nhất" không còn dữ liệu trên bảng danh sách (đưa về 7 cột theo `fe/DESIGN.md`) và thêm tab lọc "Đã hủy".
