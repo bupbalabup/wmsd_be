@@ -39,10 +39,10 @@ const groups = [
   ['mua-hang', 'Mua hàng và nhập kho', [
     'approval_history* replenishment_requests purchase_orders goods_arrivals goods_inspections',
     'suppliers supplier_returns* - goods_receipts custody_receipts',
-    'customer_returns* custody_releases transfer_dispatches* internal_transfer_requirements*']],
+    'customer_returns* custody_releases transfer_dispatches* internal_transfer_requirements* sales_goods_issues*']],
   ['ban-hang', 'Bán hàng và xuất kho', [
     'warehouse_issue_requests sales_orders customers delivery_schedules', 'delivery_orders sales_goods_issues sales_invoices',
-    'customer_returns* return_source_locks* failed_deliveries return_quantity_claims*']],
+    'customer_returns* return_source_locks* failed_deliveries return_quantity_claims* goods_receipts*']],
   ['tra-hang', 'Trả hàng', [
     'external_references sales_goods_issues* return_source_locks', 'goods_receipts* customer_returns return_quantity_claims failed_deliveries*',
     'suppliers* supplier_returns supplier_return_issues custody_releases*']],
@@ -97,6 +97,7 @@ const primaryRefs = [
   ['transfer_orders', 'header.requirementId', 'internal_transfer_requirements', '0..1', '0..1'],
   ['sales_goods_issues', 'header.salesOrderId', 'sales_orders', '0..1', '0..n'],
   ['failed_deliveries', 'header.goodsIssueId', 'sales_goods_issues', '0..1', '0..n'],
+  ['goods_receipts', '{FAILED_DELIVERY}.header.goodsIssueId', 'sales_goods_issues', '0..1', '0..n'],
   ['sales_invoices', 'salesOrderId', 'sales_orders', '1', '0..n'],
   ['sales_invoices', 'items[].goodsIssueId', 'sales_goods_issues', '0..n', '0..n'],
   ['supplier_returns', 'header.supplierId', 'suppliers', '1', '0..n'],
@@ -132,8 +133,10 @@ const logical = [
   ['internal_transfer_requirements', 'header.sourceDocumentId', 'transfer_dispatches', transfer, 'sourceType = transfer_dispatches', '1', '0..1'],
   ['internal_transfer_requirements', 'header.sourceDocumentId', 'goods_receipts', transfer, 'sourceType = goods_receipts, phiếu TRANSFER', '1', '0..1'],
   ['stock_discrepancies', 'header.sourceRef.documentId', 'transfer_dispatches', 'src/modules/transfers/transfer-differences.js', 'Báo thiếu hàng đang chuyển.', '1', '0..n'],
-  ['customer_returns', 'items[].sources[].documentId', 'sales_goods_issues', returns, 'RETURN_SOURCE, dòng xuất đã có căn cứ nhận hàng.', '0..1', '0..n'],
-  ['customer_returns', 'items[].sources[].documentId', 'external_references', returns, 'RETURN_SOURCE, chứng từ ngoài đã xác minh.', '0..1', '0..n'],
+  ['customer_returns', 'items[].sources[].documentId', 'sales_goods_issues', returns, 'RETURN_SOURCE. Có thể dùng nhiều phiếu xuất đã ghi sổ của cùng một đơn bán, cùng kho xử lý và cùng chế độ tiếp nhận. Nhánh xuất độc lập dùng một phiếu xuất.', '0..n', '0..n'],
+  ['customer_returns', 'items[].sources[].documentId', 'external_references', returns, 'RETURN_SOURCE. Nhánh lịch sử dùng một chứng từ ngoài đã xác minh.', '0..1', '0..n'],
+  ['customer_returns', 'items[].sources[].itemId', 'sales_goods_issues', returns, 'ID dòng xuất thực tế trong chứng từ do documentId xác định.'],
+  ['customer_returns', 'items[].sources[].itemId', 'external_references', returns, 'ID dòng giao lịch sử trong chứng từ do documentId xác định.'],
   ['return_quantity_claims', 'requestLineId', 'customer_returns', returns, 'claimKind = CR. ID dòng items[] của phiếu khách trả.', '1', '0..n'],
   ['return_quantity_claims', 'requestLineId', 'failed_deliveries', returns, 'claimKind = FD. ID dòng items[] của hồ sơ giao thất bại.', '1', '0..n'],
   ['return_quantity_claims', 'sourceLineId', 'sales_goods_issues', returns, 'sourceKind = GOODS_ISSUE hoặc DELIVERY_CONFIRMATION. ID được lưu vẫn là dòng phiếu xuất.'],
@@ -453,7 +456,16 @@ for (const { id, name, rows } of groups) {
     pageCards.set(stub, { rows: [key], width, height: headerHeight + lineHeight + 2 * horizontalPadding });
   }
   const pageLayout = rows.map(row => row.map(cell => cell.replace(/\*$/, '')));
-  pages.push({ id, name, cells: renderPage(pageLayout, pageCards, pageEdges, `${id}-`) });
+  const cells = renderPage(pageLayout, pageCards, pageEdges, `${id}-`);
+  if (id === 'tra-hang') {
+    cells.push(rectangle('tra-hang-source-note',
+      'Một phiếu khách trả có thể tham chiếu nhiều phiếu xuất của cùng một đơn bán, cùng kho xử lý và cùng chế độ tiếp nhận. ' +
+      'Nhánh xuất độc lập và nhánh chứng từ ngoài đã xác minh đều dùng một chứng từ nguồn. ' +
+      'Mỗi dòng lưu chứng từ và dòng nguồn trong items[].sources[].',
+      'text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontFamily=Helvetica;fontSize=13;fontColor=#17263A;spacing=0;',
+      44, 38, 880, 40));
+  }
+  pages.push({ id, name, cells });
 }
 
 const diagram = '<mxfile host="drawio" agent="WMSD overview generator">\n' + pages.map(({ id, name, cells }) =>
@@ -480,6 +492,11 @@ const relationDoc = [
   '',
   'Cột số lượng đọc theo thứ tự **collection đích ↔ collection giữ trường**, giới hạn trong nhánh được ghi. ' +
     'Các đường cùng đích, nguồn lưu và loại liên kết chia sẻ một nét trên sơ đồ.',
+  '',
+  'Phiếu khách trả lưu `documentId` và `itemId` nguồn trên từng dòng. ' +
+    'Backend suy ra đơn bán qua `sales_goods_issues.header.salesOrderId` hoặc chuỗi lệnh giao và yêu cầu xuất của dữ liệu cũ. ' +
+    '`customer_returns.header.salesOrderReference` là mã tham chiếu dạng văn bản. ' +
+    'Xem [hợp đồng khách trả hàng](../../08_api/RETURN_WORKFLOWS_NATIVE.md#purchase-request-and-goods-issue-links).',
   '',
   'Các đường nối ở nhóm trả hàng, phê duyệt, nhật ký và quản trị chọn quan hệ đại diện. ' +
     'Ví dụ, đường từ phiếu xuất đến khóa nguồn ứng với `sourceKind = sales_goods_issues`. ' +

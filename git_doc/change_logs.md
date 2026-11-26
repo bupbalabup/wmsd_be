@@ -1,3 +1,43 @@
+
+## 26/11/2026 — Đồng bộ sơ đồ tổng quan MongoDB với main
+
+Đối chiếu 62 collection đăng ký và luồng khách trả trên `main` tại `aaae98d`. Sơ đồ thể hiện một phiếu khách trả có thể tham chiếu nhiều phiếu xuất của cùng đơn bán, cùng kho xử lý và cùng chế độ tiếp nhận. Thêm quan hệ từ phiếu nhập `FAILED_DELIVERY` đến phiếu xuất qua `header.goodsIssueId`. Bảng đối chiếu ghi ID chứng từ và ID dòng nguồn được lưu trong `items[].sources[]`, cách backend suy ra đơn bán và tham chiếu người hoàn tất phiếu xuất qua `header.completedBy`.
+
+Cập nhật [sơ đồ tổng quan](docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_DB_Design_Overview.drawio), ảnh PNG và [bảng quan hệ](docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Overview_Relationships.md) qua `scripts/generate-db-overview.mjs` và draw.io Desktop. Kiểm tra 11 tab, 62 collection, 73 đường nối tổng quan và chạy `node scripts/check-docs.mjs` thành công. Chỉ cập nhật tài liệu, không đổi schema hay dữ liệu.
+
+## 26/11/2026 — Xóa bộ dữ liệu demo Vua Đá Đẹp
+
+Theo yêu cầu người dùng, đã xóa khỏi `wmsd_database` 20 sản phẩm, 20 lô, 20 quy đổi diện tích và các bản ghi thao tác phát sinh riêng trong lượt import. Trước khi xóa đã kiểm tra tham chiếu từ chứng từ và số dư. Cloudinary xác nhận xóa 85 ảnh. Đã dọn ảnh tải về, bản sao tạm và các tệp xem trước trên máy. Kiểm tra sau xóa tìm thấy 0 sản phẩm và 0 lô mang mã của lượt import.
+
+## 26/11/2026 — Áp dụng bộ dữ liệu Vua Đá Đẹp trên Atlas
+
+Theo yêu cầu tạo lô demo, chạy manifest đã duyệt trên `wmsd_database`. Đọc lại xác nhận 20 sản phẩm, 20 lô `UNKNOWN`, 85 ảnh truy cập được và không có số dư cho các lô mới. Dry-run sau nhập trả `SKIP` cho 20 dòng. Xem [hướng dẫn import demo](docs/09_phat_trien/VUADADEP_DEMO_IMPORT.md).
+
+## 26/11/2026 — Import danh mục demo từ Vua Đá Đẹp
+
+Thêm script Python lấy dữ liệu, ảnh và script Node.js import qua dịch vụ sản phẩm/lô. Dry-run chỉ đọc trên `wmsd_database` dự kiến tạo 20 sản phẩm, 20 lô `UNKNOWN` và gắn 85/112 ảnh. Kiểm thử giao dịch MongoDB local với ảnh giả lập đã kiểm tra chạy lại, phục hồi lô còn thiếu và giữ số dư tồn bằng 0. Lệnh ghi Atlas và tải Cloudinary thật chờ duyệt. Xem [hướng dẫn import demo](docs/09_phat_trien/VUADADEP_DEMO_IMPORT.md).
+
+## 26/11/2026 — Folder architecture in agent instructions (BE, FE)
+
+User request (26/11/2026): describe the folder architecture in English in the agent instruction files. BE: new "Folder architecture" section in `AGENTS.md`, copied to `CLAUDE.md` and `GEMINI.md` (entry points, `src/` layers, module file naming, request flow). FE: new "Folder architecture" section in `AGENTS.md` (app shell, feature folder layout, `shared/`, tests). Docs only; no code, contract or data change. Validation: `npm run docs:check` pass. Follow-up the same day: the Vietnamese "Quy tắc định danh chứng từ" section of the BE instruction files was translated to English ("Document identity rule"), with no change in meaning.
+## 26/11/2026 - TrungPH partial returns and workflow review
+
+Documented where goods and outstanding quantities remain after partial customer and supplier returns. Removed failed-delivery scenarios from the current TrungPH demo scope. The [workflow reference](docs/08_api/RETURN_WORKFLOWS_NATIVE.md#partial-returns-and-unresolved-cases) records the supplier acknowledgement dead end, custody agreement revisions, dispute handling, approval defaults, defect status, legacy failed-delivery shortages, direct issue lot tracing and historical evidence checks. This entry records review findings only.
+
+The review compared backend `aaae98d` and frontend `f112bfe`. The focused backend run reported 11 passes, 7 skips and 0 failures. The findings come from tracing command and screen logic. Individual gap scenarios still lack browser or database-backed reproduction in this review.
+
+## 26/11/2026 — Customer returns across goods issues on one purchase request
+
+Sales can select a purchase request and combine its posted goods issue lines in one return within one warehouse and intake mode. Each line retains its original issue and lot. Detail links to the request, the source issues and the filtered shipment list. The backend derives references from existing lines, so deployment requires no data migration. [Return API contract](docs/08_api/RETURN_WORKFLOWS_NATIVE.md#purchase-request-and-goods-issue-links).
+
+Verification: 12 focused backend tests passed, including an isolated MongoDB replica-set test of partial delivery, two shipments, ownership, warehouse scope, lot validation, rollback, replay and concurrent claims. Frontend typecheck passed. Of 57 focused frontend tests, 56 passed, including the two-shipment form test. The existing goods-issue warehouse-change test still fails. The older direct-sales integration suite is blocked at import by its obsolete evidence-storage module path. A live browser session was not tested.
+
+## 26/11/2026 — Review and plan for customer return purchase-request links
+
+Reviewed sales and goods issue changes at backend `3bcc61c` and frontend `e5f9d87`. The [implementation plan](docs/08_api/CUSTOMER_RETURN_PURCHASE_REQUEST_LINK_PLAN.md) proposes resolving the original request through the saved goods issue source, listing only authorized related issues, and keeping source eligibility tied to the issue-line claims and receipt rules. The [return API reference](docs/08_api/RETURN_WORKFLOWS_NATIVE.md) links to the proposal. This change is documentation only.
+
+Verification on the main baselines: backend 13 of 14 focused tests passed, with one stale manual SALE validation assertion. Frontend 51 of 56 focused tests passed, with one goods-issue warehouse-change failure and four customer-return form failures. MongoDB transaction and browser verification remain pending for implementation.
+
 ## 26/11/2026 — Driver handover without a confirmation step (FE)
 
 User decision (26/11/2026): type the driver name and press "Bàn giao"; no extra confirmation. FE `goods-issues/DirectSales.tsx`: the handover form of a direct sales issue sends `POST /goods-issues/:id/post` on submit instead of opening the review dialog; the uncertain-result retry is kept. Other actions (Hoàn tất, cancel, receipts) keep their confirmation. No BE or contract change. Validation: new test in `goods-issues/pages.test.tsx`; folder 24/25 (pre-existing failure "clears selected products when the warehouse changes…"); `tsc --noEmit` and eslint pass.

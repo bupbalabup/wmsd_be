@@ -1,3 +1,4 @@
+import { issueSource as readableIssue } from '../goods-issues/goods-issue.service.js';
 import { quantityProgress } from './quantity-progress.js';
 import { redactPrices } from '../sales-orders/sales-read.service.js';
 import { createHash } from 'node:crypto';
@@ -78,6 +79,21 @@ async function receivableLines(resource, doc, related) {
   }
   return [];
 }
+async function customerReturnLinks(user, doc) {
+ const sourceIds = new Set(doc.items.flatMap(item => (item.sources || []).filter(link => link.subjectCollection === m.SalesGoodsIssue.collection.name).map(link => String(link.documentId))));
+ const issues = [], orders = new Map();
+ for (const id of sourceIds) {
+  try {
+   const { issue, order } = await readableIssue(user, id);
+   if (!same(issue.header.warehouseId,doc.header.warehouseId)) continue;
+   if (hasPermission(user,'goods_issue:read')) issues.push({ id, documentNo: issue.documentNo });
+   if (order && hasPermission(user,'sales_order:read')) orders.set(String(order._id), { id: String(order._id), documentNo: order.documentNo });
+  } catch (error) {
+   if (![400,403,404].includes(error.statusCode)) throw error;
+  }
+ }
+ return { sourceIssues: issues, sourceOrders: [...orders.values()] };
+}
 export async function detail(user,resource,id){
  const [Model,permission]=s.resources[resource],doc=await scoped(Model,id,user,undefined,permission);
  const related=[];for(const Related of [m.StockScrapRecord,m.StockQualityChange,m.CustomerReturnReceipt,m.FailedDeliveryReceipt,m.SupplierReturnIssue,m.CustodyReceipt,m.CustodyRelease,m.GoodsInspection]){
@@ -89,7 +105,7 @@ export async function detail(user,resource,id){
  const party = resource === 'customer-returns' && !doc.header.customerName && doc.header.customerId && await m.Customer.findById(doc.header.customerId).select('name').lean();
  const supplier = resource === 'supplier-returns' && doc.header.supplierId && await m.Supplier.findById(doc.header.supplierId).select('name').lean();
  const warehouse = ['customer-returns', 'failed-deliveries'].includes(resource) && await m.Warehouse.findById(doc.header.warehouseId).select('name').lean();
- const history=await m.AuditLog.find({subjectId:doc._id}).sort({createdAt:1}).select('-changes');const lots=await m.ProductBatch.find({_id:{$in:doc.items.map(item=>item.lotId).filter(Boolean)}}).select('manufacturerLot piecesPerCarton');const products=await m.Product.find({_id:{$in:doc.items.map(item=>item.productId)}}).select('wholeBaseUnits');const result={...serialize(doc),warehouseName:warehouse?.name,counterpartyName:doc.header.customerName || party?.name || supplier?.name,items:doc.items.map(item=>{
+ const history=await m.AuditLog.find({subjectId:doc._id}).sort({createdAt:1}).select('-changes');const lots=await m.ProductBatch.find({_id:{$in:doc.items.map(item=>item.lotId).filter(Boolean)}}).select('manufacturerLot piecesPerCarton');const products=await m.Product.find({_id:{$in:doc.items.map(item=>item.productId)}}).select('wholeBaseUnits');const result={...serialize(doc),...(resource==='customer-returns' && await customerReturnLinks(user,doc)),warehouseName:warehouse?.name,counterpartyName:doc.header.customerName || party?.name || supplier?.name,items:doc.items.map(item=>{
   const lot=lots.find(lot=>same(lot._id,item.lotId));
   return {...serialize(item),progress:progress.find(row=>row.lineId===String(item._id)),wholeBaseUnits:products.find(product=>same(product._id,item.productId))?.wholeBaseUnits,
     lotCode:lot?.manufacturerLot,baseUnitsPerPackage:item.packagingSnapshot?.baseUnitsPerPackage != null ? String(item.packagingSnapshot.baseUnitsPerPackage) : lot?.piecesPerCarton == null ? undefined : String(lot.piecesPerCarton)};
@@ -136,7 +152,9 @@ export async function downloadEvidence(user,id,evidenceId){const doc=await paren
 export async function traceLot(user,id){
  requirePermission(user,'stock_movement:read');const lot=await m.ProductBatch.findById(id);if(!lot)throw notFoundError();const purchasingOnly=currentRole(user)?.code==='ACCOUNTANT';
  const Models=purchasingOnly?[m.PurchaseOrder,m.GoodsArrival,m.GoodsInspection,m.PurchaseReceipt,m.SupplierReturn,m.SupplierReturnIssue,m.CustodyReceipt,m.CustodyRelease]:[m.PurchaseOrder,m.GoodsArrival,m.GoodsInspection,m.PurchaseReceipt,m.OtherGoodsReceipt,m.SupplierReturn,m.SupplierReturnIssue,m.CustodyReceipt,m.CustodyRelease,m.DefectReport,m.CustomerReturn,m.CustomerReturnReceipt,m.FailedDelivery,m.FailedDeliveryReceipt,m.SalesGoodsIssue,m.TransferOrder,m.TransferReceipt,m.StockQualityChange,m.StockScrapRecord];
- const documents=[];for(const Model of Models)documents.push(...await Model.find({...scope(user),'items.lotId':id}));if(!purchasingOnly){for(const issue of documents.filter(d=>d.constructor===m.SalesGoodsIssue)){for(const item of issue.items.filter(i=>same(i.lotId,id))){const od=await m.DeliveryOrder.findOne({'items._id':item.details.outboundDeliveryLineId});const wir=od&&await m.WarehouseIssueRequest.findById(od.header.issueRequestId);const so=wir&&await m.SalesOrder.findById(wir.header.salesOrderId);for(const doc of [od,wir,so])if(doc&&!documents.some(d=>same(d._id,doc._id)))documents.push(doc);}}}
+ const documents=[];for(const Model of Models)documents.push(...await Model.find({...scope(user),'items.lotId':id}));if(!purchasingOnly){for(const issue of documents.filter(d=>d.constructor===m.SalesGoodsIssue)){
+  if(issue.header.salesOrderId){const order=await m.SalesOrder.findById(issue.header.salesOrderId);if(order&&!documents.some(d=>same(d._id,order._id)))documents.push(order);}
+  for(const item of issue.items.filter(i=>same(i.lotId,id))){if(!item.details?.outboundDeliveryLineId)continue;const od=await m.DeliveryOrder.findOne({'items._id':item.details.outboundDeliveryLineId});const wir=od&&await m.WarehouseIssueRequest.findById(od.header.issueRequestId);const so=wir&&await m.SalesOrder.findById(wir.header.salesOrderId);for(const doc of [od,wir,so])if(doc&&!documents.some(d=>same(d._id,doc._id)))documents.push(doc);}}}
  const ids=documents.map(d=>d._id),itemIds=documents.flatMap(d=>d.items.filter(i=>same(i.lotId,id)).map(i=>i._id));
  const transactions=await m.StockTransaction.find({sourceId:{$in:ids}});const attachments=await m.Attachment.find({ownerDocumentId:{$in:ids},status:'ATTACHED',accessCategory:'BUSINESS'}).select('-storageKey -checksum -uploadSessionId');
  const history=await m.AuditLog.find({subjectId:{$in:ids}}).select('-changes');const reservations=await m.StockReservation.find({'demandRef.documentId':{$in:ids}});

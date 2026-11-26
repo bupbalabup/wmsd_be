@@ -1,3 +1,4 @@
+import { guardWarehouses } from '../../shared/utils/stock.js';
 import { directInspectionPortions, directReceiptPortions, receiveDirect } from './direct-customer-return.js';
 import { nextDocumentFields } from '../../shared/utils/document-number.js';
 import { attachStored } from './native.read.js';
@@ -34,8 +35,13 @@ export async function createDefect(user,input,stored){
   await doc.save({session});return {document:doc};
  });
 }
+function requireDecisionLines(items,input){
+ if(input.lines && (input.lines.length!==items.length || !items.every(item=>input.lines.some(line=>same(line.lineId,item._id)))))
+  throw validationError('Phải quyết định đủ các dòng, nhập 0 cho phần từ chối');
+}
 export const decideDefect=(user,id,input)=>operation(m.DefectReport,user,id,input,'DECIDE_DEFECT','defect:approve',async(doc,session,actor)=>{
  const plan=input.planId?doc.resolutionPlans.id(input.planId):doc.resolutionPlans.at(-1);if(!plan||plan.workflowStatus!=='SUBMITTED')throw validationError('Không có phương án chờ duyệt');
+ requireDecisionLines(plan.items,input);
  for(const item of plan.items){item.approvedQtyBase=input.lines?.find(r=>same(r.lineId,item._id))?.qtyBase??input.approvedQty??item.qtyBase;await s.assertWholeQuantity(item.productId,item.approvedQtyBase,session);if(exact(item.approvedQtyBase).gt(String(item.qtyBase)))throw validationError('Vượt lượng đề xuất');}
  const approval=await decision(doc,'DEFECT_DISPOSITION',{planId:plan._id,planVersion:plan.version,items:plan.items},actor,session,input,plan.createdBy);
  plan.reviewDecisions.push({decisionId:approval._id,revision:plan.version,reviewedBy:actor._id,reviewedAt:new Date(),decision:input.decision,reason:input.reason});plan.workflowStatus=input.decision==='APPROVE'?'APPROVED':'REJECTED';return {decisionId:approval._id};
@@ -79,11 +85,16 @@ async function returnSource(input,user,session){
 }
 export async function createCustomerReturn(user,input){return command(user,'CREATE_CR','customer_return:create',null,input,replay(m.CustomerReturn),async(session,actor,operationId)=>{
  requireWarehouseAccess(actor,input.warehouseId);
- const doc=await envelope(m.CustomerReturn,actor,{warehouseId:input.warehouseId,openedBy:actor._id,openedAt:new Date(),...(input.salesOrderReference&&{salesOrderReference:input.salesOrderReference})},[]);let intakeMode,sourceDocumentId;const requestedByLot=new Map();
+ const doc=await envelope(m.CustomerReturn,actor,{warehouseId:input.warehouseId,openedBy:actor._id,openedAt:new Date(),...(input.salesOrderReference&&{salesOrderReference:input.salesOrderReference})},[]);let intakeMode,sourceGroup;const requestedByLot=new Map();
  for(const row of input.lines){const c=await returnSource(row,actor,session);if(intakeMode&&intakeMode!==c.intakeMode)throw validationError('Không thể kết hợp nguồn trả hàng trực tiếp và nguồn giao hàng cũ');intakeMode=c.intakeMode;await s.assertWholeQuantity(c.item.productId,row.qtyBase,session);if(!same(c.warehouseId,input.warehouseId))throw validationError('Nguồn sai kho');
-  if(sourceDocumentId && !same(sourceDocumentId,c.doc._id))throw validationError('Mỗi phiếu trả chỉ dùng một chứng từ nguồn');
+  if(row.salesIssueLineId && c.doc.workflowStatus!=='POSTED')throw validationError('Phiếu xuất chưa ghi sổ');
+  if(c.so && hasPermission(actor,'customer_return:create') && !hasPermission(actor,'customer_return:inspect') && !same(c.so.createdBy,actor._id))throw notFoundError();
+  if(input.salesOrderId && (!c.so || !same(input.salesOrderId,c.so._id)))throw validationError('Phiếu xuất không thuộc yêu cầu mua hàng đã chọn');
+  const parent=c.so ?? c.doc, group=parent.constructor.collection.name+':'+parent._id;
+  if(sourceGroup && sourceGroup!==group)throw validationError('Các dòng phải cùng yêu cầu mua hàng hoặc cùng một chứng từ nguồn độc lập');
+  sourceGroup=group;
   const customerName=c.customerName||input.customerName;if(!customerName)throw validationError('Nhập tên khách hàng cho phiếu xuất chưa có thông tin khách');
-  sourceDocumentId=c.doc._id;doc.header.customerId=c.customerId;doc.header.customerName=customerName;doc.header.customerPhone=c.customerPhone||input.customerPhone;
+  doc.header.customerId=c.customerId;doc.header.customerName=customerName;doc.header.customerPhone=c.customerPhone||input.customerPhone;
   const sourceKey=String(c.item._id);
   if(exact(row.qtyBase).plus(await s.claimTotal(c.item._id,'CR',session)).gt(c.allowance))throw validationError('Vượt lượng khách đã nhận còn được trả');
   let lotId=c.item.lotId;
@@ -122,7 +133,7 @@ export const inspectCustomerReturn=(user,id,input,reassess=false)=>operation(m.C
  doc.workflowStatus='INSPECTED';attached(doc,input.evidenceIds);return {stockTransactionId:receipt?.items.length?posting._id:undefined};
 });
 export const decideCustomerReturn=(user,id,input,exception=false)=>operation(m.CustomerReturn,user,id,input,exception?'EXCEPTION_CR':'DECIDE_CR',exception?'customer_return:approve_exception':'customer_return:accept',async(doc,session,actor)=>{
- requireState(doc,['INSPECTED']);const decisions=[];
+ requireState(doc,['INSPECTED']);requireDecisionLines(doc.items,input);const decisions=[];
  for(const item of doc.items){const inspection=doc.inspections.filter(i=>same(i.returnLineId,item._id)).at(-1);if(!inspection)throw validationError('Chưa kiểm hàng');const request=input.lines?.find(r=>same(r.lineId,item._id));const approved=exact(input.decision==='REJECT'?'0':request?.qtyBase??sum(inspection.portions,'quantityBase'));
   await s.assertWholeQuantity(item.productId,approved,session);if(approved.gt(sum(inspection.portions,'quantityBase')))throw validationError('Vượt lượng đã kiểm');
   if(approved.gt(0)&&(!inspection.portions.length||inspection.portions.some(p=>p.eligibilityStatus!=='CASE_REVIEW')||(!exception&&inspection.portions.some(p=>p.damageCause!=='NONE'))))throw validationError('Điều kiện không cho phép chấp nhận theo quyền này');
@@ -238,34 +249,48 @@ export async function createSupplierReturn(user,input){return command(user,'CREA
   await new m.StockReservation({demandRef:ref(doc,item),balanceId:balance._id,reservedQty:row.qtyBase,creationKey:`SR:${doc._id}:${item._id}`,createdBy:actor._id,version:1}).save({session});
  }await doc.save({session});return {document:doc};
 });}
+async function supplierDispatches(doc,session){
+ const issues=await m.SupplierReturnIssue.find({'header.supplierReturnId':doc._id,workflowStatus:'POSTED'}).session(session);
+ const releases=await m.CustodyRelease.find({'sources.documentId':doc._id,workflowStatus:'POSTED'}).session(session);
+ return [...issues,...releases];
+}
+function dispatchedFor(item,documents){
+ return sum(documents.flatMap(d=>d.items).filter(line=>line.sources.some(src=>same(src.itemId,item._id))));
+}
+function dispatchState(doc,documents){
+ if(!documents.length)return doc.items.some(i=>exact(i.details.agreedQty??'0').gt(0))?'READY':'AGREEMENT_PENDING';
+ return doc.items.every(i=>dispatchedFor(i,documents).eq(String(i.details.agreedQty??'0')))?'DISPATCHED':'PARTIAL';
+}
 export const supplierAgreement=(user,id,input)=>operation(m.SupplierReturn,user,id,input,'AGREEMENT_SR','supplier_return:record_agreement',async(doc,session,actor)=>{
- requireState(doc,['AGREEMENT_PENDING','READY','PARTIAL']);await evidence(doc,input.evidenceIds,session);const issues=await m.SupplierReturnIssue.find({'header.supplierReturnId':doc._id,workflowStatus:'POSTED'}).session(session);
- for(const row of input.lines){const item=rowOf(doc,row.lineId);const dispatched=sum(issues.flatMap(i=>i.items).filter(i=>i.sources.some(src=>same(src.itemId,item._id))));if(exact(row.qtyBase).gt(String(item.qtyBase))||exact(row.qtyBase).lt(dispatched))throw validationError('Thỏa thuận ngoài lượng đề nghị hoặc thấp hơn lượng đã giao');
+ requireState(doc,['AGREEMENT_PENDING','READY','PARTIAL']);await evidence(doc,input.evidenceIds,session);const issues=await supplierDispatches(doc,session);
+ for(const row of input.lines){const item=rowOf(doc,row.lineId);const dispatched=dispatchedFor(item,issues);if(exact(row.qtyBase).gt(String(item.qtyBase))||exact(row.qtyBase).lt(dispatched))throw validationError('Thỏa thuận ngoài lượng đề nghị hoặc thấp hơn lượng đã giao');
   const version=(doc.agreements.filter(a=>same(a.itemId,item._id)).at(-1)?.version??0)+1;doc.agreements.push({itemId:item._id,agreedQtyBase:row.qtyBase,verifiedBy:actor._id,verifiedAt:new Date(),version,evidenceIds:input.evidenceIds});
   Object.assign(item.details,{phase:'VERIFIED',agreedQty:row.qtyBase,agreementVersion:version,agreementVerifiedBy:actor._id,agreementVerifiedAt:new Date(),agreementEvidenceId:input.evidenceIds[0]});
  }
- doc.header.agreementReference=input.reference;doc.header.agreedAt=new Date();doc.workflowStatus=doc.items.some(i=>exact(i.details.agreedQty??'0').gt(0))?'READY':'AGREEMENT_PENDING';attached(doc,input.evidenceIds);return {};
+ doc.header.agreementReference=input.reference;doc.header.agreedAt=new Date();doc.workflowStatus=dispatchState(doc,issues);attached(doc,input.evidenceIds);return {};
 });
 export const dispatchSupplierReturn=(user,id,input)=>operation(m.SupplierReturn,user,id,input,'DISPATCH_SR','supplier_return:dispatch',async(doc,session,actor)=>{
- requireState(doc,['READY','PARTIAL']);await evidence(doc,input.evidenceIds,session);if(!input.recipientName)throw validationError('Cần tên người thực nhận bàn giao');
- const issues=await m.SupplierReturnIssue.find({'header.supplierReturnId':doc._id,workflowStatus:'POSTED'}).session(session),custody=await m.CustodyRelease.find({'sources.documentId':doc._id,workflowStatus:'POSTED'}).session(session);
+ requireState(doc,['READY','PARTIAL','ACKNOWLEDGED']);await evidence(doc,input.evidenceIds,session);if(!input.recipientName)throw validationError('Cần tên người thực nhận bàn giao');
+ const issues=await supplierDispatches(doc,session);
  const created=[];
  for(const ownerType of ['STORE','SUPPLIER']){
   const lines=input.lines.filter(r=>rowOf(doc,r.lineId).details.ownerType===ownerType);if(!lines.length)continue;
   const issue=await envelope(ownerType==='STORE'?m.SupplierReturnIssue:m.CustodyRelease,actor,ownerType==='STORE'?{warehouseId:doc.header.warehouseId,supplierReturnId:doc._id,issuedAt:new Date(),issuedBy:actor._id,receivedByName:input.recipientName}:{warehouseId:doc.header.warehouseId,ownerType,ownerId:doc.header.supplierId,releasedAt:new Date(),releasedBy:actor._id,recipientName:input.recipientName},[],'DRAFT',input.note);issue.sources=[source(doc,null,'SUPPLIER_RETURN')];const posting=beginStock(issue,actor,'GI_SR',input);
-  for(const row of lines){const item=rowOf(doc,row.lineId),agreement=doc.agreements.filter(a=>same(a.itemId,item._id)).at(-1);if(!agreement)throw validationError('Chưa có thỏa thuận');const prior=sum([...issues,...custody].flatMap(d=>d.items).filter(i=>i.sources.some(src=>same(src.itemId,item._id))));if(exact(row.qtyBase).plus(prior).gt(String(agreement.agreedQtyBase)))throw validationError('Vượt thỏa thuận còn lại');
+  for(const row of lines){const item=rowOf(doc,row.lineId),agreement=doc.agreements.filter(a=>same(a.itemId,item._id)).at(-1);if(!agreement)throw validationError('Chưa có thỏa thuận');const prior=dispatchedFor(item,issues);if(exact(row.qtyBase).plus(prior).gt(String(agreement.agreedQtyBase)))throw validationError('Vượt thỏa thuận còn lại');
    const r=copy(item,row.qtyBase,issue.items.length+1,{sources:[source(doc,item,'SUPPLIER_DISPATCH',row.qtyBase)]});issue.items.push(r);
    const ctx=await sourceContext(item.details.sourceBalanceId,session);if(ctx.balance.ownerType!==ownerType||(ownerType==='SUPPLIER'&&!same(ctx.balance.ownerId,doc.header.supplierId)))throw validationError('Chủ hàng đã thay đổi');
    const defect=item.details.defectHoldId?await m.DefectReport.findOne({'holds._id':item.details.defectHoldId}).session(session):null;const hold=defect?.holds.id(item.details.defectHoldId);if(item.details.defectHoldId&&(!hold||hold.status!=='ACTIVE'||!hold.allocations.some(a=>same(a.balanceId,ctx.balance._id))))throw validationError('Defect hold changed');
    if(hold&&(hold.stocktakeId||hold.allocations.length!==1))throw validationError('Hàng đang thuộc kiểm kê');
    await takeStock(ctx.balance._id,row.qtyBase,r._id,posting,actor,session,{reservationDocumentId:doc._id,holdId:hold?._id,allowOpening:true});
-   if(hold){const remaining=sum(hold.allocations,'quantityBase').minus(sum(hold.events,'quantityBase'));if(exact(row.qtyBase).gt(remaining))throw validationError('Vượt lượng lỗi đang chặn');hold.events.push({kind:'CONSUMED',quantityBase:row.qtyBase,sourceRef:ref(issue,r),performedBy:actor._id,performedAt:new Date()});hold.version++;if(exact(row.qtyBase).eq(remaining))hold.status='RESOLVED';await saveVersion(defect,defect.version,session);}
+   if(hold){const remaining=sum(hold.allocations,'quantityBase').minus(sum(hold.events,'quantityBase'));if(exact(row.qtyBase).gt(remaining))throw validationError('Vượt lượng lỗi đang chặn');hold.events.push({kind:'CONSUMED',quantityBase:row.qtyBase,sourceRef:ref(issue,r),performedBy:actor._id,performedAt:new Date()});hold.version++;if(exact(row.qtyBase).eq(remaining))hold.status='RESOLVED';defect.workflowStatus=defect.holds.some(h=>h.status==='ACTIVE')?'PARTIAL':'CLOSED';await saveVersion(defect,defect.version,session);}
   }issue.evidenceIds=input.evidenceIds;await savePosted(issue,posting,actor,session);created.push(issue);
  }
- const all=[...issues,...custody,...created];doc.workflowStatus=doc.items.every(i=>sum(all.flatMap(d=>d.items).filter(x=>x.sources.some(src=>same(src.itemId,i._id)))).eq(String(i.details.agreedQty??'0')))?'DISPATCHED':'PARTIAL';return {resultRefs:created.map(d=>ref(d))};
+ doc.workflowStatus=dispatchState(doc,[...issues,...created]);return {resultRefs:created.map(d=>ref(d))};
 });
 export const acknowledgeSupplierReturn=(user,id,input)=>operation(m.SupplierReturn,user,id,input,'ACK_SR','supplier_return:record_agreement',async(doc,session,actor)=>{
  requireState(doc,['PARTIAL','DISPATCHED','ACKNOWLEDGED']);await evidence(doc,input.evidenceIds,session);
+ // Serialize ACK numbers shared by supplier issues and custody releases.
+ await guardWarehouses([doc.header.warehouseId],session);
  for(const row of input.lines){let issue=await m.SupplierReturnIssue.findOne({'header.supplierReturnId':doc._id,'items._id':row.lineId,workflowStatus:'POSTED'}).session(session);
   if(!issue)issue=await m.CustodyRelease.findOne({'sources.documentId':doc._id,'items._id':row.lineId,workflowStatus:'POSTED'}).session(session);if(!issue)throw validationError('Sai dòng thực giao');
   // Custody releases retain the same embedded acknowledgement shape.
@@ -274,10 +299,11 @@ export const acknowledgeSupplierReturn=(user,id,input)=>operation(m.SupplierRetu
   if(input.supersedesAcknowledgementId){superseded=issue.acknowledgements.id(input.supersedesAcknowledgementId);if(input.lines.length!==1||!superseded||superseded.workflowStatus==='SUPERSEDED'||superseded.items.length!==1||!same(superseded.items[0].details.dispatchLineId,item._id)||!exact(row.qtyBase).eq(String(superseded.items[0].qtyBase)))throw validationError('Correction must replace the same acknowledged source quantity');superseded.workflowStatus='SUPERSEDED';superseded.version++;superseded.reconciliations.push({itemId:superseded.items[0]._id,performedBy:actor._id,performedAt:new Date(),quantityBase:row.qtyBase,evidenceIds:input.evidenceIds,note:input.note});}
   const prior=sum((issue.acknowledgements??[]).filter(a=>a.workflowStatus!=='SUPERSEDED').flatMap(a=>a.items).filter(i=>same(i.details?.dispatchLineId,item._id)));if(exact(row.qtyBase).plus(prior).gt(String(item.qtyBase)))throw validationError('Vượt lượng đã giao');
   const ack={...await nextDocumentFields(m.SupplierReturnIssue,'ACK',doc.header.warehouseId,session,undefined,'acknowledgements'),documentKind:'SUPPLIER_ACK',workflowStatus:'RECORDED',version:1,createdBy:actor._id,occurredAt:new Date(),note:input.note,header:{supplierReturnId:doc._id,supplierId:doc.header.supplierId,acknowledgedAt:new Date(),recordedBy:actor._id,recordedAt:new Date()},evidenceIds:input.evidenceIds,items:[copy(item,row.qtyBase,1,{lineKind:'SUPPLIER_ACK',details:{dispatchLineId:item._id,outcome:row.outcome,acknowledgedAt:new Date()},sources:[source(issue,item,'ACK',row.qtyBase)]})]};if(superseded)ack.sources=[{subjectCollection:issue.constructor.collection.name,documentId:issue._id,itemId:superseded.items[0]._id,relationCode:'CORRECTS_ACK',linkedQty:row.qtyBase}];issue.acknowledgements.push(ack);await saveVersion(issue,issue.version,session);
- }doc.workflowStatus='ACKNOWLEDGED';return {};
+ }
+ doc.workflowStatus=dispatchState(doc,await supplierDispatches(doc,session))==='PARTIAL'?'PARTIAL':'ACKNOWLEDGED';return {};
 });
 export const closeSupplierReturn=(user,id,input)=>operation(m.SupplierReturn,user,id,input,'CLOSE_SR','supplier_return:close',async(doc,session,actor)=>{
- requireState(doc,['ACKNOWLEDGED','AGREEMENT_PENDING','READY','PARTIAL']);const issues=[...await m.SupplierReturnIssue.find({'header.supplierReturnId':doc._id,workflowStatus:'POSTED'}).session(session),...await m.CustodyRelease.find({'sources.documentId':doc._id,workflowStatus:'POSTED'}).session(session)];
+ requireState(doc,['ACKNOWLEDGED','AGREEMENT_PENDING','READY','PARTIAL']);const issues=await supplierDispatches(doc,session);
  for(const item of doc.items){const dispatched=sum(issues.flatMap(d=>d.items).filter(i=>i.sources.some(src=>same(src.itemId,item._id))));const agreement=doc.agreements.filter(a=>same(a.itemId,item._id)).at(-1);if(!agreement||!dispatched.eq(String(agreement.agreedQtyBase)))throw validationError('Còn lượng đã thỏa thuận chưa giao hoặc chưa có phản hồi');}
  for(const issue of issues)for(const item of issue.items){const acks=issue.acknowledgements.filter(a=>a.workflowStatus!=='SUPERSEDED').flatMap(a=>a.items).filter(i=>same(i.details.dispatchLineId,item._id));if(!sum(acks.filter(i=>i.details.outcome==='ACCEPTED')).eq(String(item.qtyBase))||acks.some(i=>i.details.outcome!=='ACCEPTED'))throw validationError('Còn lượng chưa đối chiếu hoặc tranh chấp');}
  for(const reservation of await m.StockReservation.find({'demandRef.documentId':doc._id}).session(session)){const remaining=s.remainingReservation(reservation);if(remaining.gt(0)){reservation.releasedQty=exact(reservation.releasedQty).plus(remaining).toFixed();reservation.version++;await reservation.save({session});}}

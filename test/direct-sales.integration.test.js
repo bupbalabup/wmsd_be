@@ -14,7 +14,7 @@ import { lookup } from '../src/modules/return-workflows/native.lookup.js';
 import { getSalesOrder } from '../src/modules/sales-orders/sales-read.service.js';
 import * as returns from '../src/modules/return-workflows/native.service.js';
 import { detail as returnDetail } from '../src/modules/return-workflows/native.read.js';
-import { evidenceStorage } from '../src/modules/po-receiving/purchase-evidence.service.js';
+import { evidenceStorage } from '../src/shared/utils/evidence-storage.js';
 import { processNotificationEvent } from '../src/modules/notifications/worker.js';
 const key = () => new mongoose.Types.ObjectId().toString();
 test('direct SO issue, customer receipt, undelivered receipt and return without custody', {skip: process.env.RUN_GOODS_ISSUE_TESTS !== '1'}, async t => {
@@ -70,7 +70,7 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
     assert.equal(detail.evidence.length, 1);
     assert.equal((await getSalesOrder(worker, so._id)).deliverySchedule.deliveries.length, 1);
     await assert.rejects(issues.createIssue(worker, { idempotencyKey: key(), expectedVersion: so.version, salesOrderId: String(so._id),
-      warehouseId: String(warehouse._id), lines: [{ salesOrderLineId: String(so.items[0]._id), sourceBalanceId: String(balance._id), qtyBase: '8' }] }), /Đơn có lịch giao/);
+      warehouseId: String(warehouse._id), lines: [{ salesOrderLineId: String(so.items[0]._id), sourceBalanceId: String(balance._id), qtyBase: '17' }] }), /Vượt số lượng/);
     const lineId = String(so.items[0]._id);
     await updateSalesOrderSchedule(seller, so._id, {
       idempotencyKey: key(), expectedVersion: so.version, reason: 'Sửa đơn giá',
@@ -148,7 +148,7 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
  thirdIssue=await m.SalesGoodsIssue.findById(thirdIssue._id);const thirdProof=await attach(thirdIssue);
  await confirmCustomerReceipt(seller,thirdIssue._id,{...confirm,idempotencyKey:key(),expectedVersion:thirdIssue.version,receivedAt:new Date().toISOString(),evidenceIds:[String(thirdProof._id)],lines:[{lineId:String(thirdIssue.items[0]._id),qtyBase:'4'}]});
  const custodyLocation=await m.WarehouseLocation.create({warehouseId:warehouse._id,code:'LEGACY-CUSTODY',locationType:'CUSTODY',usableLengthMm:'5000',usableWidthMm:'5000'});
- await assert.rejects(returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),qtyBase:'1',reason:'First source'},{salesIssueLineId:String(issue.items[0]._id),qtyBase:'1',reason:'Other source'}]}), /Mỗi phiếu trả chỉ dùng một chứng từ nguồn/);
+ await assert.rejects(returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),qtyBase:'1',reason:'First source'},{salesIssueLineId:String(issue.items[0]._id),qtyBase:'1',reason:'Already claimed source'}]}), /Vượt lượng khách đã nhận/);
  for(const legacy of [false,true]) {
    const rejected=await returns.createCustomerReturn(seller,{idempotencyKey:key(),warehouseId:String(warehouse._id),lines:[{salesIssueLineId:String(thirdIssue.items[0]._id),qtyBase:'2',reason:'Review rejected handback'}]});
    let rd=await m.CustomerReturn.findById(rejected.id);
@@ -256,21 +256,21 @@ test('direct SO issue, customer receipt, undelivered receipt and return without 
  const http=async(actor,path)=>{const response=await fetch('http://127.0.0.1:'+server.address().port+'/api'+path,{headers:{authorization:'Bearer '+jwt.sign({userId:String(actor._id)},process.env.JWT_SECRET)}});return {status:response.status,body:await response.json()};};
  assert.equal((await http(worker,'/goods-issues/direct-options')).status,200);
  const salesAvailability=await http(seller,'/goods-issues/options?warehouseId='+encodeURIComponent(String(warehouse._id)));
- assert.equal(salesAvailability.status,200);assert.equal(salesAvailability.body.data.availableByProduct[String(availabilityProduct._id)],'8');
+ assert.equal(salesAvailability.status,403);
+ const warehouseAvailability=await http(worker,'/goods-issues/options?warehouseId='+encodeURIComponent(String(warehouse._id)));
+ assert.equal(warehouseAvailability.status,200);assert.equal(warehouseAvailability.body.data.availableByProduct[String(availabilityProduct._id)],'8');
  const outsideWarehouse=await m.Warehouse.create({code:'GI-OUTSIDE',name:'Unassigned warehouse',lengthMm:'10000',widthMm:'10000',clearHeightMm:'3000'});
  const issueUrl='http://127.0.0.1:'+server.address().port+'/api/goods-issues';
  const saleInput={idempotencyKey:key(),expectedVersion:1,issueKind:'SALE',warehouseId:String(warehouse._id),referenceNo:'MISA-NEW-SALE',customerName:'External customer',customerPhone:'0900000001',lines:[{productId:String(product._id),qtyBase:'4'}]};
- const createSale=()=>fetch(issueUrl,{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+jwt.sign({userId:String(seller._id)},process.env.JWT_SECRET)},body:JSON.stringify(saleInput)});
- const manualResponse=await createSale();assert.equal(manualResponse.status,201);
+ const createSale=actor=>fetch(issueUrl,{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+jwt.sign({userId:String(actor._id)},process.env.JWT_SECRET)},body:JSON.stringify(saleInput)});
+ assert.equal((await createSale(seller)).status,403);
+ const manualResponse=await createSale(worker);assert.equal(manualResponse.status,201);
  const manualBody=await manualResponse.json(),createdSale=await m.SalesGoodsIssue.findById(manualBody.data.id);
- assert.equal(createdSale.workflowStatus,'PENDING_APPROVAL');assert.equal(createdSale.header.referenceNo,'MISA-NEW-SALE');
+ assert.equal(createdSale.workflowStatus,'DRAFT');assert.equal(createdSale.header.referenceNo,'MISA-NEW-SALE');
  assert.equal(createdSale.header.customerName,'External customer');assert.equal(createdSale.header.customerPhone,'0900000001');
  assert.equal(await m.StockReservation.countDocuments({'executionRef.documentId':createdSale._id}),0);assert.equal(await m.StockTransaction.countDocuments({sourceId:createdSale._id}),0);
- const replayedSale=await createSale();assert.equal(replayedSale.status,201);assert.equal((await replayedSale.json()).data.id,manualBody.data.id);
- await assert.rejects(issues.createIssuePicking(worker,createdSale._id,{idempotencyKey:key(),expectedVersion:createdSale.version,allocations:[{lineId:String(createdSale.items[0]._id),sourceBalanceId:String(balance._id),qtyBase:'4',locationId:String(staging._id)}]}));
- await assert.rejects(issues.createIssue(seller,{idempotencyKey:key(),expectedVersion:1,issueKind:'SALE',warehouseId:String(outsideWarehouse._id),referenceNo:'OUTSIDE',lines:[{productId:String(product._id),qtyBase:'1'}]}),/warehouse|kho/i);
- const approvedSale=await issues.approveIssue(actors.OWNER,createdSale._id,{idempotencyKey:key(),expectedVersion:createdSale.version});
- assert.equal(String(approvedSale.id),String(createdSale._id));assert.equal((await m.SalesGoodsIssue.findById(createdSale._id)).workflowStatus,'DRAFT');
+ const replayedSale=await createSale(worker);assert.equal(replayedSale.status,201);assert.equal((await replayedSale.json()).data.id,manualBody.data.id);
+ await assert.rejects(issues.createIssue(worker,{idempotencyKey:key(),expectedVersion:1,issueKind:'SALE',warehouseId:String(outsideWarehouse._id),referenceNo:'OUTSIDE',lines:[{productId:String(product._id),qtyBase:'1'}]}), { statusCode: 403 });
  assert.equal(await m.StockReservation.countDocuments({'executionRef.documentId':createdSale._id}),0);
  assert.equal((await http(seller,'/goods-issues/'+encodeURIComponent(issue._id))).status,200);
  const lookupEvidence=await http(seller,'/return-workflows/lookup?kind=evidence&documentId='+encodeURIComponent(issue._id)+'&page=1&limit=10');assert.equal(lookupEvidence.status,200);

@@ -24,6 +24,39 @@ The latest explicit user decision overrides older project documents. Approved DB
 - Preserve stable item IDs, source chains, quality/ownership, exact decimals, reservations, capacity, inventory history, idempotency and approved separation of duties. Full rules and BF03/BF04 are in PROJECT_GUIDE.
 - Keep Node ESM/module structure and existing file style. Validate payloads and scope server-side. Model refs are not database foreign-key checks. Schema validation is not proof of API transactions.
 
+## Folder architecture
+
+Backend: Node ESM, Express, Mongoose (MongoDB), Zod validation, decimal.js for quantities. It runs as a Node server (`src/index.js`) or a Cloudflare Worker (`src/worker.js`, `wrangler.json`); both load the same Express app from `src/app.js`. The paired frontend is a separate repository (`../fe` in this workspace).
+
+```
+src/
+  index.js          Node entry: connects MongoDB, starts the server and background jobs
+  worker.js         Cloudflare Worker entry: lazy-loads the Express app
+  app.js            Express app: middleware stack, error handler, mounts routes.js
+  routes.js         Mounts every module router under its API path
+  config/           Database, local Mongo, JWT, cookie and Cloudinary setup
+  middlewares/      auth (JWT), permission, validate (Zod), upload (multer), errorHandler
+  models/           One collection per <name>.model.js, one nested schema per <name>.schema.js;
+                    index.js registers all models, runtime.js exports them; CHANGELOG.md, README.md
+  modules/<domain>/ One folder per business area (auth, purchase-orders, po-receiving, goods-receipts,
+                    goods-inspections, goods-issues, sales-orders, delivery-orders, transfers,
+                    location-movements, stocktake-plans, stocktake-closure, replenishments,
+                    return-workflows, custody, stock-reversals, warehouse-stock, opening-stock, ...)
+                    Files: <domain>.routes.js -> .controller.js -> .service.js, plus .validation.js
+                    (a few older modules use plain routes.js / service.js / validation.js)
+  shared/utils/     Cross-module helpers: ApiError/ApiResponse, catchAsync, access scope, audit,
+                    document-number (document identities), stock, conversions, transactions, mailer
+  migrations/       Data migrations (rebuild/ holds the DB rebuild steps)
+  seeds/            Seed runners and data (data/, rebuild/ fixtures and scenarios)
+scripts/            One-off and maintenance .mjs scripts: local Mongo, deploy, seed, audits, docs:check
+test/               node:test suites (*.test.js, *.integration.test.js); fixtures/, archive/
+git_doc/            Canonical project documentation (PROJECT_GUIDE, MODEL_MAP, change_logs, docs/01-10, 99)
+docs/               SDLC/process documents (test plan, threat model, RTM, release checklist, AI log)
+permissions.json    Permission catalogue
+```
+
+Request flow: `routes.js` -> module router -> `auth` + `permission` + `validate` middlewares -> controller -> service (business rules, MongoDB transactions, models from `models/runtime.js`) -> `ApiResponse`, or `ApiError` handled by `errorHandler`. Put new endpoints in the module that owns the business area, shared logic in `shared/utils`, and keep the module file naming of the surrounding folder.
+
 ## Mandatory documentation updates with every relevant change
 
 Whenever code changes models, fields, relationships, indexes, APIs, permissions, business rules, workflow states, stock effects, seed/migration, configuration or setup commands, the agent MUST automatically update the corresponding current documentation in `git_doc` during the same task, before reporting completion. Do not wait for the user to request documentation and do not only append a changelog while leaving the main description wrong.
@@ -46,6 +79,6 @@ Run only the tests related to the parts added or changed in the task: the change
 
 Do not automatically commit or push. Follow an explicit user request for those actions. On completion give the concrete outcome, relevant documentation, validation and remaining work; suggest a push when appropriate.
 
-## Quy tắc định danh chứng từ — 12/11/2026
+## Document identity rule — 12/11/2026
 
-Mọi chứng từ mới phải dùng hợp đồng định danh tại git_doc/docs/08_api/DOCUMENT_IDENTITIES.md: _id bằng mã phiếu dạng [Loại Phiếu] - [Mã kho/Bộ phận] - [YYMMDD] - [Số thứ tự], cấp trong transaction, không dùng hoặc khôi phục document_sequences, không đổi _id sau khi lưu. Tham chiếu chứng từ mới dùng DocumentIdentity và vẫn đọc ObjectId lịch sử; catalogue và dòng nhúng dùng ObjectId. Khi thêm loại chứng từ, cập nhật document-number.js, schema/ref, API validation, MODEL_MAP/Data Dictionary, test cạnh tranh và changelog trước khi bàn giao.
+Every new document must use the identity contract in git_doc/docs/08_api/DOCUMENT_IDENTITIES.md: `_id` is the document code in the form [Document type] - [Warehouse/Department code] - [YYMMDD] - [Sequence number], issued inside the transaction. Do not use or restore document_sequences, and never change `_id` after saving. References to new documents use DocumentIdentity and still read historical ObjectIds; catalogues and embedded lines use ObjectId. When adding a document type, update document-number.js, the schema/ref, API validation, MODEL_MAP/Data Dictionary, the concurrency test and the changelog before handover.

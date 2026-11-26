@@ -147,11 +147,17 @@ export async function getSalesOrder(user,id){
     const references=await orderReferences(order,session);
     result.references=references;
     result.canEdit=order.workflowStatus==='OPEN'&&!references.length&&Boolean(schedule)&&same(order.createdBy,user._id);
-    result.lineProgress=await lineProgress(order,schedule,session);
+    result.lineProgress=await lineProgress(order,schedule,session,scoped ? issues : undefined);
     result.deliveryOrders=(await DeliveryOrder.find({'header.salesOrderId':id,...(scoped&&{'header.warehouseId':{$in:user.warehouseIds||[]}})}).session(session).lean()).map(dto);
     result.hasOnHoldDo=result.deliveryOrders.some(d=>d.workflowStatus==='ON_HOLD');
     if(scoped){
       const allowed=new Set([...requests.flatMap(row=>row.items.map(item=>String(item.details.salesOrderLineId))), ...issues.flatMap(row=>row.items.map(item=>String(item.salesOrderItemId))) , ...visible.flatMap(d=>d.lines.map(l=>String(l.soLineId)))]);
+      const visibleIds=new Map([
+        ['sales_goods_issues',new Set(issues.map(doc=>String(doc._id)))],
+        ['delivery_orders',new Set(result.deliveryOrders.map(doc=>String(doc._id)))],
+        ['warehouse_issue_requests',new Set(requests.map(doc=>String(doc._id)))],
+      ]);
+      result.references=references.filter(ref=>visibleIds.get(ref.type)?.has(ref.id));
       result.items=result.items.filter(item=>allowed.has(String(item._id)));
       result.lineProgress=result.lineProgress.filter(row=>allowed.has(row.lineId));
       result.deliverySchedule=deliverySchedule;

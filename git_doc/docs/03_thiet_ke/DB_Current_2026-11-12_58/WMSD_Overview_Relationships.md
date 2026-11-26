@@ -4,6 +4,8 @@ Nguồn là 62 collection đăng ký qua [Mongoose registry](../../../../src/mod
 
 Cột số lượng đọc theo thứ tự **collection đích ↔ collection giữ trường**, giới hạn trong nhánh được ghi. Các đường cùng đích, nguồn lưu và loại liên kết chia sẻ một nét trên sơ đồ.
 
+Phiếu khách trả lưu `documentId` và `itemId` nguồn trên từng dòng. Backend suy ra đơn bán qua `sales_goods_issues.header.salesOrderId` hoặc chuỗi lệnh giao và yêu cầu xuất của dữ liệu cũ. `customer_returns.header.salesOrderReference` là mã tham chiếu dạng văn bản. Xem [hợp đồng khách trả hàng](../../08_api/RETURN_WORKFLOWS_NATIVE.md#purchase-request-and-goods-issue-links).
+
 Các đường nối ở nhóm trả hàng, phê duyệt, nhật ký và quản trị chọn quan hệ đại diện. Ví dụ, đường từ phiếu xuất đến khóa nguồn ứng với `sourceKind = sales_goods_issues`. Các đích khác của trường dùng chung được liệt kê trong bảng bổ sung.
 
 Chạy `node scripts/generate-db-overview.mjs` tại BE để sinh sơ đồ và bảng. Thêm `--check` để kiểm hai file khớp kết quả sinh. Xuất PNG từ tab tổng quan bằng draw.io Desktop.
@@ -33,8 +35,8 @@ Chạy `node scripts/generate-db-overview.mjs` tại BE để sinh sơ đồ và
 | `conversions` | `uomId` | ObjectId | `uoms` | Mongoose ref | Có | 1 ↔ 0..n | [conversion.model.js](../../../../src/models/conversion.model.js) |  |
 | `custody_receipts` | `sources[].documentId` | DocumentIdentity | `goods_inspections` | Tham chiếu nghiệp vụ | Có | 1 ↔ 0..n | [goods-inspection.service.js](../../../../src/modules/goods-inspections/goods-inspection.service.js) | subjectCollection = goods_inspections, trong luồng nhập hàng giữ hộ từ kiểm nhận. |
 | `custody_releases` | `acknowledgements[].header.supplierReturnId` | DocumentIdentity | `supplier_returns` | Mongoose ref | Có | 0..n ↔ 0..n | [custody-release.model.js](../../../../src/models/custody-release.model.js) |  |
-| `customer_returns` | `items[].sources[].documentId` | DocumentIdentity | `external_references` | Tham chiếu nghiệp vụ | Có | 0..1 ↔ 0..n | [native.service.js](../../../../src/modules/return-workflows/native.service.js) | RETURN_SOURCE, chứng từ ngoài đã xác minh. |
-| `customer_returns` | `items[].sources[].documentId` | DocumentIdentity | `sales_goods_issues` | Tham chiếu nghiệp vụ | Có | 0..1 ↔ 0..n | [native.service.js](../../../../src/modules/return-workflows/native.service.js) | RETURN_SOURCE, dòng xuất đã có căn cứ nhận hàng. |
+| `customer_returns` | `items[].sources[].documentId` | DocumentIdentity | `external_references` | Tham chiếu nghiệp vụ | Có | 0..1 ↔ 0..n | [native.service.js](../../../../src/modules/return-workflows/native.service.js) | RETURN_SOURCE. Nhánh lịch sử dùng một chứng từ ngoài đã xác minh. |
+| `customer_returns` | `items[].sources[].documentId` | DocumentIdentity | `sales_goods_issues` | Tham chiếu nghiệp vụ | Có | 0..n ↔ 0..n | [native.service.js](../../../../src/modules/return-workflows/native.service.js) | RETURN_SOURCE. Có thể dùng nhiều phiếu xuất đã ghi sổ của cùng một đơn bán, cùng kho xử lý và cùng chế độ tiếp nhận. Nhánh xuất độc lập dùng một phiếu xuất. |
 | `delivery_orders` | `header.issueRequestId` | DocumentIdentity | `warehouse_issue_requests` | Tham chiếu nghiệp vụ | Có | 1 ↔ 0..n | [goods-issue.service.js](../../../../src/modules/goods-issues/goods-issue.service.js) | Tương thích nhánh xuất qua lệnh giao. |
 | `delivery_schedules` | `deliveries[].doId` | DocumentIdentity | `delivery_orders` | Mongoose ref | Có | 0..n ↔ 0..n | [delivery-schedule.model.js](../../../../src/models/delivery-schedule.model.js) |  |
 | `delivery_schedules` | `salesOrderId` | DocumentIdentity | `sales_orders` | Mongoose ref | Có | 1 ↔ 0..1 | [delivery-schedule.model.js](../../../../src/models/delivery-schedule.model.js) |  |
@@ -44,6 +46,7 @@ Chạy `node scripts/generate-db-overview.mjs` tại BE để sinh sơ đồ và
 | `goods_arrivals` | `header.purchaseOrderId` | DocumentIdentity | `purchase_orders` | Mongoose ref | Có | 0..1 ↔ 0..n | [goods-arrival.model.js](../../../../src/models/goods-arrival.model.js) |  |
 | `goods_inspections` | `header.arrivalId` | DocumentIdentity | `goods_arrivals` | Mongoose ref | Có | 0..1 ↔ 0..n | [goods-inspection.model.js](../../../../src/models/goods-inspection.model.js) |  |
 | `goods_receipts` | `{CUSTOMER_RETURN}.header.returnId` | DocumentIdentity | `customer_returns` | Mongoose ref | Có | 0..1 ↔ 0..n | [goods-receipt.model.js](../../../../src/models/goods-receipt.model.js) |  |
+| `goods_receipts` | `{FAILED_DELIVERY}.header.goodsIssueId` | DocumentIdentity | `sales_goods_issues` | Mongoose ref | Có | 0..1 ↔ 0..n | [goods-receipt.model.js](../../../../src/models/goods-receipt.model.js) |  |
 | `goods_receipts` | `{PURCHASE}.header.purchaseOrderId` | DocumentIdentity | `purchase_orders` | Mongoose ref | Có | 0..1 ↔ 0..n | [goods-receipt.model.js](../../../../src/models/goods-receipt.model.js) |  |
 | `goods_receipts` | `{PURCHASE}.sources[].documentId` | DocumentIdentity | `goods_inspections` | Tham chiếu nghiệp vụ | Có | 1 ↔ 0..n | [goods-inspection.service.js](../../../../src/modules/goods-inspections/goods-inspection.service.js) | subjectCollection = goods_inspections, trong luồng nhập mua hiện hành. |
 | `goods_receipts` | `{TRANSFER}.header.dispatchId` | DocumentIdentity | `transfer_dispatches` | Tham chiếu nghiệp vụ | Có | 1 ↔ 0..n | [transfer-write.service.js](../../../../src/modules/transfers/transfer-write.service.js) | Chứng từ nguồn cũng được lưu qua sources[]. |
@@ -371,6 +374,8 @@ Chạy `node scripts/generate-db-overview.mjs` tại BE để sinh sơ đồ và
 | `customer_returns` | `items[].evidenceIds` | Array | `attachments` | Mongoose ref |  |  | [customer-return.model.js](../../../../src/models/customer-return.model.js) |  |
 | `customer_returns` | `items[].lotId` | ObjectId | `product_batches` | Mongoose ref |  |  | [customer-return.model.js](../../../../src/models/customer-return.model.js) |  |
 | `customer_returns` | `items[].productId` | ObjectId | `products` | Mongoose ref |  |  | [customer-return.model.js](../../../../src/models/customer-return.model.js) |  |
+| `customer_returns` | `items[].sources[].itemId` | ObjectId | `external_references` | Tham chiếu nghiệp vụ |  |  | [native.service.js](../../../../src/modules/return-workflows/native.service.js) | ID dòng giao lịch sử trong chứng từ do documentId xác định. |
+| `customer_returns` | `items[].sources[].itemId` | ObjectId | `sales_goods_issues` | Tham chiếu nghiệp vụ |  |  | [native.service.js](../../../../src/modules/return-workflows/native.service.js) | ID dòng xuất thực tế trong chứng từ do documentId xác định. |
 | `customer_returns` | `updatedBy` | ObjectId | `users` | Mongoose ref |  |  | [customer-return.model.js](../../../../src/models/customer-return.model.js) |  |
 | `defect_reports` | `cancelledBy` | ObjectId | `users` | Mongoose ref |  |  | [defect-report.model.js](../../../../src/models/defect-report.model.js) |  |
 | `defect_reports` | `createdBy` | ObjectId | `users` | Mongoose ref |  |  | [defect-report.model.js](../../../../src/models/defect-report.model.js) |  |
@@ -776,7 +781,6 @@ Chạy `node scripts/generate-db-overview.mjs` tại BE để sinh sơ đồ và
 | `goods_receipts` | `{FAILED_DELIVERY}.commitmentTransfers[].transferredBy` | ObjectId | `users` | Mongoose ref |  |  | [goods-receipt.model.js](../../../../src/models/goods-receipt.model.js) |  |
 | `goods_receipts` | `{FAILED_DELIVERY}.demandReopenings[].stockTransactionId` | ObjectId | `stock_transactions` | Mongoose ref |  |  | [goods-receipt.model.js](../../../../src/models/goods-receipt.model.js) |  |
 | `goods_receipts` | `{FAILED_DELIVERY}.header.failedDeliveryId` | DocumentIdentity | `failed_deliveries` | Mongoose ref |  |  | [goods-receipt.model.js](../../../../src/models/goods-receipt.model.js) |  |
-| `goods_receipts` | `{FAILED_DELIVERY}.header.goodsIssueId` | DocumentIdentity | `sales_goods_issues` | Mongoose ref |  |  | [goods-receipt.model.js](../../../../src/models/goods-receipt.model.js) |  |
 | `goods_receipts` | `{FAILED_DELIVERY}.header.receivedBy` | ObjectId | `users` | Mongoose ref |  |  | [goods-receipt.model.js](../../../../src/models/goods-receipt.model.js) |  |
 | `goods_receipts` | `{FAILED_DELIVERY}.header.warehouseId` | ObjectId | `warehouses` | Mongoose ref |  |  | [goods-receipt.model.js](../../../../src/models/goods-receipt.model.js) |  |
 | `goods_receipts` | `{OTHER}.approvalDecisionId` | ObjectId | `approval_history` | Mongoose ref |  |  | [goods-receipt.model.js](../../../../src/models/goods-receipt.model.js) |  |
@@ -1180,6 +1184,7 @@ Chạy `node scripts/generate-db-overview.mjs` tại BE để sinh sơ đồ và
 | `sales_goods_issues` | `handovers[].items[].{WAREHOUSE_TASK}.details.toLocationId` | ObjectId | `warehouse_locations` | Mongoose ref |  |  | [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.model.js) | Khai báo theo biến thể dòng dùng chung. |
 | `sales_goods_issues` | `handovers[].items[].lotId` | ObjectId | `product_batches` | Mongoose ref |  |  | [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.model.js) |  |
 | `sales_goods_issues` | `handovers[].items[].productId` | ObjectId | `products` | Mongoose ref |  |  | [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.model.js) |  |
+| `sales_goods_issues` | `header.completedBy` | ObjectId | `users` | Mongoose ref |  |  | [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.model.js) |  |
 | `sales_goods_issues` | `header.customerId` | ObjectId | `customers` | Mongoose ref |  |  | [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.model.js) |  |
 | `sales_goods_issues` | `header.issuedBy` | ObjectId | `users` | Mongoose ref |  |  | [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.model.js) |  |
 | `sales_goods_issues` | `header.warehouseId` | ObjectId | `warehouses` | Mongoose ref |  |  | [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.model.js) |  |
