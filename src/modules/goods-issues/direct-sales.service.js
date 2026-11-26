@@ -54,11 +54,11 @@ async function stockSource(user, balanceId, warehouseId, productId, lotId, sessi
 }
 export function create(user, input) {
   return command(user, 'CREATE_DIRECT_ISSUE', 'goods_issue:create', input.salesOrderId, input, replay, async (session, actor) => {
-    if (role(actor) === 'SALES') throw new s.ApiError(403, 'Kho lập phiếu xuất từ đơn bán');
+    if (role(actor) === 'SALES') throw new s.ApiError(403, 'Kho lập phiếu xuất từ yêu cầu mua hàng của khách');
     requireWarehouseAccess(actor, input.warehouseId);
     if (!await m.Warehouse.exists({ _id: input.warehouseId, isActive: true }).session(session)) throw validationError('Kho không hoạt động');
     const order = await m.SalesOrder.findById(input.salesOrderId).session(session);
-    if (!order || !active(order)) throw validationError('Đơn bán đã kết thúc');
+    if (!order || !active(order)) throw validationError('Yêu cầu mua hàng của khách đã kết thúc');
     checkVersion(order, input.expectedVersion);
     if (await m.DeliverySchedule.exists({ salesOrderId: order._id }).session(session)) throw validationError('Đơn có lịch giao; xuất kho qua lệnh giao hàng');
     if (await m.WarehouseIssueRequest.exists({ 'header.salesOrderId': order._id, workflowStatus: { $nin: ['CANCELLED', 'CLOSED'] } }).session(session)) throw validationError('Đơn đang có yêu cầu xuất cũ; hoàn tất hoặc hủy yêu cầu trước');
@@ -66,10 +66,10 @@ export function create(user, input) {
       header: { warehouseId: input.warehouseId, fulfillmentMode: 'DIRECT', salesOrderId: order._id, customerId: order.header.customerId }, sources: [sourceLink(order)], items: [] });
     for (const row of input.lines) {
       const item = order.items.id(row.salesOrderLineId);
-      if (!item) throw validationError('Dòng không thuộc đơn bán');
+      if (!item) throw validationError('Dòng không thuộc yêu cầu mua hàng của khách');
       await s.lockSource(order, item, session);
       const planned = sum(issue.items.filter(i => same(i.salesOrderItemId, item._id)));
-      if (exact(row.qtyBase).plus(planned).gt(await remainingOrder(order, item, session))) throw validationError('Vượt số lượng đơn bán còn được xuất');
+      if (exact(row.qtyBase).plus(planned).gt(await remainingOrder(order, item, session))) throw validationError('Vượt số lượng yêu cầu mua hàng của khách còn được xuất');
       await s.assertWholeQuantity(item.productId, row.qtyBase, session);
       const ctx = await stockSource(actor, row.sourceBalanceId, input.warehouseId, item.productId, item.lotId, session);
       if (exact(row.qtyBase).plus(sum(issue.items.filter(i => same(i.sourceBalanceId, row.sourceBalanceId)))).gt(await freeQuantity(ctx.balance, session))) throw validationError('Không đủ tồn tự do');
@@ -84,13 +84,13 @@ export function create(user, input) {
   });
 }
 export async function post(issue, order, actor, input, session) {
-  if (issue.workflowStatus !== 'DRAFT' || !active(order)) throw validationError('Phiếu hoặc đơn bán không còn cho phép xuất');
+  if (issue.workflowStatus !== 'DRAFT' || !active(order)) throw validationError('Phiếu hoặc yêu cầu mua hàng của khách không còn cho phép xuất');
   const posting = s.beginStock(issue, actor, 'PGI', input);
   for (const item of issue.items) {
     const soItem = order.items.id(item.salesOrderItemId);
-    if (!soItem) throw validationError('Dòng đơn bán không tồn tại');
+    if (!soItem) throw validationError('Dòng yêu cầu mua hàng của khách không tồn tại');
     await s.lockSource(order, soItem, session);
-    if ((await remainingOrder(order, soItem, session)).lt(0)) throw validationError('Số lượng đơn bán đã thay đổi');
+    if ((await remainingOrder(order, soItem, session)).lt(0)) throw validationError('Số lượng yêu cầu mua hàng của khách đã thay đổi');
     await stockSource(actor, item.sourceBalanceId, issue.header.warehouseId, item.productId, item.lotId, session);
     await s.takeStock(item.sourceBalanceId, String(item.qtyBase), item._id, posting, actor, session, { allowOpening: true });
   }

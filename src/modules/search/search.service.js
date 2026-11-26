@@ -15,7 +15,7 @@ export const searchQuery = z.object({
 const DOCUMENT_GROUPS = [
   { key: "purchase_orders", label: "Đơn mua hàng", model: "PurchaseOrder", permission: "purchase_order:read", path: "/purchase-orders" },
   { key: "replenishment_requests", label: "Đề nghị nhập hàng", model: "ReplenishmentRequest", permission: "replenishment_request:read", path: "/replenishments" },
-  { key: "sales_orders", label: "Đơn bán", model: "SalesOrder", permission: "sales_order:read", path: "/orders" },
+  { key: "sales_orders", label: "Yêu cầu mua hàng của khách", model: "SalesOrder", permission: "sales_order:read", path: "/orders" },
   { key: "goods_receipts", label: "Phiếu nhập kho", model: "GoodsReceipt", permission: "goods_receipt_other:read", path: "/receipts" },
   { key: "sales_goods_issues", label: "Phiếu xuất kho", model: "SalesGoodsIssue", permission: "goods_issue:read", path: "/goods-issues" },
   { key: "warehouse_transfer_requests", label: "Chuyển kho", model: "WarehouseTransferRequest", permission: "stock_transfer:read", path: "/transfers" },

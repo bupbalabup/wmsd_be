@@ -288,7 +288,7 @@ export function reportIssue(user, id, input) {
     if (!scheduleLine || !allocation) throw validationError('Không tìm thấy phân bổ tương ứng trên lịch giao');
     const order = await m.SalesOrder.findById(schedule.salesOrderId).session(session);
     const soLine = order?.items.id(item.details.soLineId);
-    if (!order || !soLine) throw validationError('Đơn bán hàng hoặc dòng SO không còn tồn tại');
+    if (!order || !soLine) throw validationError('Yêu cầu mua hàng của khách hoặc dòng SO không còn tồn tại');
     const shortQty = exact(input.shortQty), itemQty = exact(item.qtyBase);
     if (!shortQty.gt(0) || shortQty.gt(itemQty)) throw validationError('Số lượng thiếu/hỏng không được vượt quá số lượng dòng');
     if (input.picks.some(p => same(p.balanceId, item.details.balanceId))) {

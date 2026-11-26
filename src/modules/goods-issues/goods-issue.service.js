@@ -96,7 +96,7 @@ export function createIssue(user, input) {
       const ctx = await eligible(reservation, source, delivery.header.warehouseId, session);
       if (ctx.product.wholeBaseUnits && !exact(row.qtyBase).isInteger()) throw validationError('Số lượng phải nguyên đơn vị gốc');
       const wir = request.items.id(source.details.issueRequestLineId), so = wir && order.items.id(wir.details.salesOrderLineId);
-      if (!so) throw validationError('Đứt chuỗi yêu cầu xuất và đơn bán');
+      if (!so) throw validationError('Đứt chuỗi yêu cầu xuất và yêu cầu mua hàng của khách');
       const item = copyItem(source, row.qtyBase, { lineNo: issue.items.length + 1, lineKind: 'SALES_GOODS_ISSUE', salesOrderItemId: so._id,
         details: { outboundDeliveryLineId: source._id }, sources: [sourceLink(delivery, source, row.qtyBase)],
         salePriceSnapshot: { saleUnit: so.enteredUnit, baseUnitsPerSaleUnit: so.baseUnitsPerUnit, unitSellingPrice: so.unitSellingPrice, salesOrderRevision: so.priceRevision } });

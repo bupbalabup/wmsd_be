@@ -17,7 +17,7 @@ export const ACTION_LABELS = {
 export const SUBJECT_LABELS = {
   users: "Tài khoản", roles: "Vai trò", app_settings: "Cài đặt", api_endpoints: "Danh mục API", error_logs: "Nhật ký lỗi",
   purchase_orders: "Đơn mua hàng", replenishment_requests: "Đề nghị nhập hàng", goods_receipts: "Phiếu nhập kho",
-  sales_orders: "Đơn bán", sales_goods_issues: "Phiếu xuất kho", warehouse_transfer_requests: "Chuyển kho",
+  sales_orders: "Yêu cầu mua hàng của khách", sales_goods_issues: "Phiếu xuất kho", warehouse_transfer_requests: "Chuyển kho",
   stocktakes: "Kiểm kê", customer_returns: "Hàng khách trả", supplier_returns: "Trả hàng NCC", defect_reports: "Hàng lỗi",
   products: "Sản phẩm", suppliers: "Nhà cung cấp", product_batches: "Lô hàng", warehouses: "Kho",
 };
