@@ -1,3 +1,22 @@
+
+## 26/11/2026 — Đồng bộ sơ đồ tổng quan MongoDB với main
+
+Đối chiếu 62 collection đăng ký và luồng khách trả trên `main` tại `aaae98d`. Sơ đồ thể hiện một phiếu khách trả có thể tham chiếu nhiều phiếu xuất của cùng đơn bán, cùng kho xử lý và cùng chế độ tiếp nhận. Thêm quan hệ từ phiếu nhập `FAILED_DELIVERY` đến phiếu xuất qua `header.goodsIssueId`. Bảng đối chiếu ghi ID chứng từ và ID dòng nguồn được lưu trong `items[].sources[]`, cách backend suy ra đơn bán và tham chiếu người hoàn tất phiếu xuất qua `header.completedBy`.
+
+Cập nhật [sơ đồ tổng quan](docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_DB_Design_Overview.drawio), ảnh PNG và [bảng quan hệ](docs/03_thiet_ke/DB_Current_2026-11-12_58/WMSD_Overview_Relationships.md) qua `scripts/generate-db-overview.mjs` và draw.io Desktop. Kiểm tra 11 tab, 62 collection, 73 đường nối tổng quan và chạy `node scripts/check-docs.mjs` thành công. Chỉ cập nhật tài liệu, không đổi schema hay dữ liệu.
+
+## 26/11/2026 — Xóa bộ dữ liệu demo Vua Đá Đẹp
+
+Theo yêu cầu người dùng, đã xóa khỏi `wmsd_database` 20 sản phẩm, 20 lô, 20 quy đổi diện tích và các bản ghi thao tác phát sinh riêng trong lượt import. Trước khi xóa đã kiểm tra tham chiếu từ chứng từ và số dư. Cloudinary xác nhận xóa 85 ảnh. Đã dọn ảnh tải về, bản sao tạm và các tệp xem trước trên máy. Kiểm tra sau xóa tìm thấy 0 sản phẩm và 0 lô mang mã của lượt import.
+
+## 26/11/2026 — Áp dụng bộ dữ liệu Vua Đá Đẹp trên Atlas
+
+Theo yêu cầu tạo lô demo, chạy manifest đã duyệt trên `wmsd_database`. Đọc lại xác nhận 20 sản phẩm, 20 lô `UNKNOWN`, 85 ảnh truy cập được và không có số dư cho các lô mới. Dry-run sau nhập trả `SKIP` cho 20 dòng. Xem [hướng dẫn import demo](docs/09_phat_trien/VUADADEP_DEMO_IMPORT.md).
+
+## 26/11/2026 — Import danh mục demo từ Vua Đá Đẹp
+
+Thêm script Python lấy dữ liệu, ảnh và script Node.js import qua dịch vụ sản phẩm/lô. Dry-run chỉ đọc trên `wmsd_database` dự kiến tạo 20 sản phẩm, 20 lô `UNKNOWN` và gắn 85/112 ảnh. Kiểm thử giao dịch MongoDB local với ảnh giả lập đã kiểm tra chạy lại, phục hồi lô còn thiếu và giữ số dư tồn bằng 0. Lệnh ghi Atlas và tải Cloudinary thật chờ duyệt. Xem [hướng dẫn import demo](docs/09_phat_trien/VUADADEP_DEMO_IMPORT.md).
+
 ## 26/11/2026 — Folder architecture in agent instructions (BE, FE)
 
 User request (26/11/2026): describe the folder architecture in English in the agent instruction files. BE: new "Folder architecture" section in `AGENTS.md`, copied to `CLAUDE.md` and `GEMINI.md` (entry points, `src/` layers, module file naming, request flow). FE: new "Folder architecture" section in `AGENTS.md` (app shell, feature folder layout, `shared/`, tests). Docs only; no code, contract or data change. Validation: `npm run docs:check` pass. Follow-up the same day: the Vietnamese "Quy tắc định danh chứng từ" section of the BE instruction files was translated to English ("Document identity rule"), with no change in meaning.
