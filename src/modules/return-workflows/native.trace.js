@@ -16,16 +16,17 @@ export async function traceRecords(user, id, query) {
   const scope = currentRole(user)?.code === 'OWNER' ? {} : { 'header.warehouseId': { $in: user.warehouseIds || [] } };
   const graph = new Map();
   for (const Model of models) {
-    const rows = await Model.aggregate([{ $match: { ...scope, 'items.lotId': lot._id } }, { $project: { itemIds: itemIdsFor(lot._id), ...(Model === m.SalesGoodsIssue && { outboundItemIds: '$items.details.outboundDeliveryLineId' }) } }]);
+    const rows = await Model.aggregate([{ $match: { ...scope, 'items.lotId': lot._id } }, { $project: { itemIds: itemIdsFor(lot._id), ...(Model === m.SalesGoodsIssue && { orderId: '$header.salesOrderId', outboundItemIds: { $map: { input: { $filter: { input: '$items', as: 'item', cond: { $eq: ['$$item.lotId', lot._id] } } }, as: 'item', in: '$$item.details.outboundDeliveryLineId' } } }) } }]);
     if (rows.length) graph.set(Model, rows);
   }
   // Follow only source identities here; full document histories stay out of the graph scan.
   if (!purchasingOnly) {
     const outboundIds = (graph.get(m.SalesGoodsIssue) || []).flatMap(row => row.outboundItemIds || []);
-    if (outboundIds.length) {
+    const directOrders = (graph.get(m.SalesGoodsIssue) || []).map(row => row.orderId).filter(Boolean);
+    if (outboundIds.length || directOrders.length) {
       const deliveries = await m.DeliveryOrder.find({ 'items._id': { $in: outboundIds } }).select('_id header.issueRequestId items._id items.lotId');
       const requests = await m.WarehouseIssueRequest.find({ _id: { $in: deliveries.map(row => row.header.issueRequestId) } }).select('_id header.salesOrderId items._id items.lotId');
-      const orders = await m.SalesOrder.find({ _id: { $in: requests.map(row => row.header.salesOrderId) } }).select('_id items._id items.lotId');
+      const orders = await m.SalesOrder.find({ _id: { $in: [...directOrders, ...requests.map(row => row.header.salesOrderId)] } }).select('_id items._id items.lotId');
       for (const [Model, rows] of [[m.DeliveryOrder, deliveries], [m.WarehouseIssueRequest, requests], [m.SalesOrder, orders]]) {
         if (rows.length) graph.set(Model, rows.map(row => ({ _id: row._id, itemIds: row.items.filter(item => same(item.lotId, lot._id)).map(item => item._id) })));
       }

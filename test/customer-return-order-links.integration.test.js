@@ -7,7 +7,8 @@ import { createSalesOrder } from '../src/modules/sales-orders/sales-create.servi
 import { createIssue, postIssue } from '../src/modules/goods-issues/goods-issue.service.js';
 import { complete, setDeliveredQuantities } from '../src/modules/goods-issues/direct-sales.service.js';
 import { createCustomerReturn } from '../src/modules/return-workflows/native.service.js';
-import { detail } from '../src/modules/return-workflows/native.read.js';
+import { traceRecords } from '../src/modules/return-workflows/native.trace.js';
+import { detail, traceLot } from '../src/modules/return-workflows/native.read.js';
 import { lookup } from '../src/modules/return-workflows/native.lookup.js';
 
 const key = () => new mongoose.Types.ObjectId().toString();
@@ -46,6 +47,9 @@ test('two shipments of one purchase request supply one return with independent r
    return issue;
   }
   const first = await ship(order.id), second = await ship(order.id), unrelated = await ship(other.id);
+  const trace = await traceRecords(worker,batch.id,{section:'documents',page:1,limit:25});
+  assert.ok(trace.items.some(row=>row._id===order.id));
+  assert.ok((await traceLot(worker,batch.id)).documents.some(row=>row._id===order.id));
   const filters = { warehouseId: warehouse.id, page: 1, limit: 10 };
   const orders = await lookup(sales, { ...filters, kind: 'return-orders' });
   assert.equal(orders.total, 2);
