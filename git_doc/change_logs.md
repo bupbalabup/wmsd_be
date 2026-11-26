@@ -1,3 +1,25 @@
+## 26/11/2026 — Sales Order renamed to Customer Purchase Request in the UI
+
+User decision (26/11/2026): the document formerly shown as "Đơn bán" / "Đơn bán hàng" (Sales Order) is now called **Yêu cầu mua hàng của khách** (Customer Purchase Request): a request recorded from the customer's order document, not a sales contract or invoice. Only display text changes: FE labels, breadcrumbs, report group names, permission group name, search and audit-log labels, and BE validation messages. Routes (`/orders`), API paths (`/sales-orders`), collection `sales_orders`, permission codes `sales_order:*`, field names (`salesOrderId`) and the document number prefix `ĐBH` are unchanged to keep the contract stable. No data migration.
+
+## 26/11/2026 — Ô gõ tên "Người lấy hàng & bàn giao" (BE + FE)
+
+- **Lý do & nguồn:** Yêu cầu người dùng 26/11/2026: thay ô chọn nhân viên bằng ô gõ tên người lấy hàng.
+- **Hành vi trước / sau:** Trước: FE chọn tài khoản thủ kho (`assigneeId`). Sau: FE gõ tên tự do, gửi `pickerName` khi tạo nhiệm vụ lấy hàng (trên chi tiết đơn chuyển và form tạo phiếu xuất điều chuyển); TO lưu `header.pickerName` và thẻ nhiệm vụ đang mở hiện "Người lấy hàng: …". Người được giao xác nhận (`assignedTo`) vẫn theo mặc định cũ; API vẫn nhận `assigneeId`.
+- **File ảnh hưởng:** BE `transfer-order-header.schema.js`, `transfer.validation.js`, `transfer.service.js`, `movement-read-fields.js`, `test/transfer-pick-allocation.test.js`; FE `PickerNameInput.tsx` (thay `PickAssigneeSelect.tsx`), `TransferFlowPage.tsx`, `NativeIssueForm.tsx`, `api.ts`, `presentation.ts`, `goods-issues/transfer-create.test.tsx`.
+- **Dữ liệu:** Thêm trường tùy chọn, không migration.
+- **Tài liệu:** `BF04_API.md` (mục "Picker name"), Data Dictionary `DB_Current_2026-11-12_58`, `src/models/CHANGELOG.md`.
+- **Kiểm chứng:** BE `node --test test/transfer-pick-allocation.test.js` 6/6, `test/reviewed-model-files.test.js` đạt; FE `transfer-create.test.tsx` và thư mục `transfers/live` đạt trừ 2 test cũ của `TransferFlowPage.test.tsx` không liên quan; `tsc --noEmit`, eslint đạt. Chưa thử trên trình duyệt.
+
+## 26/11/2026 — Điều chỉnh phân bổ theo ô khi xác nhận bốc hàng chuyển kho (BE + FE)
+
+- **Lý do & nguồn:** Yêu cầu người dùng 26/11/2026: thủ kho được đổi phân bổ ô lấy hàng khi bốc thực tế (ví dụ dự kiến Ô1 5 + Ô2 5 thành Ô1 4 + Ô2 6 thùng) miễn mỗi ô còn đủ tồn khả dụng.
+- **Hành vi trước / sau:** Trước: chỉ lấy thiếu theo từng dòng. Sau: `POST /warehouse-transfers/tasks/:id/confirm` nhận thêm `allocations`; dòng TO/yêu cầu nội bộ/phiếu xuất và giữ chỗ tồn đổi theo ô thực tế; tổng thấp hơn lệnh đi theo luồng lấy thiếu (`shortReason`). Chi tiết `GET /warehouse-transfers/:id` thêm `pickPlan` cho TO lấy hàng đang mở.
+- **File ảnh hưởng:** BE `transfer.service.js`, `transfer.validation.js`, `transfer-pick-allocation.js` (mới), `transfer-pick-plan.js` (mới), `test/transfer-pick-allocation.test.js`; FE `TransferPickConfirm.tsx`, `TransferFlowPage.tsx` (truyền `requestLines`), `api.ts`, `presentation.ts`, `TransferPickConfirm.test.tsx`.
+- **Dữ liệu:** Không đổi model/migration. Bản ghi `stock_reservations` có thể được tạo thêm hoặc nhả bớt khi xác nhận.
+- **Tài liệu:** `git_doc/docs/08_api/transfers/BF04_API.md` (mục "Bin (ô) re-allocation at pick").
+- **Kiểm chứng:** BE `node --test test/transfer-pick-allocation.test.js` đạt 5/5; FE `vitest` cho `TransferPickConfirm.test.tsx`, `tsc --noEmit`, eslint các file đổi đạt. Chưa chạy test tích hợp với MongoDB (không có mongod cục bộ) nên đường ghi DB của `reallocatePick` chưa được kiểm chứng end-to-end. `TransferFlowPage.test.tsx` có 2 test đang fail ("labels request and operational quantities…", "allows reporting only from the assigned destination warehouse") ở phần không thuộc thay đổi này.
+
 ## 26/11/2026 — Sửa khoảng cách và căn chỉnh các biểu mẫu (FE)
 
 - **Lý do & nguồn:** Theo phản hồi của người dùng về màn tạo phiếu xuất: trường lý do bị lệch hàng và phần ghi chú sát nút gửi; đồng thời rà soát các biểu mẫu khác có cùng cách ghép trường.
