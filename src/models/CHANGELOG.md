@@ -1,3 +1,11 @@
+## 26/11/2026 — Hoàn tất phiếu xuất bán theo yêu cầu khách
+
+Thêm vào `sales_goods_issues`: `header.completedAt`, `header.completedBy` (thời điểm và người bấm Hoàn tất; có giá trị thì phiếu khóa) và `items[].deliveredQtyBase` (Decimal tùy chọn, số lượng khách thực nhận, sửa được sau khi bàn giao cho tài xế tới khi Hoàn tất). Không đổi index, quan hệ; phiếu cũ không có các trường này coi như chưa hoàn tất, không cần migration.
+
+## 26/11/2026 — Địa chỉ giao không bắt buộc
+
+`sales_orders.header.deliveryAddressSnapshot` và `warehouse_issue_requests.header.deliveryAddressSnapshot` chuyển thành chuỗi tùy chọn (tối đa 500 ký tự) theo quyết định người dùng: yêu cầu mua hàng của khách không bắt buộc địa chỉ. Không đổi index, quan hệ; dữ liệu cũ có địa chỉ vẫn hợp lệ, không cần migration.
+
 ## 26/11/2026 — Tên người lấy hàng trên TO
 
 Thêm `transfer_orders.header.pickerName` (chuỗi tùy chọn, tối đa 160 ký tự) lưu tên người lấy hàng & bàn giao gõ tay cho TO lấy hàng. Không đổi `assignedTo`, index, quan hệ hay migration; dữ liệu cũ không có trường này vẫn đọc bình thường.

@@ -2899,7 +2899,7 @@ Model: [sales-order.model.js](../../../../src/models/sales-order.model.js).
 | `header.customerName` | String | false |  |
 | `header.customerPhone` | String | false |  |
 | `header.neededOn` | Date | true |  |
-| `header.deliveryAddressSnapshot` | String | true |  |
+| `header.deliveryAddressSnapshot` | String | false | Tùy chọn từ 26/11/2026 (yêu cầu mua hàng của khách không bắt buộc địa chỉ). |
 | `header.recipientName` | String | false |  |
 | `header.recipientPhone` | String | false |  |
 | `updatedBy` | ObjectId | false | User |
@@ -3264,7 +3264,7 @@ Model: [warehouse-issue-request.model.js](../../../../src/models/warehouse-issue
 | `header` | Embedded | true |  |
 | `header.requestedWarehouseId` | ObjectId | true | Warehouse |
 | `header.neededOn` | Date | true |  |
-| `header.deliveryAddressSnapshot` | String | true |  |
+| `header.deliveryAddressSnapshot` | String | false | Tùy chọn từ 26/11/2026, theo yêu cầu mua hàng của khách. |
 | `header.salesOrderVersion` | Number | false |  |
 | `header.requestedBy` | ObjectId | false | User |
 | `header.requestedAt` | Date | false |  |
@@ -3640,6 +3640,8 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `header.issuedToName` | String | false |  |
 | `header.issuedAt` | Date | false |  |
 | `header.issuedBy` | ObjectId | false | User |
+| `header.completedAt` | Date | false |  |
+| `header.completedBy` | ObjectId | false | User |
 | `header.salesOrderId` | DocumentIdentity | false | SalesOrder |
 | `header.deliveryOrderId` | DocumentIdentity | false | DeliveryOrder |
 | `updatedBy` | ObjectId | false | User |
@@ -3697,6 +3699,7 @@ Model: [sales-goods-issue.model.js](../../../../src/models/sales-goods-issue.mod
 | `items[].evidenceIds` | Array | false |  |
 | `items[].salesOrderItemId` | ObjectId | false |  |
 | `items[].sourceBalanceId` | ObjectId | false | InventoryBalance |
+| `items[].deliveredQtyBase` | Decimal128 | false |  |
 | `items[].salePriceSnapshot` | Embedded | false |  |
 | `items[].salePriceSnapshot.saleUnit` | String | true |  |
 | `items[].salePriceSnapshot.baseUnitsPerSaleUnit` | Decimal128 | true |  |
