@@ -32,6 +32,8 @@ export const dispatchBody = z.object({ idempotencyKey: key, expectedVersion: ver
 export const requirementBody = z.object({ idempotencyKey: key, expectedVersion: version,
   // PICK only: the warehouse staff member who will pick and hand over (defaults to the creator).
   assigneeId: oid.optional(),
+  // PICK only: typed name of the person who picks and hands over; stored on the TO header, not an account.
+  pickerName: z.string().trim().min(1).max(160).optional(),
   // Omit destinations to open/reuse a waiting PUTAWAY task for a historical receipt.
   destinations: z.array(z.object({ receiptLineId: oid, locationId: oid }).strict()).max(100).refine(unique('receiptLineId')).optional(),
 }).strict();
@@ -40,6 +42,8 @@ export const taskConfirmBody=commandBody.extend({
   driverName:z.string().trim().min(1).max(160).optional(),driverPhone:z.string().trim().min(1).max(30).optional(),note:z.string().trim().min(1).max(500).optional(),
   // PICK only: quantity really picked per task line when it is lower than planned; needs shortReason.
   pickedLines:z.array(z.object({taskLineId:oid,pickedQtyBase:z.string().regex(/^\d{1,14}(\.\d{1,6})?$/)}).strict()).max(100).refine(unique('taskLineId')).optional(),
+  // PICK only: the storekeeper's real bin (ô) split per request line. Replaces the planned split of every request line it names; unlisted bins drop to 0.
+  allocations:z.array(z.object({requestLineId:oid,sourceBalanceId:oid,qtyBase:z.string().regex(/^\d{1,14}(\.\d{1,6})?$/)}).strict()).max(200).optional(),
   shortReason:z.string().trim().min(1).max(500).optional(),destinations:z.array(z.object({receiptLineId:oid,locationId:oid}).strict()).min(1).max(100).refine(unique('receiptLineId')).optional()});
 export const receiptBody = z.object({ idempotencyKey: key, expectedVersion: version,
   lines: z.array(z.object({ dispatchLineId: oid, locationId: oid, qtyBase: qty,

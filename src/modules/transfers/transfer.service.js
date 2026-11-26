@@ -53,6 +53,8 @@ import { dto } from '../../shared/utils/persistence.js';
 import { notFoundError, validationError, forbiddenError } from '../../shared/utils/ApiError.js';
 import { transferStockCheck } from './transfer-stock-check.js';
 import { nextDocumentFields } from '../../shared/utils/document-number.js';
+import { pickPlans } from './transfer-pick-plan.js';
+import { planPickAllocations } from './transfer-pick-allocation.js';
 import { completeTransferIfReady, completionBlocker, putawayBlocker } from './transfer-completion.js';
 import { command, checkVersion, saveVersion, newId, same, hash } from '../../shared/utils/document-command.js';
 import { makeItem } from '../../shared/utils/document-items.js';
@@ -173,9 +175,10 @@ export async function getTransfer(user,id){
     InventoryBalance.find({holdingPointId:{$in:points.map(p=>p._id)}}).select('holdingPointId quantityBase').lean(),
   ]);
   const progress=transitProgress(dispatches,points,transitBalances);
+  const plans=await pickPlans(tasks,dispatches);
   const lineProgress=request.items.map(item=>{const sent=dispatches.filter(d=>d.workflowStatus==='POSTED').flatMap(d=>d.items).filter(i=>String(i.details.requestLineId)===String(item._id));const sentIds=sent.map(i=>String(i._id));const received=receipts.filter(r=>r.workflowStatus==='POSTED').flatMap(r=>r.items).filter(i=>sentIds.includes(String(i.details.dispatchLineId)));const sum=rows=>rows.reduce((n,i)=>n.plus(effective.get(String(i._id))??String(i.qtyBase)),exact('0')).toFixed();return {lineId:String(item._id),dispatchedQtyBase:sent.reduce((n,i)=>n.plus(String(i.qtyBase)),exact('0')).toFixed(),receivedGoodQtyBase:sum(received.filter(i=>i.details.qualityCode==='GOOD')),receivedDamagedQtyBase:sum(received.filter(i=>i.details.qualityCode==='DAMAGED')),transitQtyBase:progress.flatMap(p=>p.lines).filter(l=>sentIds.includes(l.lineId)).reduce((n,l)=>n.plus(l.remainingQtyBase),exact('0')).toFixed(),unresolvedQtyBase:differences.filter(d=>d.workflowStatus==='OPEN').flatMap(d=>d.items).filter(i=>sentIds.includes(String(i.details.sourceLineId))).reduce((n,i)=>n.plus(String(i.qtyBase)),exact('0')).toFixed(),writtenOffQtyBase:differences.filter(d=>d.workflowStatus==='RESOLVED'&&d.header?.resolutionMode==='WRITE_OFF').flatMap(d=>d.items).filter(i=>sentIds.includes(String(i.details.sourceLineId))).reduce((n,i)=>n.plus(String(i.qtyBase)),exact('0')).toFixed()};});
   const stockCheck=['PENDING_APPROVAL','APPROVED','REVISION_REQUIRED'].includes(request.workflowStatus)?await transferStockCheck(request):undefined;
-  return {...display,stockCheck,lineProgress,differences:differences.map(dto),progress,dispatches:dispatches.map(dto),receipts:receipts.map(dto),internalRequirements:requirements.map(dto),tasks:tasks.map(dto),approvals:approvals.map(dto)};
+  return {...display,stockCheck,lineProgress,differences:differences.map(dto),progress,dispatches:dispatches.map(dto),receipts:receipts.map(dto),internalRequirements:requirements.map(dto),tasks:tasks.map(task=>({...dto(task),...(plans.has(String(task._id))&&{pickPlan:plans.get(String(task._id))})})),approvals:approvals.map(dto)};
 }
 
 export async function getPutawayTask(user,id) {
@@ -481,7 +484,7 @@ export function createRequirement(user,id,input) {
     if(await InternalTransferRequirement.exists({'header.sourceDocumentId':id}).session(session))throw validationError('Nguồn đã có yêu cầu nội bộ');
     const requirement=await document(InternalTransferRequirement,'ITR',actor,{warehouseId,sourceDocumentId:source._id,sourceType:source.constructor.collection.name,taskKind:picking?'PICK':'PUTAWAY'},session);
     let assignee=actor;
-    if(input.assigneeId&&!picking)throw validationError('Chỉ chọn người thực hiện cho TO lấy hàng');
+    if((input.assigneeId||input.pickerName)&&!picking)throw validationError('Chỉ chọn người thực hiện cho TO lấy hàng');
     if(picking&&input.assigneeId&&!same(input.assigneeId,actor._id)){
       assignee=await User.findById(input.assigneeId).populate({path:'roleId',populate:{path:'permissionIds'}}).session(session);
       if(!assignee||!assignee.isActive||!canAccessWarehouse(assignee,warehouseId)||!hasPermission(assignee,'stock_transfer:dispatch'))throw validationError('Người thực hiện không thuộc kho nguồn hoặc không có quyền xuất kho');
@@ -491,7 +494,7 @@ export function createRequirement(user,id,input) {
         .filter(row=>currentRole(row)?.code==='WAREHOUSE'&&hasPermission(row,'stock_transfer:dispatch'));
       if(staff.length===1)assignee=staff[0];
     }
-    const task=await document(TransferOrder,'TO',actor,{warehouseId,taskKind:picking?'PICK':'PUTAWAY',assignedTo:assignee._id,requirementId:requirement._id},session);
+    const task=await document(TransferOrder,'TO',actor,{warehouseId,taskKind:picking?'PICK':'PUTAWAY',assignedTo:assignee._id,requirementId:requirement._id,...(picking&&input.pickerName&&{pickerName:input.pickerName})},session);
     const rows=source.items.filter(item=>picking||item.details.qualityCode!=='DAMAGED');
     const destinations=input.destinations??[];
     if(!picking&&(destinations.length!==rows.length||new Set(destinations.map(row=>row.receiptLineId)).size!==rows.length))throw validationError('Chọn đích cho tất cả dòng hàng tốt');
@@ -516,6 +519,59 @@ export function createRequirement(user,id,input) {
     return{document:task,resultRefs:[{documentType:'internal_transfer_requirements',documentId:requirement._id,revision:requirement.version}]};
   });
 }
+// Storekeeper moves part of a request line between bins (ô) while handing goods over: task, requirement and dispatch lines and the
+// stock reservations follow the real split. Each bin must stay within its free stock; a lower total than planned is a short pick.
+async function reallocatePick({task,requirement,outbound,source,request,input,actor,session}){
+  const originOf=item=>outbound.items.id(item.sources.find(link=>same(link.documentId,source._id))?.itemId);
+  const groups=new Map();
+  for(const item of task.items){
+    const origin=originOf(item);if(!origin)throw validationError('Dòng lấy hàng không khớp phiếu xuất');
+    const key=String(origin.details.requestLineId),group=groups.get(key)??{planned:exact('0'),rows:[]};
+    group.planned=group.planned.plus(String(item.qtyBase));group.rows.push({balanceId:String(item.details.sourceBalanceId),qty:String(item.qtyBase)});groups.set(key,group);
+  }
+  const {changes,short}=planPickAllocations(groups,input.allocations.map(row=>({...row,requestLineId:String(row.requestLineId),sourceBalanceId:String(row.sourceBalanceId)})));
+  if(short&&!input.shortReason)throw validationError('Nhập lý do lấy thiếu');
+  const setQty=(row,qty)=>{if(!row)return;row.qtyBase=qty.toFixed();const entered=qty.div(String(row.baseUnitsPerUnit));row.enteredQty=(entered.decimalPlaces()>6?entered.toDecimalPlaces(6):entered).toFixed();};
+  const mirrorOf=item=>requirement.items.find(row=>row.lineNo===item.lineNo&&same(row.details.sourceBalanceId,item.details.sourceBalanceId));
+  const itemFor=change=>task.items.find(row=>String(row.details.sourceBalanceId)===change.balanceId&&String(originOf(row).details.requestLineId)===change.requestLineId);
+  // Release first so stock freed from one bin never has to be re-held within the same call.
+  for(const change of [...changes.filter(row=>row.next.lt(row.current)),...changes.filter(row=>row.next.gt(row.current))]){
+    const item=itemFor(change);
+    if(change.next.lt(change.current)){
+      let release=change.current.minus(change.next);
+      const held=await StockReservation.find({'executionRef.documentType':'transfer_orders','executionRef.documentId':task._id,balanceId:change.balanceId}).session(session);
+      for(const reservation of held){
+        const room=remainingReservation(reservation),part=room.lt(release)?room:release;
+        if(part.lte(0))continue;
+        reservation.releasedQty=exact(String(reservation.releasedQty)).plus(part).toFixed();reservation.updatedBy=actor._id;
+        await saveVersion(reservation,reservation.version,session);release=release.minus(part);
+      }
+      const origin=originOf(item),mirror=mirrorOf(item);
+      if(change.next.eq(0)){origin.deleteOne();mirror?.deleteOne();item.deleteOne();}else{setQty(origin,change.next);setQty(mirror,change.next);setQty(item,change.next);}
+      continue;
+    }
+    // Increase or new bin: the bin must be a valid storage source for this request line and have enough free stock.
+    const delta=change.next.minus(change.current),demand=request.items.id(change.requestLineId);
+    if(!demand)throw validationError('Dòng không thuộc TR');
+    const ctx=await sourceContext(change.balanceId,session);
+    if(!isTransferSource(ctx,demand,request.header.sourceWarehouseId))throw validationError('Tồn không đủ điều kiện xuất');
+    if(ctx.product.wholeBaseUnits&&!change.next.isInteger())throw validationError(`Vị trí ${ctx.location.code} yêu cầu số lượng nguyên theo đơn vị gốc`);
+    await guardLocations([ctx.location._id],session);
+    if(delta.gt(await freeQuantity(ctx.balance,session,task._id)))throw validationError(`Ô ${ctx.location.code} không đủ tồn khả dụng`);
+    const lock=await InventoryBalance.updateOne({_id:ctx.balance._id,version:ctx.balance.version},{$inc:{version:1}},{session});if(lock.matchedCount!==1)throw validationError('Tồn đã thay đổi');
+    await new StockReservation({demandRef:{documentType:'warehouse_transfer_requests',documentId:request._id,itemId:demand._id},executionRef:{documentType:'transfer_orders',documentId:task._id},balanceId:ctx.balance._id,reservedQty:delta.toFixed(),creationKey:hash({task:String(task._id),balance:change.balanceId,line:change.requestLineId,key:input.idempotencyKey}),createdBy:actor._id}).save({session});
+    if(item){setQty(originOf(item),change.next);setQty(mirrorOf(item),change.next);setQty(item,change.next);continue;}
+    const sample=task.items.find(row=>String(originOf(row).details.requestLineId)===change.requestLineId),sampleOrigin=originOf(sample);
+    const lineNo=Math.max(0,...outbound.items.map(row=>row.lineNo))+1;
+    outbound.items.push(copyItem(sampleOrigin,change.next.toFixed(),{lineNo,lineKind:'TRANSFER_OUTBOUND',lotId:ctx.batch._id,
+      sources:[sourceLink(request,demand,change.next.toFixed())],details:{requestLineId:demand._id,sourceBalanceId:ctx.balance._id,stagingLocationId:sampleOrigin.details.stagingLocationId}}));
+    const created=outbound.items[outbound.items.length-1];
+    const fields={lineNo,lineKind:'WAREHOUSE_TASK',sources:[sourceLink(source,created,created.qtyBase)],details:{sourceBalanceId:ctx.balance._id,sourceBalanceVersion:ctx.balance.version+1,fromLocationId:ctx.location._id,toLocationId:sample.details.toLocationId,qualityCode:ctx.balance.qualityStatus,ownerType:ctx.balance.ownerType,ownerId:ctx.balance.ownerId}};
+    requirement.items.push(copyItem(created,created.qtyBase,fields));task.items.push(copyItem(created,created.qtyBase,fields));
+  }
+  if(!task.items.length)throw validationError('Cần lấy ít nhất một dòng; nếu không hãy hủy phiếu xuất');
+  if(short)outbound.header.shortPickReason=input.shortReason;
+}
 export function confirmTask(user,id,input) {
   return command(user,'CONFIRM_TRANSFER_TASK','stock_transfer:read',id,input,taskReplay,async(session,actor)=>{
     const task=await taskReplay(id,actor,session);checkVersion(task,input.expectedVersion);
@@ -527,10 +583,12 @@ export function confirmTask(user,id,input) {
     const outbound=picking?source:await find(TransferDispatch,source.header.dispatchId,session),request=await find(WarehouseTransferRequest,outbound.header.requestId,session);
     if(request.workflowStatus!=='APPROVED'||source.workflowStatus!==(picking?'DRAFT':'POSTED')||requirement.workflowStatus!=='OPEN')throw validationError('Nguồn không còn hiệu lực');
     if(picking&&!same(outbound.createdBy,actor._id)&&!same(task.header.assignedTo,actor._id))throw forbiddenError('Chỉ người lập phiếu xuất hoặc người được giao lấy hàng được xác nhận');
-    if(!picking&&(input.pickedLines||input.shortReason))throw validationError('Lấy thiếu chỉ dùng cho TO lấy hàng');
+    if(!picking&&(input.pickedLines||input.allocations||input.shortReason))throw validationError('Lấy thiếu chỉ dùng cho TO lấy hàng');
+    if(picking&&input.allocations&&input.pickedLines)throw validationError('Không gửi đồng thời lượng lấy theo dòng và theo ô');
     await saveVersion(request,request.version,session);
     if(!picking&&input.destinations)await planPutaway(task,requirement,source,input.destinations,session);
     if(!picking&&!task.items.length)throw validationError('Chọn vị trí đích cho tất cả dòng hàng tốt');
+    if(picking&&input.allocations?.length)await reallocatePick({task,requirement,outbound,source,request,input,actor,session});
     const locations=task.items.flatMap(item=>[item.details.fromLocationId,item.details.toLocationId]);await guardLocations(locations,session);
     if(picking&&!input.recipientName?.trim())throw validationError('Cần tên người nhận bàn giao');
     if(picking&&input.pickedLines?.length){

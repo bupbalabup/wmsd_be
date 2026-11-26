@@ -14,6 +14,8 @@ export function createTransferOrderHeaderSchema() {
   schema.add({
     requirementId: ref("InternalTransferRequirement", false),
     reason: opt(2000),
+    // PICK only: free-text name of the person who physically picks and hands over (may not have an account).
+    pickerName: opt(160),
     confirmedBy: ref("User", false),
     confirmedAt: date(false),
   });

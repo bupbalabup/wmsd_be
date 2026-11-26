@@ -1,3 +1,7 @@
+## 26/11/2026 — Tên người lấy hàng trên TO
+
+Thêm `transfer_orders.header.pickerName` (chuỗi tùy chọn, tối đa 160 ký tự) lưu tên người lấy hàng & bàn giao gõ tay cho TO lấy hàng. Không đổi `assignedTo`, index, quan hệ hay migration; dữ liệu cũ không có trường này vẫn đọc bình thường.
+
 ## 25/11/2026 — Optional customer return order reference
 
 Adds `customer_returns.header.salesOrderReference` as optional plain text. No Sales Order relationship, index, migration or backfill is needed.

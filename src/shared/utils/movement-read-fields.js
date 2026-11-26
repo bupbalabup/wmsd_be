@@ -23,7 +23,7 @@ export const movementDetailFields = [
 ].join(' ');
 export const relocationLedgerFields = '_id occurredAt operation performedBy movements.sourceLineId movements.quantityBase';
 export const requirementFields = '_id workflowStatus header.sourceDocumentId header.taskKind';
-export const executionFields = '_id documentNo workflowStatus version header.warehouseId header.taskKind header.assignedTo '+itemFields;
+export const executionFields = '_id documentNo workflowStatus version header.warehouseId header.taskKind header.assignedTo header.pickerName '+itemFields;
 export const differenceFields = '_id documentNo workflowStatus version note createdAt header.sourceRef.documentId header.reportedAt header.resolutionMode header.liableParty items._id items.qtyBase items.productNameSnapshot items.lotLabelSnapshot items.baseUnitSnapshot items.details.sourceLineId items.details.resolutionStatus resolutionEvents.quantityBase resolutionEvents.note resolutionEvents.performedAt';
 export const approvalFields = '_id subjectRevision decisionScope decision reason requestedBy decidedBy decidedAt itemDecisions evidenceIds';
 export const movementSummaryProjection = {

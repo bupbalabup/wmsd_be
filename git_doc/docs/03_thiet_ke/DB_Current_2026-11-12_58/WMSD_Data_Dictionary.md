@@ -2232,6 +2232,7 @@ Model: [transfer-order.model.js](../../../../src/models/transfer-order.model.js)
 | `header.taskKind` | String | true |  |
 | `header.assignedTo` | ObjectId | true | User |
 | `header.reason` | String | false |  |
+| `header.pickerName` | String | false |  |
 | `header.confirmedBy` | ObjectId | false | User |
 | `header.confirmedAt` | Date | false |  |
 | `header.requirementId` | DocumentIdentity | false | InternalTransferRequirement |
