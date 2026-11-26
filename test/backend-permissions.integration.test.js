@@ -38,7 +38,7 @@ test('HTTP permission scope and read-only workflow selectors', { skip: !enabled,
   const makeOrder = (_id, line) => ({
     _id, createdBy: users.SALES._id, documentKind: 'SALES_ORDER', evidenceIds: [evidence], orderAmount: '200',
     header: { externalReferenceId: id() },
-    items: [{ _id: line, lineKind: 'SALES_ORDER', productId, unitSellingPrice: '100', lineAmount: '200', evidenceIds: [evidence] }],
+    items: [{ _id: line, lineKind: 'SALES_ORDER', productId, qtyBase: '2', unitSellingPrice: '100', lineAmount: '200', evidenceIds: [evidence] }],
   });
   const makeRequest = (_id, salesOrderId, requestedWarehouseId, line, salesOrderLineId) => ({
     _id, header: { salesOrderId, requestedWarehouseId },

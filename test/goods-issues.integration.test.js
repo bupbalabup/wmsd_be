@@ -140,22 +140,26 @@ test('UC69–72: source-backed GI create/update/cancel, picking and once-only po
       assert.equal(remainingReservation(await m.StockReservation.findById(root._id)).toFixed(), '8');
       assert.equal((await m.InventoryBalance.find()).reduce((n, b) => n.plus(String(b.quantityBase)), exact('0')).toFixed(), '8');
     });
-    await t.test('manual MISA reference needs only products; Sales approval changes the same issue status without stock or SO creation', async () => {
+    await t.test('warehouse creates a manual MISA issue; historical pending issues can still be approved', async () => {
       await m.User.updateOne({ _id: seller._id }, { $set: { warehouseIds: [] } });
       const cartonUnit = await m.Uom.create({ code: 'BOX', name: 'Thùng', isCarton: true });
       const cartonConversion = await m.Conversion.create({ productId: product._id, productBatchId: batch._id, uomId: cartonUnit._id, basePerUnit: '4', version: 1, validFrom: new Date('2020-01-01'), verificationReference: 'Synthetic verified carton', createdBy: worker._id });
       const counts = { orders: await m.SalesOrder.countDocuments(), issues: await m.SalesGoodsIssue.countDocuments(), reservations: await m.StockReservation.countDocuments(), transactions: await m.StockTransaction.countDocuments() };
       const body = { idempotencyKey: key(), expectedVersion: 1, warehouseId: String(warehouse._id), issueKind: 'SALE', referenceNo: 'MISA-ORDER-NOT-IN-WMS', note: 'Check order quantities manually', lines: [{ productId: String(product._id), quantity: '1.5', conversionId: String(cartonConversion._id), note: 'Line note' }] };
-      await assert.rejects(issues.createIssue(seller, { ...body, idempotencyKey: key(), lines: [{ ...body.lines[0], quantity: '0.1' }] }));
-      const made = await issues.createIssue(seller, body);
-      assert.equal(made.workflowStatus, 'PENDING_APPROVAL');
-      assert.equal((await issues.createIssue(seller, body)).replayed, true);
+      await assert.rejects(issues.createIssue(seller, body), { statusCode: 403 });
+      await assert.rejects(issues.createIssue(worker, { ...body, idempotencyKey: key(), lines: [{ ...body.lines[0], quantity: '0.1' }] }));
+      const made = await issues.createIssue(worker, body);
+      assert.equal(made.workflowStatus, 'DRAFT');
+      assert.equal((await issues.createIssue(worker, body)).replayed, true);
       assert.equal(await m.SalesOrder.countDocuments(), counts.orders);
       assert.equal(await m.StockReservation.countDocuments(), counts.reservations);
       let gi = await m.SalesGoodsIssue.findById(made.id);
       assert.equal(String(gi.items[0].qtyBase), '6'); assert.equal(String(gi.items[0].enteredQty), '1.5'); assert.equal(gi.items[0].enteredUnit, 'BOX');
       assert.equal(gi.header.deliveryOrderId, undefined); assert.equal(gi.header.referenceNo, body.referenceNo);
       assert.equal(gi.items[0].note, 'Line note');
+      // Model a pre-policy Sales issue to verify existing pending documents remain actionable.
+      await m.SalesGoodsIssue.collection.updateOne({ _id: gi._id }, { $set: { workflowStatus: 'PENDING_APPROVAL', createdBy: seller._id } });
+      gi = await m.SalesGoodsIssue.findById(gi._id);
       const pick = { idempotencyKey: key(), expectedVersion: gi.version, allocations: [{ lineId: String(gi.items[0]._id), sourceBalanceId: String(balance._id), locationId: String(staging._id), qtyBase: '6' }] };
       await assert.rejects(issues.createIssuePicking(worker, gi._id, pick));
       await assert.rejects(issues.approveIssue(seller, gi._id, { idempotencyKey: key(), expectedVersion: gi.version }));

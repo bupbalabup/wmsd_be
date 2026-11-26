@@ -4,6 +4,8 @@
 
 Đối chiếu mã nguồn ngày 25/11/2026 sau refactor trên BE `5105f36` và FE `46abeb0`. Đã so lại sau merge BE `3bba4da` và FE `0d9df07`; phần triển khai dùng trong các sơ đồ khớp với mốc refactor. Đọc sơ đồ theo luồng nghiệp vụ BF-01 và các thao tác API được nêu ở từng trang. Hai trang UC-40 và UC-42 mô tả riêng nhánh nhập mua; danh mục §4.2 của Report 3 dùng hai mã này cho phạm vi rộng hơn. [Sơ đồ nguồn](WMSD_BF01_Diagrams.drawio), [Report 3 §4.2](../01_bao_cao/WMSD_Report3_Fix.docx.txt#L510).
 
+Mỗi mục có một sơ đồ Mermaid ngay dưới tiêu đề. Mở bản xem trước Markdown hỗ trợ Mermaid để đọc sơ đồ trong tài liệu.
+
 ## Mục lục
 
 | Trang | Nhóm |
@@ -41,6 +43,132 @@
 
 ### 01 · 1.1.1 RR Class
 
+```mermaid
+---
+config:
+  theme: neutral
+---
+classDiagram
+    direction TB
+    class ReplenishmentController {
+        <<controller>>
+        +options(req, res) void
+        +lotOptions(req, res) void
+        +sourceOptions(req, res) void
+        +evaluate(req, res) void
+        +listReplenishments(req, res) void
+        +getReplenishment(req, res) void
+        +create(req, res) void
+        +update(req, res) void
+        +submit(req, res) void
+        +review(req, res) void
+        +cancel(req, res) void
+        +submissions(req, res) void
+        +submission(req, res) void
+    }
+    class ReplenishmentCommands {
+        <<service>>
+        +getReplenishmentOptions(user, mode, requestId) Object
+        +getReplenishmentLotOptions(user, query) Page
+        +evaluateReplenishment(user, input) List~Evaluation~
+        +createReplenishment(user, input) CommandReceipt
+        +updateReplenishment(user, id, input) CommandReceipt
+        +submitReplenishment(user, id, input) CommandReceipt
+        +reviewReplenishment(user, id, input) CommandReceipt
+        +cancelReplenishment(user, id, input) CommandReceipt
+        +readRequest(id, user, session) ReplenishmentRequest
+        +requireEditableRequest(user, requestId) void
+    }
+    class ReplenishmentEvaluation {
+        <<service>>
+        +evaluateLines(user, input, session, options) List~Evaluation~
+        +resolveSource(line, warehouseId, user, session) SourceRef
+        +availableStock(productId, warehouseId, lotId, session) Decimal
+        +reviewRequired(evaluations, message, invalidLines) ApiError
+        -openRequests(user, productId, warehouseId, excludeId, session) Object
+        -incomingPurchaseOrders(productId, warehouseId, excludeId, session) List
+        -otherWarehouseOptions(user, productId, warehouseId, lotId, session) Object
+    }
+    class ReplenishmentService {
+        <<service>>
+        +listReplenishments(user, query) Page
+        +getReplenishment(user, id) Object
+        +listReplenishmentSubmissions(user, id, query) Page
+        +getReplenishmentSubmission(user, id, version) Object
+    }
+    class ReplenishmentSources {
+        <<service>>
+        +getReplenishmentSourceOptions(user, query) Page
+    }
+    class ReplenishmentRequest {
+        <<entity>>
+        +DocumentIdentity id
+        +String documentNo
+        +WorkflowStatus workflowStatus
+        +Int version
+        +ObjectId warehouseId
+        +Date neededOn
+        +String triggerReason
+        +Int approvedRevision
+        +ObjectId latestDecisionId
+        +List~ReplenishmentItem~ items
+        +List~SubmissionSnapshot~ submissions
+    }
+    class ApprovalHistory {
+        <<entity>>
+        +ObjectId id
+        +String subjectType
+        +DocumentIdentity subjectId
+        +Int subjectRevision
+        +String decision
+        +String reason
+        +List~ItemDecision~ itemDecisions
+    }
+    class PurchaseOrder {
+        <<entity>>
+        +DocumentIdentity id
+        +WorkflowStatus workflowStatus
+        +DocumentIdentity replenishmentRequestId
+    }
+    class InventoryBalance {
+        <<entity>>
+        +ObjectId id
+        +Decimal quantityBase
+        +String qualityStatus
+    }
+    class Product {
+        <<entity>>
+        +ObjectId id
+        +List~WarehouseThreshold~ stockThresholds
+    }
+    class SalesOrder {
+        <<entity>>
+    }
+    class WarehouseIssueRequest {
+        <<entity>>
+    }
+    class Stocktake {
+        <<entity>>
+    }
+
+    ReplenishmentController ..> ReplenishmentCommands
+    ReplenishmentController ..> ReplenishmentService
+    ReplenishmentController ..> ReplenishmentSources
+    ReplenishmentCommands ..> ReplenishmentEvaluation
+    ReplenishmentCommands ..> ReplenishmentRequest
+    ReplenishmentCommands ..> ApprovalHistory
+    ReplenishmentCommands ..> PurchaseOrder
+    ReplenishmentEvaluation ..> ReplenishmentRequest
+    ReplenishmentEvaluation ..> PurchaseOrder
+    ReplenishmentEvaluation ..> InventoryBalance
+    ReplenishmentEvaluation ..> Product
+    ReplenishmentEvaluation ..> SalesOrder
+    ReplenishmentEvaluation ..> WarehouseIssueRequest
+    ReplenishmentEvaluation ..> Stocktake
+    ApprovalHistory "0..*" --> "1" ReplenishmentRequest
+    ReplenishmentRequest "0..1" --> "0..1" ApprovalHistory
+```
+
 Controller, command, truy vấn và đánh giá khớp cách tổ chức BE. Ba mũi tên tới các model nguồn khớp cách `resolveSource()` đọc chứng từ.
 
 | Đường trên hình | Lý do nối và kết quả đối chiếu |
@@ -58,6 +186,78 @@ Controller, command, truy vấn và đánh giá khớp cách tổ chức BE. Ba 
 **Nguồn của từng dòng RR.** Khi có chứng từ nguồn, code lưu dữ liệu chuẩn hóa ở `items[].details.source` và tham chiếu ở `items[].sources[]`. Kiểu chứng từ và ID xác định đích tham chiếu cho từng dòng. Dòng thủ công hoặc theo ngưỡng có thể thiếu chứng từ nguồn. [Ghi nguồn từng dòng][rr-items], [schema nguồn][rr-source-model].
 
 ### 02 · 1.1.2.1 Create Replenishment Request (UC-03)
+
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Sales or Warehouse Staff
+    participant UI as UI<br/>Replenishment<br/>DraftEditor.tsx
+    participant UI2 as UI<br/>Replenishment<br/>DetailPage.tsx
+    participant Controller as Controller<br/>replenishment.<br/>controller.js
+    participant Service as Service<br/>replenishment.<br/>commands.js
+    participant Service2 as Service<br/>replenishment.<br/>evaluation.js
+    participant DB as MongoDB
+
+    Staff->>UI: Evaluate requested quantities
+    UI->>Controller: POST /api/replenishments/evaluate
+    Controller->>Service: evaluateReplenishment()
+    Service->>Service2: evaluateLines()
+    Service2->>DB: Read demand, stock and pending supply
+    DB-->>Service2: Evaluation inputs
+    Service-->>Controller: line evaluations and warnings
+    Controller-->>UI: 200 OK
+    UI-->>Staff: Show line evaluations and warnings
+    Staff->>UI: Save draft or send for review
+    UI->>Controller: POST /api/replenishments
+    Controller->>Service: createReplenishment()
+    Service->>DB: Read product and unit data
+    DB-->>Service: Evaluation inputs
+    Service->>Service2: Re-evaluate with evaluateLines()
+    alt Request can be saved
+        alt Action is SUBMIT
+            Service->>DB: Save SUBMITTED with submission snapshot
+            DB-->>Service: Saved
+        else Action is SAVE_DRAFT
+            Service->>DB: Save DRAFT
+            DB-->>Service: Saved
+        end
+        Service-->>Controller: new request status
+        Controller-->>UI: 201 Created / 200 on replay
+        UI-->>Staff: Show new request status
+    else otherwise
+        Service-->>Controller: evaluation or validation error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show evaluation or validation error
+    end
+    opt DRAFT was saved and creator submits later
+        Staff->>UI2: Submit saved draft
+        UI2->>Controller: POST /api/replenishments/:id/submit
+        Controller->>Service: submitReplenishment()
+        Service->>DB: Load RR and evaluation inputs
+        DB-->>Service: RR and inputs
+        Service->>Service2: evaluateLines() after creator, DRAFT and version checks
+        alt Current draft and confirmed warnings
+            Service->>DB: Save SUBMITTED with submission snapshot
+            DB-->>Service: Saved
+            Service-->>Controller: submitted request
+            Controller-->>UI2: 200 OK
+            UI2-->>Staff: Show submitted request
+        else otherwise
+            Service-->>Controller: submit error
+            Controller-->>UI2: Error response
+            UI2-->>Staff: Show submit error
+        end
+    end
+```
 
 **Khớp ở mức thiết kế.** Tách đánh giá, lưu và gửi nháp đã lưu vì chúng có hợp đồng và tác động khác nhau.
 
@@ -114,6 +314,44 @@ Controller, command, truy vấn và đánh giá khớp cách tổ chức BE. Ba 
 
 ### 03 · 1.1.2.2 Update Replenishment Request (UC-04)
 
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Sales or Warehouse Staff
+    participant UI as UI<br/>Replenishment<br/>DraftEditor.tsx
+    participant Controller as Controller<br/>replenishment.<br/>controller.js
+    participant Service as Service<br/>replenishment.<br/>commands.js
+    participant Service2 as Service<br/>replenishment.<br/>evaluation.js
+    participant DB as MongoDB
+
+    Staff->>UI: Save changes to draft
+    UI->>Controller: PUT /api/replenishments/:id
+    Controller->>Service: updateReplenishment()
+    Service->>DB: Load RR, linked PO and evaluation inputs
+    DB-->>Service: RR and inputs
+    Service->>Service2: evaluateLines() after creator, DRAFT and version checks
+    alt Draft editable and evaluations valid
+        Service->>DB: Save updated DRAFT
+        DB-->>Service: Saved
+        Service-->>Controller: updated draft
+        Controller-->>UI: 200 OK
+        UI-->>Staff: Show updated draft
+    else otherwise
+        Service-->>Controller: update error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show update error
+    end
+```
+
 **Khớp ở mức thiết kế.** Editor gọi `PUT /api/replenishments/:id` vào `updateReplenishment()`. Service đọc RR và kiểm có PO ngay trước khi thay đổi. Dùng đường riêng sang evaluation vì dòng mới có thể đổi lượng thiếu hoặc xác nhận cảnh báo. Trong `alt` hợp lệ, lưu nội dung và trả nháp mới. Nhánh lỗi chuyển lỗi về editor khi quyền, trạng thái, version hoặc đánh giá bị chặn. Code kiểm người lập, kho của phiếu, nháp và PO liên kết. Trạng thái lưu vẫn là `DRAFT`. [Editor RR][rr-fe], [update RR][rr-update], [guard kho cố định][rr-items].
 
 <details>
@@ -139,6 +377,48 @@ Controller, command, truy vấn và đánh giá khớp cách tổ chức BE. Ba 
 </details>
 
 ### 04 · 1.1.2.3 Review Replenishment Request (UC-05)
+
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Store Owner
+    participant UI as UI<br/>Replenishment<br/>DetailPage.tsx
+    participant Controller as Controller<br/>replenishment.<br/>controller.js
+    participant Service as Service<br/>replenishment.<br/>commands.js
+    participant DB as MongoDB
+
+    Staff->>UI: Approve or reject with reason
+    UI->>Controller: POST /api/replenishments/:id/review
+    Controller->>Service: reviewReplenishment()
+    Service->>DB: Load RR and units
+    DB-->>Service: Submitted revision
+    Service->>Service: Check reviewer, version and line quantities
+    alt Review valid
+        alt Decision is APPROVE
+            Service->>DB: Save approval and RR APPROVED
+            DB-->>Service: Saved
+        else Decision is REJECT
+            Service->>DB: Save rejection and RR REJECTED
+            DB-->>Service: Saved
+        end
+        Service-->>Controller: review decision
+        Controller-->>UI: 200 OK
+        UI-->>Staff: Show review decision
+    else otherwise
+        Service-->>Controller: review error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show review error
+    end
+```
 
 **Khớp ở mức thiết kế.** Owner thao tác từ trang RR. `POST /:id/review` vào command kiểm `SUBMITTED`, version, người duyệt khác người lập, lý do và lượng theo đơn vị gốc. DB trả RR và dữ liệu sản phẩm/UOM để tính chính xác. `alt` ngoài chặn quyết định sai. `alt` trong thuận theo hai giá trị của payload, ghi `ApprovalHistory` và chuyển RR sang `APPROVED` hoặc `REJECTED`. Khi duyệt, tất cả dòng phải được xét, phải có ít nhất một lượng dương và có lý do khi giảm lượng. Kết quả đi về detail. [HTTP review][rr-route], [ghi quyết định][rr-review], [trang chi tiết RR][rr-detail].
 
@@ -167,6 +447,43 @@ Controller, command, truy vấn và đánh giá khớp cách tổ chức BE. Ba 
 </details>
 
 ### 05 · 1.1.2.4 Cancel Replenishment Request (UC-06)
+
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Requester or Store Owner
+    participant UI as UI<br/>Replenishment<br/>DetailPage.tsx
+    participant Controller as Controller<br/>replenishment.<br/>controller.js
+    participant Service as Service<br/>replenishment.<br/>commands.js
+    participant DB as MongoDB
+
+    Staff->>UI: Cancel request with reason
+    UI->>Controller: POST /api/replenishments/:id/cancel
+    Controller->>Service: cancelReplenishment()
+    Service->>DB: Load RR and check linked PO
+    DB-->>Service: RR and PO link
+    Service->>Service: Check version, reason and cancellation rights
+    alt No linked PO, status is DRAFT/SUBMITTED for creator or APPROVED for Owner
+        Service->>DB: Save RR CANCELLED
+        DB-->>Service: Saved
+        Service-->>Controller: cancelled request
+        Controller-->>UI: 200 OK
+        UI-->>Staff: Show cancelled request
+    else otherwise
+        Service-->>Controller: cancellation error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show cancellation error
+    end
+```
 
 **Khớp ở mức thiết kế.** Detail dùng một endpoint `POST /:id/cancel` cho hai trường hợp được vẽ trong cùng điều kiện: người lập hủy `DRAFT`/`SUBMITTED`, Owner hủy `APPROVED`. Command đọc RR, kiểm PO qua trường liên kết, kiểm version và lý do, rồi ghi `CANCELLED` kèm người/thời điểm hủy. Các nhánh trả lỗi vì cùng nút hủy có thể gặp dữ liệu đổi kể từ lúc mở trang. Trong code, Owner dùng quyền `replenishment_request:approve`, các actor khác dùng `replenishment_request:update`. [Hủy RR][rr-cancel], [router RR][rr-route], [trang chi tiết RR][rr-detail].
 
@@ -198,6 +515,121 @@ Controller, command, truy vấn và đánh giá khớp cách tổ chức BE. Ba 
 
 ### 06 · 1.2.1 PO Class
 
+```mermaid
+---
+config:
+  theme: neutral
+---
+classDiagram
+    direction TB
+    class PurchaseOrderCommands {
+        <<service>>
+        +createPurchaseOrder(user, input) CommandReceipt
+        +updatePurchaseOrder(user, id, input) CommandReceipt
+        +confirmPurchaseOrder(user, id, input) CommandReceipt
+        +rescheduleExpectedOn(user, id, input) CommandReceipt
+        +closeRemainder(user, id, input) CommandReceipt
+        +reopenPurchaseOrder(user, id, input) CommandReceipt
+        +cancelPurchaseOrder(user, id, input) CommandReceipt
+        -draftItems(actor, input, session, previous) Object
+        -validateClose(po, lines, session) void
+    }
+    class PurchaseOrderService {
+        <<service>>
+        +purchaseOrderQuantities(po, session) List~LineQuantity~
+        +receivingStatus(quantities) String
+        +reopenable(po, quantities) Boolean
+        +cancelBlocker(po, session) String
+        +openReceivingWorkIds(orders) Set
+        +getPurchaseOrder(user, id) Object
+        +listPurchaseOrders(user, query) Page
+        +listPurchaseOrderSupplierOptions(user, query) Page
+    }
+    class ReplenishmentRequest {
+        <<entity>>
+        +DocumentIdentity id
+        +WorkflowStatus workflowStatus
+        +Int approvedRevision
+        +ObjectId latestDecisionId
+    }
+    class ApprovalHistory {
+        <<entity>>
+        +ObjectId id
+        +String decision
+        +List~ItemDecision~ itemDecisions
+    }
+    class PurchaseOrder {
+        <<entity>>
+        +DocumentIdentity id
+        +String documentNo
+        +WorkflowStatus workflowStatus
+        +Int version
+        +DocumentIdentity replenishmentRequestId
+        +ObjectId warehouseId
+        +ObjectId supplierId
+        +SupplierSnapshot supplierSnapshot
+        +Date expectedOn
+        +Date issuedAt
+        +Int approvedRequestRevision
+        +Date closedAt
+        +String closureReason
+        +Decimal totalAmount
+        +String currency
+        +List~PurchaseOrderItem~ items
+    }
+    class Supplier {
+        <<entity>>
+        +ObjectId id
+        +String status
+    }
+    class PurchaseReceipt {
+        <<entity>>
+        +DocumentIdentity id
+        +WorkflowStatus workflowStatus
+        +DocumentIdentity purchaseOrderId
+    }
+    class GoodsArrival {
+        <<entity>>
+        +DocumentIdentity id
+        +DocumentIdentity purchaseOrderId
+    }
+    class GoodsInspection {
+        <<entity>>
+        +DocumentIdentity id
+        +WorkflowStatus workflowStatus
+        +DocumentIdentity arrivalId
+    }
+    class PurchaseOrderController {
+        <<controller>>
+        +list(req, res) void
+        +supplierOptions(req, res) void
+        +get(req, res) void
+        +create(req, res) void
+        +update(req, res) void
+        +confirm(req, res) void
+        +rescheduleExpectedOn(req, res) void
+        +closeRemainder(req, res) void
+        +reopen(req, res) void
+        +cancel(req, res) void
+    }
+
+    PurchaseOrderCommands ..> PurchaseOrderService
+    PurchaseOrderCommands ..> ReplenishmentRequest
+    PurchaseOrderCommands ..> ApprovalHistory
+    PurchaseOrderCommands ..> PurchaseOrder
+    PurchaseOrderCommands ..> Supplier
+    PurchaseOrderService ..> PurchaseOrder
+    PurchaseOrderService ..> PurchaseReceipt
+    PurchaseOrderService ..> GoodsArrival
+    PurchaseOrderService ..> GoodsInspection
+    PurchaseOrder "0..1" --> "0..1" ReplenishmentRequest
+    PurchaseOrder "0..*" --> "1" Supplier
+    PurchaseReceipt "0..*" --> "1" PurchaseOrder
+    GoodsArrival "0..*" --> "1" PurchaseOrder
+    PurchaseOrderController ..> PurchaseOrderService
+    PurchaseOrderController ..> PurchaseOrderCommands
+```
+
 **Khớp ở mức thiết kế.** Sơ đồ tách nghiệp vụ ghi khỏi truy vấn và gom quanh PO các tham chiếu ảnh hưởng đến số lượng và khả năng hủy.
 
 | Đường trên hình | Lý do nối và kết quả đối chiếu |
@@ -213,6 +645,63 @@ Controller, command, truy vấn và đánh giá khớp cách tổ chức BE. Ba 
 **Lý do bố cục.** Lớp PO là tâm của các đường dữ liệu. GR và ARR nằm thấp hơn để thể hiện chứng từ phát sinh, còn INS ảnh hưởng phép đọc thông qua ARR. Liên kết INS → ARR được mở rộng ở [trang 13](#trang-13-131-inspection-class).
 
 ### 07 · 1.2.2.1 Create Purchase Order (UC-09)
+
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Accountant
+    participant UI as UI<br/>CreatePurchase<br/>OrderModal.tsx
+    participant UI2 as UI<br/>PurchaseOrder<br/>DraftActions.tsx
+    participant Controller as Controller<br/>purchase-order.<br/>controller.js
+    participant Service as Service<br/>purchase-order.<br/>commands.js
+    participant DB as MongoDB
+
+    Staff->>UI: Save PO from approved request
+    UI->>Controller: POST /api/purchase-orders
+    Controller->>Service: createPurchaseOrder()
+    Service->>DB: Load RR approval, supplier and products
+    DB-->>Service: Approval and master data
+    Service->>Service: Check source, quantities and pack rounding
+    alt Approved source and no live PO
+        Service->>DB: Save PO DRAFT linked to RR
+        DB-->>Service: Saved
+        Service-->>Controller: draft purchase order
+        Controller-->>UI: 200 OK
+        UI-->>Staff: Show draft purchase order
+    else otherwise
+        Service-->>Controller: creation error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show creation error
+    end
+    opt DRAFT was saved and Accountant issues it
+        Staff->>UI2: Issue saved purchase order
+        UI2->>Controller: POST /api/purchase-orders/:id/confirm
+        Controller->>Service: confirmPurchaseOrder()
+        Service->>DB: Load DRAFT PO, approval and master data
+        DB-->>Service: PO and approval
+        Service->>Service: Recheck RR revision and order lines
+        alt Draft still issuable
+            Service->>DB: Save PO OPEN with issue timestamp
+            DB-->>Service: Saved
+            Service-->>Controller: open purchase order
+            Controller-->>UI2: 200 OK
+            UI2-->>Staff: Show open purchase order
+        else otherwise
+            Service-->>Controller: issue error
+            Controller-->>UI2: Error response
+            UI2-->>Staff: Show issue error
+        end
+    end
+```
 
 **Khớp ở mức thiết kế.** Kế toán lưu nháp qua `CreatePurchaseOrderModal.tsx` và có thể phát hành sau qua `PurchaseOrderDraftActions.tsx`. `POST /api/purchase-orders` kiểm RR đã duyệt, revision, kho/NCC, sản phẩm/quy đổi và giới hạn lượng. Dùng nhánh lỗi trước khi ghi vì chỉ một PO được giữ liên kết hoạt động. Lệnh `POST /:id/confirm` nằm trong `opt` vì nháp đã là kết quả hợp lệ của lệnh đầu. Phát hành kiểm lại dữ liệu rồi ghi `OPEN` và `issuedAt`, từ đó kho mới có thể tiếp nhận. Hai endpoint thành công trả `200`. Quy tắc vượt lượng duyệt chỉ áp dụng với số thùng nguyên tối thiểu đủ phủ lượng duyệt còn lại. [Modal tạo PO][po-fe-create], [thao tác phát hành][po-fe-actions], [lệnh tạo][po-create], [lệnh phát hành][po-confirm].
 
@@ -254,6 +743,43 @@ Controller, command, truy vấn và đánh giá khớp cách tổ chức BE. Ba 
 
 ### 08 · 1.2.2.2 Update Purchase Order (UC-10)
 
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Accountant
+    participant UI as UI<br/>EditPurchaseOrder<br/>DraftModal.tsx
+    participant Controller as Controller<br/>purchase-order.<br/>controller.js
+    participant Service as Service<br/>purchase-order.<br/>commands.js
+    participant DB as MongoDB
+
+    Staff->>UI: Save changes to PO draft
+    UI->>Controller: PUT /api/purchase-orders/:id
+    Controller->>Service: updatePurchaseOrder()
+    Service->>DB: Load PO and RR approval
+    DB-->>Service: PO and approved source
+    Service->>Service: Check DRAFT, version, source and quantities
+    alt Draft editable and same RR
+        Service->>DB: Save updated PO DRAFT
+        DB-->>Service: Saved
+        Service-->>Controller: updated draft
+        Controller-->>UI: 200 OK
+        UI-->>Staff: Show updated draft
+    else otherwise
+        Service-->>Controller: update error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show update error
+    end
+```
+
 **Khớp ở mức thiết kế.** `EditPurchaseOrderDraftModal.tsx` gọi `PUT /:id` để lưu nháp. Command nối tới DB để đọc phiên bản PO và dựng lại dòng từ RR đã duyệt, NCC, sản phẩm và quy đổi. `alt` cho thấy chỉ ghi khi `DRAFT`, version đúng và giữ cùng RR. Code chỉ cho giữ kho hiện tại, cho sửa NCC/ngày hợp lệ, và ghép giữ ID các dòng còn tương ứng. Lỗi được trả về modal vì nguồn duyệt hay trạng thái có thể đã đổi. [Sửa PO][po-update], [modal sửa PO][po-fe-edit].
 
 <details>
@@ -280,6 +806,43 @@ Controller, command, truy vấn và đánh giá khớp cách tổ chức BE. Ba 
 
 ### 09 · 1.2.2.3 Reschedule Purchase Order Expected Date (UC-11)
 
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Accountant
+    participant UI as UI<br/>Reschedule<br/>ExpectedOnModal.<br/>tsx
+    participant Controller as Controller<br/>purchase-order.<br/>controller.js
+    participant Service as Service<br/>purchase-order.<br/>commands.js
+    participant DB as MongoDB
+
+    Staff->>UI: Enter new date and reason
+    UI->>Controller: POST /api/purchase-orders<br/>/:id/expected-on
+    Controller->>Service: rescheduleExpectedOn()
+    Service->>DB: Load PO
+    DB-->>Service: PO and expected date
+    Service->>Service: Check version and date is today or later
+    alt PO OPEN or PARTIAL and date valid
+        Service->>DB: Save expected date and audit change
+        DB-->>Service: Saved
+        Service-->>Controller: new expected date
+        Controller-->>UI: 200 OK
+        UI-->>Staff: Show new expected date
+    else otherwise
+        Service-->>Controller: reschedule error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show reschedule error
+    end
+```
+
 **Khớp ở mức thiết kế.** Modal nhận ngày mới và lý do. Endpoint `POST /:id/expected-on` đọc PO, kiểm version, `OPEN`/`PARTIAL` và ngày theo lịch Asia/Saigon. Nhánh hợp lệ ghi `header.expectedOn` và audit giá trị trước/sau. Vì là thay đổi kế hoạch phần chưa nhận, hình chỉ nối tới PO và dòng audit, lịch sử từng đợt nhận vẫn nằm ở các chứng từ của đợt đó. [Đổi ngày PO][po-reschedule], [modal đổi ngày][po-fe-reschedule].
 
 <details>
@@ -305,6 +868,48 @@ Controller, command, truy vấn và đánh giá khớp cách tổ chức BE. Ba 
 </details>
 
 ### 10 · 1.2.2.4 Close Purchase Order Remainder (UC-12)
+
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Accountant
+    participant UI as UI<br/>ClosePurchase<br/>OrderRemainder<br/>Modal.tsx
+    participant Controller as Controller<br/>purchase-order.<br/>controller.js
+    participant Service as Service<br/>purchase-order.<br/>commands.js
+    participant Service2 as Service<br/>purchase-order.<br/>service.js
+    participant DB as MongoDB
+
+    Staff->>UI: Close unreceived quantity with reason
+    UI->>Controller: POST /api/purchase-orders<br/>/:id/close-remainder
+    Controller->>Service: closeRemainder()
+    Service->>DB: Load PO and draft receipt commitments
+    DB-->>Service: Outstanding and committed quantities
+    Service->>Service: Check OPEN or PARTIAL, version and available quantity
+    alt Close quantity is valid
+        Service->>Service2: Recalculate remainder with purchaseOrderQuantities()
+        opt Outstanding is zero on every line
+            Service->>Service: Set PO CLOSED
+        end
+        Service->>DB: Save PO quantities and closure reason
+        DB-->>Service: Saved
+        Service-->>Controller: remaining quantity and PO status
+        Controller-->>UI: 200 OK
+        UI-->>Staff: Show remaining quantity and PO status
+    else otherwise
+        Service-->>Controller: closure error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show closure error
+    end
+```
 
 **Khớp ở mức thiết kế.** `POST /:id/close-remainder` lấy PO và các phiếu nhập ảnh hưởng lượng. `purchaseOrderQuantities()` tính lượng đặt trừ lượng `POSTED` và lượng đã chốt, còn lượng nháp chiếm một phần khả năng chốt. Command kiểm lượng từng dòng không vượt `outstandingQtyBase - openDraftCommitmentQtyBase`, kiểm đơn vị gốc và evidence nếu có, rồi cộng `cancelledRemainderQtyBase`. Hình dùng `opt` cho `CLOSED` vì chỉ đổi trạng thái khi toàn bộ dòng hết lượng chưa nhận. Code gọi phép tính cả trước khi chốt và sau khi cộng lượng, hữu ích khi đọc hai nhóm mũi tên tải và tính lại. Đây là một lệnh trực tiếp của kế toán. [Tính lượng PO][po-qty], [chốt phần chưa nhận][po-close], [modal chốt thiếu][po-fe-close].
 
@@ -334,6 +939,49 @@ Controller, command, truy vấn và đánh giá khớp cách tổ chức BE. Ba 
 
 ### 11 · 1.2.2.5 Reopen Purchase Order (UC-13)
 
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Accountant
+    participant UI as UI<br/>ReopenPurchase<br/>OrderModal.tsx
+    participant Controller as Controller<br/>purchase-order.<br/>controller.js
+    participant Service as Service<br/>purchase-order.<br/>commands.js
+    participant Service2 as Service<br/>purchase-order.<br/>service.js
+    participant DB as MongoDB
+
+    Staff->>UI: Reopen closed PO with reason
+    UI->>Controller: POST /api/purchase-orders/:id/reopen
+    Controller->>Service: reopenPurchaseOrder()
+    Service->>DB: Load PO and receipt quantities
+    DB-->>Service: Received and outstanding quantities
+    Service->>Service2: Check eligibility with purchaseOrderQuantities() and reopenable()
+    alt PO CLOSED with outstanding quantity
+        alt Any quantity remains received
+            Service->>Service: Set PO PARTIAL
+        else No quantity remains received
+            Service->>Service: Set PO OPEN
+        end
+        Service->>DB: Save PO and clear closure timestamp
+        DB-->>Service: Saved
+        Service-->>Controller: reopened purchase order
+        Controller-->>UI: 200 OK
+        UI-->>Staff: Show reopened purchase order
+    else otherwise
+        Service-->>Controller: reopen error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show reopen error
+    end
+```
+
 **Khớp ở mức thiết kế.** `POST /:id/reopen` đi từ modal đến command rồi dùng service tính lượng thực nhận và lượng còn mở. `alt` ngoài yêu cầu PO `CLOSED` còn lượng chưa nhận, tình huống điển hình là đảo một GR. `alt` trong chọn `PARTIAL` nếu còn lượng nhận, hoặc `OPEN` nếu lượng nhận còn bằng 0. Lệnh xóa `closedAt`, giữ phần đã chốt thiếu. Vì vậy luồng mở lại PO và luồng đảo GR được vẽ ở hai hình riêng. [Tính điều kiện mở lại][po-qty], [mở lại PO][po-reopen], [modal mở lại][po-fe-reopen].
 
 <details>
@@ -361,6 +1009,44 @@ Controller, command, truy vấn và đánh giá khớp cách tổ chức BE. Ba 
 </details>
 
 ### 12 · 1.2.2.6 Cancel Purchase Order (UC-14)
+
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Accountant
+    participant UI as UI<br/>CancelPurchase<br/>OrderModal.tsx
+    participant Controller as Controller<br/>purchase-order.<br/>controller.js
+    participant Service as Service<br/>purchase-order.<br/>commands.js
+    participant Service2 as Service<br/>purchase-order.<br/>service.js
+    participant DB as MongoDB
+
+    Staff->>UI: Cancel PO with reason
+    UI->>Controller: POST /api/purchase-orders/:id/cancel
+    Controller->>Service: cancelPurchaseOrder()
+    Service->>DB: Load PO and receiving history
+    DB-->>Service: PO and cancellation blockers
+    Service->>Service2: Check receiving blockers with cancelBlocker()
+    alt DRAFT or OPEN and no blocker
+        Service->>DB: Save PO CANCELLED and release RR link
+        DB-->>Service: Saved
+        Service-->>Controller: cancelled purchase order
+        Controller-->>UI: 200 OK
+        UI-->>Staff: Show cancelled purchase order
+    else otherwise
+        Service-->>Controller: cancellation error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show cancellation error
+    end
+```
 
 **Khớp ở mức thiết kế.** Modal gọi `POST /:id/cancel`; command tải và kiểm version PO, gọi `cancelBlocker()` vì điều kiện phụ thuộc dữ liệu nhận hàng bên ngoài PO. `DRAFT` hoặc `OPEN` có thể hủy khi chưa chốt thiếu và chưa có ARR hay GR liên kết. Hủy lưu `CANCELLED` và gỡ `replenishmentRequestId`. Code chạm bản ghi RR để phối hợp các lệnh đồng thời và giữ `sources[]` làm lịch sử. Đường `Saved` chỉ biểu thị sau khi chuỗi ghi hợp lệ, nên tránh đọc hình thành việc xóa PO hoặc xóa mọi quan hệ với RR. [Cản trở hủy][po-qty], [hủy PO][po-cancel], [modal hủy][po-fe-cancel].
 
@@ -394,6 +1080,129 @@ Controller, command, truy vấn và đánh giá khớp cách tổ chức BE. Ba 
 
 ### 13 · 1.3.1 Inspection Class
 
+```mermaid
+---
+config:
+  theme: neutral
+---
+classDiagram
+    direction TB
+    class GoodsInspectionService {
+        <<service>>
+        +inspectionContext(user, id) Object
+        +createInspection(user, id, input) CommandReceipt
+        +updateInspection(user, id, input) CommandReceipt
+        +confirmInspection(user, id, input) CommandReceipt
+        +prepare(po, input, actor, session, arrival, inspection) void
+    }
+    class PurchaseReadService {
+        <<service>>
+        +listDocuments(user, kind, query) Page
+        +getDocument(user, id, kind) Object
+        +receivingSummary(user, id) Object
+        +receivingTrips(user, id, query) Page
+        +receivingQueue(user, query) Page
+        +receivingHistory(user, id, query) Page
+    }
+    class GoodsInspectionCorrection {
+        <<service>>
+        +correctionPreflight(user, id) Object
+        +replaceInspection(user, id, input) CommandReceipt
+        -correctionBlockers(inspection, session) List~Blocker~
+    }
+    class PurchaseOrder {
+        <<entity>>
+        +DocumentIdentity id
+        +WorkflowStatus workflowStatus
+        +Int version
+    }
+    class GoodsArrival {
+        <<entity>>
+        +DocumentIdentity id
+        +String documentNo
+        +WorkflowStatus workflowStatus
+        +DocumentIdentity purchaseOrderId
+        +Date arrivedAt
+        +String deliveredBy
+        +String deliveryReference
+        +List~ArrivalItem~ items
+    }
+    class GoodsInspection {
+        <<entity>>
+        +DocumentIdentity id
+        +String documentNo
+        +WorkflowStatus workflowStatus
+        +DocumentIdentity arrivalId
+        +DocumentIdentity previousInspectionId
+        +String correctionReason
+        +List~InspectionItem~ items
+    }
+    class PurchaseReceipt {
+        <<entity>>
+        +DocumentIdentity id
+        +String documentKind
+        +WorkflowStatus workflowStatus
+    }
+    class CustodyReceipt {
+        <<entity>>
+        +DocumentIdentity id
+        +WorkflowStatus workflowStatus
+        +String ownerType
+    }
+    class SupplierReturn {
+        <<entity>>
+        +DocumentIdentity id
+        +WorkflowStatus workflowStatus
+    }
+    class PurchaseOrderInspectionRouter {
+        <<router>>
+    }
+    class InspectionRouter {
+        <<router>>
+    }
+    class GoodsInspectionController {
+        <<controller>>
+        +getInspectionContext(req, res) void
+        +createInspection(req, res) void
+        +listInspections(req, res) void
+        +getInspection(req, res) void
+        +getReceivingHistory(req, res) void
+        +updateInspection(req, res) void
+        +confirmInspection(req, res) void
+        +cancelInspection(req, res) void
+        +getCorrectionPreflight(req, res) void
+        +replaceInspection(req, res) void
+    }
+    class PurchaseCore {
+        <<utility>>
+    }
+
+    GoodsInspectionCorrection ..> GoodsInspectionService
+    GoodsInspectionService ..> PurchaseOrder
+    GoodsInspectionService ..> GoodsArrival
+    GoodsInspectionService ..> GoodsInspection
+    GoodsInspectionService ..> PurchaseReceipt
+    GoodsInspectionService ..> CustodyReceipt
+    GoodsInspectionCorrection ..> GoodsArrival
+    GoodsInspectionCorrection ..> GoodsInspection
+    GoodsInspectionCorrection ..> PurchaseReceipt
+    GoodsInspectionCorrection ..> CustodyReceipt
+    GoodsInspectionCorrection ..> SupplierReturn
+    GoodsArrival "0..*" --> "1" PurchaseOrder
+    GoodsInspection "1" --> "1" GoodsArrival
+    GoodsInspection "0..*" --> "0..1" GoodsInspection
+    PurchaseReceipt "0..*" --> "0..1" GoodsInspection
+    CustodyReceipt "0..*" --> "0..1" GoodsInspection
+    PurchaseOrderInspectionRouter ..> GoodsInspectionController
+    InspectionRouter ..> GoodsInspectionController
+    GoodsInspectionController ..> GoodsInspectionService
+    GoodsInspectionController ..> PurchaseReadService
+    GoodsInspectionController ..> GoodsInspectionCorrection
+    GoodsInspectionController ..> PurchaseCore
+    GoodsInspectionService ..> PurchaseCore
+    GoodsInspectionCorrection ..> PurchaseCore
+```
+
 Hai router kiểm nhận chuyển vào `GoodsInspectionController`. Từ đây, thao tác được chuyển tiếp theo chức năng.
 
 | Đường trên hình | Lý do nối và kết quả đối chiếu |
@@ -411,6 +1220,79 @@ Hai router kiểm nhận chuyển vào `GoodsInspectionController`. Từ đây, 
 **Lý do bố cục.** Router/controller đi từ trên xuống để phân biệt trách nhiệm HTTP với nghiệp vụ. Ở hàng dữ liệu, PO/ARR/INS thể hiện chuỗi truy nguồn, GR/giữ hộ thể hiện kết quả có thể xảy ra song song, và vòng tự tham chiếu giữ lịch sử hiệu chỉnh ngay tại INS.
 
 ### 14 · 1.3.2.1 Create Goods Inspection (UC-37)
+
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Warehouse Staff
+    participant UI as UI<br/>InspectionForm<br/>Page.tsx
+    participant Controller as Controller<br/>goods-inspection.<br/>controller.js
+    participant Service as Service<br/>goods-inspection.<br/>service.js
+    participant Service2 as Service<br/>purchase-order.<br/>service.js
+    participant DB as MongoDB
+
+    Staff->>UI: Open receiving trip
+    UI->>Controller: GET /api/purchase-orders<br/>/:id/inspection-context
+    Controller->>Service: inspectionContext()
+    Service->>DB: Read PO, lots and destinations
+    DB-->>Service: Receiving context
+    Service-->>Controller: receiving form
+    Controller-->>UI: 200 OK
+    UI-->>Staff: Show receiving form
+    Staff->>UI: Save counted lines and decisions
+    UI->>Controller: POST /api/purchase-orders<br/>/:id/inspections
+    Controller->>Service: createInspection()
+    Service->>DB: Load PO, lots and conversions
+    DB-->>Service: PO and lot data
+    Service->>Service: Check open PO, version, quantities and quality
+    alt Valid
+        Service->>DB: Save ARR and INS as DRAFT
+        DB-->>Service: Saved
+        Service-->>Controller: inspection draft
+        Controller-->>UI: 200 OK
+        UI-->>Staff: Show inspection draft
+    else otherwise
+        Service-->>Controller: creation error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show creation error
+    end
+    opt DRAFT was saved and staff confirm it
+        Staff->>UI: Confirm inspection and destinations
+        UI->>Controller: POST /api/goods-inspections/:id/confirm
+        Controller->>Service: confirmInspection()
+        Service->>DB: Load INS, ARR and PO
+        DB-->>Service: Draft and PO
+        Service->>Service2: Check PO allowance with purchaseOrderQuantities()
+        alt Draft confirmation valid
+            opt At least one GOOD / ACCEPT line
+                Service->>DB: Save purchase receipt DRAFT
+                DB-->>Service: Saved
+            end
+            opt At least one CUSTODY line
+                Service->>DB: Save supplier custody receipt DRAFT
+                DB-->>Service: Saved
+            end
+            Service->>DB: Save INS CONFIRMED, ARR RECORDED and PO version
+            DB-->>Service: Saved
+            Service-->>Controller: confirmation and any receipt drafts
+            Controller-->>UI: 200 OK
+            UI-->>Staff: Show confirmation and any receipt drafts
+        else otherwise
+            Service-->>Controller: confirmation error
+            Controller-->>UI: Error response
+            UI-->>Staff: Show confirmation error
+        end
+    end
+```
 
 **Khớp ở mức thiết kế.** Một hình chứa ba request vì cả ba cùng phục vụ một đợt kiểm nhận.
 
@@ -468,6 +1350,43 @@ Hai router kiểm nhận chuyển vào `GoodsInspectionController`. Từ đây, 
 
 ### 15 · 1.3.2.2 Update Goods Inspection (UC-38)
 
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Warehouse Staff
+    participant UI as UI<br/>InspectionForm<br/>Page.tsx
+    participant Controller as Controller<br/>goods-inspection.<br/>controller.js
+    participant Service as Service<br/>goods-inspection.<br/>service.js
+    participant DB as MongoDB
+
+    Staff->>UI: Save draft inspection changes
+    UI->>Controller: PUT /api/goods-inspections/:id
+    Controller->>Service: updateInspection()
+    Service->>DB: Load INS, ARR and PO
+    DB-->>Service: Draft and source documents
+    Service->>Service: Check DRAFT, versions and revised lines
+    alt Draft editable and changes valid
+        Service->>DB: Save revised ARR and INS DRAFT
+        DB-->>Service: Saved
+        Service-->>Controller: updated draft
+        Controller-->>UI: 200 OK
+        UI-->>Staff: Show updated draft
+    else otherwise
+        Service-->>Controller: update error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show update error
+    end
+```
+
 **Khớp ở mức thiết kế.** Form gọi `PUT /api/goods-inspections/:id`. Service tải INS và ARR vì chỉnh đếm có thể đi kèm sửa ngày, người giao hoặc tham chiếu giao hàng. Phải kiểm cả INS và ARR đang `DRAFT`, version của INS và PO, cùng PO còn tiếp nhận. Nhánh hợp lệ gọi `prepare()`, lưu lại cả hai với version tăng và trả INS cập nhật. Nhánh lỗi bảo vệ đợt nhận trước khi ghi. Chưa có giao dịch tồn tại bước này. [Sửa INS][inspection-update], [form INS][inspection-fe], [API INS][inspection-api].
 
 <details>
@@ -494,6 +1413,43 @@ Hai router kiểm nhận chuyển vào `GoodsInspectionController`. Từ đây, 
 
 ### 16 · 1.3.2.3 Cancel Goods Inspection (UC-39)
 
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Warehouse Staff
+    participant UI as UI<br/>InspectionForm<br/>Page.tsx
+    participant Controller as Controller<br/>goods-inspection.<br/>controller.js
+    participant Utility as Utility<br/>purchase-core.js
+    participant DB as MongoDB
+
+    Staff->>UI: Cancel draft inspection with reason
+    UI->>Controller: POST /api/goods-inspections/:id/cancel
+    Controller->>Utility: cancelDraft(INSPECTION)
+    Utility->>DB: Load INS and linked ARR
+    DB-->>Utility: INS and ARR
+    Utility->>Utility: Check INS version and DRAFT
+    alt Draft cancellable
+        Utility->>DB: Cancel INS and its DRAFT arrival
+        DB-->>Utility: Saved
+        Utility-->>Controller: cancelled inspection
+        Controller-->>UI: 200 OK
+        UI-->>Staff: Show cancelled inspection
+    else otherwise
+        Utility-->>Controller: cancellation error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show cancellation error
+    end
+```
+
 **Khớp ở mức thiết kế.** `POST /:id/cancel` gọi `cancelDraft(..., 'INSPECTION', ...)`. Hình nối đến ARR vì INS và hồ sơ hàng đến được tạo thành cặp. Khi INS cho phép hủy, service ghi `CANCELLED` trên INS và hủy ARR nếu tìm được ARR đang `DRAFT`. Điều kiện trên ARR áp dụng riêng, tránh đọc hình thành hủy mọi ARR liên kết. UI lấy lý do qua modal, ghi nhận kết quả hoặc chuyển lỗi về form. [Hủy nháp nhận mua][receiving-cancel], [form INS][inspection-fe], [validation lý do][rec-val].
 
 <details>
@@ -519,6 +1475,56 @@ Hai router kiểm nhận chuyển vào `GoodsInspectionController`. Từ đây, 
 </details>
 
 ### 17 · 1.3.2.4 Correct Goods Inspection (UC-41)
+
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Warehouse Staff
+    participant UI as UI<br/>InspectionForm<br/>Page.tsx
+    participant UI2 as UI<br/>Inspection<br/>CorrectionModals.<br/>tsx
+    participant Controller as Controller<br/>goods-inspection.<br/>controller.js
+    participant Service as Service<br/>goods-inspection.<br/>correction.js
+    participant Service2 as Service<br/>goods-inspection.<br/>service.js
+    participant DB as MongoDB
+
+    Staff->>UI: Request correction eligibility
+    UI->>Controller: GET /api/goods-inspections<br/>/:id/correction-preflight
+    Controller->>Service: correctionPreflight()
+    Service->>DB: Read INS and linked documents
+    DB-->>Service: Status and blockers
+    Service->>Service: Check confirmed status and blockers
+    Service-->>Controller: eligibility and blockers
+    Controller-->>UI: 200 OK
+    UI-->>Staff: Show eligibility and blockers
+    opt Eligible and staff submit corrected counts
+        Staff->>UI2: Submit correction with reason
+        UI2->>Controller: POST /api/goods-inspections<br/>/:id/corrections
+        Controller->>Service: replaceInspection()
+        Service->>DB: Load INS, ARR, PO and links
+        DB-->>Service: Sources and blockers
+        Service->>Service2: Validate and prepare corrected lines with prepare()
+        alt Correction still eligible
+            Service->>DB: Save replacement drafts and bump original INS version
+            DB-->>Service: Saved
+            Service-->>Controller: linked replacement draft
+            Controller-->>UI2: 200 OK
+            UI2-->>Staff: Show linked replacement draft
+        else otherwise
+            Service-->>Controller: correction error
+            Controller-->>UI2: Error response
+            UI2-->>Staff: Show correction error
+        end
+    end
+```
 
 **Khớp ở mức thiết kế.** Form gọi `GET /:id/correction-preflight` để hỏi tình trạng INS đã `CONFIRMED`, ARR có tồn tại và hồ sơ nào cản. `opt` dùng modal riêng vì sau khi đủ điều kiện người dùng còn phải nhập số liệu sửa và xác nhận. `POST /:id/corrections` kiểm lại blocker, version INS, PO `OPEN`/`PARTIAL`, version PO và evidence nếu có. Nối sang `goods-inspection.service.js` để dùng lại `prepare()`. Service tạo cặp ARR/INS nháp mới, gắn `previousInspectionId`, lưu liên kết nguồn và tăng version INS gốc. Kết quả cũ vẫn có trạng thái `CONFIRMED`; nháp mới đi qua luồng xác nhận riêng. [Preflight và thay INS][inspection-preflight], [blocker][inspection-blockers], [form INS][inspection-fe], [modal sửa][correction-fe].
 
@@ -559,6 +1565,232 @@ Hai router kiểm nhận chuyển vào `GoodsInspectionController`. Từ đây, 
 
 ### 18 · 1.4.1 Receipt Class
 
+```mermaid
+---
+config:
+  theme: neutral
+---
+classDiagram
+    direction TB
+    class PurchaseReadService {
+        <<service>>
+        +listDocuments(user, kind, query) Page
+        +getDocument(user, id, kind) Object
+    }
+    class PurchaseReceiptService {
+        <<service>>
+        +postReceipt(user, id, input) CommandReceipt
+        +changeDestinations(user, id, input) CommandReceipt
+    }
+    class StockReversalService {
+        <<service>>
+        +reversalPreflight(user, id, kind) Object
+        +reverseReceipt(user, id, input, kind) CommandReceipt
+        +eligible(receipt, actor, session) Object
+        +getReversal(user, id) Object
+    }
+    class CustodyService {
+        <<service>>
+        +postCustodyReceipt(user, id, input) CommandReceipt
+        +reinspectCustody(user, id, input) CommandReceipt
+        +decideCustody(user, id, input) CommandReceipt
+        +createCustodyResolution(user, id, input, action) CommandReceipt
+        +postCustodyRelease(user, id, input) CommandReceipt
+    }
+    class StockUtils {
+        <<utility>>
+        +guardLocations(ids, session) void
+        +locationAt(id, warehouseId, kinds, session) WarehouseLocation
+        +balanceAt(pointFields, source, qualityStatus, session) InventoryBalance
+        +beginStock(document, user, operation, input) StockTransaction
+        +receiveStock(target, item, portions, posting, actor, session, condition) void
+        +sourceContext(id, session) Object
+        +splitPortions(portions, amount, actorId) Object
+        +freeQuantity(balance, session) Decimal
+        +verifyCapacity(locations, session) void
+    }
+    class PurchaseOrder {
+        <<entity>>
+        +DocumentIdentity id
+        +WorkflowStatus workflowStatus
+    }
+    class PurchaseReceipt {
+        <<entity>>
+        +DocumentIdentity id
+        +String documentNo
+        +String documentKind
+        +WorkflowStatus workflowStatus
+        +DocumentIdentity purchaseOrderId
+        +DocumentIdentity arrivalId
+        +ObjectId supplierId
+        +Date receivedAt
+        +ObjectId stockTransactionId
+        +ObjectId postedBy
+        +Date postedAt
+        +List~PurchaseReceiptItem~ items
+    }
+    class CustodyReceipt {
+        <<entity>>
+        +DocumentIdentity id
+        +String documentNo
+        +WorkflowStatus workflowStatus
+        +String ownerType
+        +ObjectId ownerId
+        +ObjectId stockTransactionId
+        +List~CustodyReceiptItem~ items
+    }
+    class CustodyRelease {
+        <<entity>>
+        +DocumentIdentity id
+        +String documentNo
+        +WorkflowStatus workflowStatus
+        +ObjectId custodyDecisionId
+        +ObjectId stockTransactionId
+    }
+    class StockReversal {
+        <<entity>>
+        +DocumentIdentity id
+        +String documentNo
+        +WorkflowStatus workflowStatus
+        +ObjectId originalTransactionId
+        +ObjectId stockTransactionId
+        +SourceReference sourceDocument
+    }
+    class StockTransaction {
+        <<entity>>
+        +ObjectId id
+        +String sourceType
+        +DocumentIdentity sourceId
+        +String operation
+        +ObjectId reversedTransactionId
+        +List~StockMovement~ movements
+    }
+    class InventoryBalance {
+        <<entity>>
+        +ObjectId id
+        +ObjectId holdingPointId
+        +ObjectId batchId
+        +String qualityStatus
+        +String ownerType
+        +ObjectId ownerId
+        +Decimal quantityBase
+        +List~Portion~ packagingPortions
+    }
+    class GoodsReceiptRouter {
+        <<router>>
+    }
+    class ReceiptRouter {
+        <<router>>
+    }
+    class CustodyRouters {
+        <<router>>
+    }
+    class GoodsReceiptController {
+        <<controller>>
+        +listUnified(req, res) void
+        +getUnified(req, res) void
+        +listTransfer(req, res) void
+        +listByKind(path) Handler
+        +getByKind(path) Handler
+    }
+    class PurchaseReceiptController {
+        <<controller>>
+        +listPurchaseReceipts(req, res) void
+        +getPurchaseReceipt(req, res) void
+        +postPurchaseReceipt(req, res) void
+        +cancelPurchaseReceipt(req, res) void
+        +changeReceiptDestinations(req, res) void
+        +getPurchaseReversalPreflight(req, res) void
+        +reversePurchaseReceipt(req, res) void
+    }
+    class GoodsReceiptService {
+        <<service>>
+        +listGoodsReceipts(user, query) Page
+        +getGoodsReceipt(user, id) Object
+        +listTransferReceipts(user, query) Page
+        +listReceiptsByKind(user, path, query) Page
+        +getReceiptByKind(user, path, id) Object
+    }
+    class StockMovement {
+        <<embedded>>
+        +ObjectId fromBalanceId
+        +ObjectId toBalanceId
+        +Decimal quantityBase
+    }
+    class CustodyController {
+        <<controller>>
+        +listCustodyReceipts(req, res) void
+        +getCustodyReceipt(req, res) void
+        +postCustodyReceipt(req, res) void
+        +cancelCustodyReceipt(req, res) void
+        +getCustodyReversalPreflight(req, res) void
+        +reverseCustodyReceipt(req, res) void
+        +reinspectCustody(req, res) void
+        +decideCustody(req, res) void
+        +createCustodyPurchaseReceipt(req, res) void
+        +createCustodyRelease(req, res) void
+        +getCustodyRelease(req, res) void
+        +postCustodyRelease(req, res) void
+    }
+    class CustodyStock {
+        <<utility>>
+        +postOwnedCustody(receipt, item, po, posting, actor, session) void
+        +transferCustodyStock(sourceId, target, item, posting, actor, session, preferredIds) void
+    }
+    class PurchaseCore {
+        <<utility>>
+    }
+    class StockReversalController {
+        <<controller>>
+    }
+    class ReversalRouter {
+        <<router>>
+    }
+
+    PurchaseReceiptService ..> CustodyStock
+    PurchaseReceiptService ..> StockUtils
+    StockReversalService ..> StockUtils
+    StockReversalService ..> CustodyStock
+    CustodyService ..> StockUtils
+    PurchaseReceiptService ..> PurchaseOrder
+    PurchaseReceiptService ..> PurchaseReceipt
+    StockReversalService ..> PurchaseOrder
+    StockReversalService ..> StockReversal
+    StockReversalService ..> StockTransaction
+    CustodyService ..> CustodyReceipt
+    CustodyService ..> PurchaseReceipt
+    CustodyService ..> CustodyRelease
+    StockUtils ..> StockTransaction
+    StockUtils ..> InventoryBalance
+    PurchaseReceipt "0..*" --> "1" PurchaseOrder
+    PurchaseReceipt "0..1" --> "0..1" StockTransaction
+    CustodyReceipt "0..1" --> "0..1" StockTransaction
+    CustodyRelease "0..1" --> "0..1" StockTransaction
+    StockReversal "0..1" --> "1" StockTransaction : originalTransactionId
+    StockReversal "0..1" --> "0..1" StockTransaction : stockTransactionId
+    GoodsReceiptRouter ..> GoodsReceiptController
+    GoodsReceiptRouter ..> ReceiptRouter
+    ReceiptRouter ..> PurchaseReceiptController
+    CustodyRouters ..> CustodyController
+    GoodsReceiptController ..> GoodsReceiptService
+    GoodsReceiptService ..> PurchaseReadService
+    PurchaseReceiptController ..> PurchaseReadService
+    PurchaseReceiptController ..> PurchaseReceiptService
+    PurchaseReceiptController ..> StockReversalService
+    CustodyController ..> CustodyService
+    StockTransaction "1" *-- "0..*" StockMovement : movements[]
+    StockMovement "0..*" --> "0..1" InventoryBalance : fromBalanceId
+    StockMovement "0..*" --> "0..1" InventoryBalance : toBalanceId
+    CustodyController ..> PurchaseReadService
+    CustodyController ..> StockReversalService
+    CustodyService ..> CustodyStock
+    CustodyStock ..> StockUtils
+    PurchaseReceiptController ..> PurchaseCore
+    CustodyController ..> PurchaseCore
+    ReversalRouter ..> StockReversalController
+    StockReversalController ..> StockReversalService
+```
+
 Sơ đồ lớp thể hiện hai controller nhập mua và giữ hộ, cùng các hàm ghi tồn và đảo tồn dùng chung.
 
 | Đường trên hình | Lý do nối và kết quả đối chiếu |
@@ -581,6 +1813,168 @@ Sơ đồ lớp thể hiện hai controller nhập mua và giữ hộ, cùng cá
 
 ### 19 · 1.4.1 Goods Receipt Class
 
+```mermaid
+---
+config:
+  theme: neutral
+---
+classDiagram
+    direction TB
+    class PurchaseReadService {
+        <<service>>
+        +listDocuments(user, kind, query) Page
+        +getDocument(user, id, kind) Object
+    }
+    class PurchaseReceiptService {
+        <<service>>
+        +postReceipt(user, id, input) CommandReceipt
+        +changeDestinations(user, id, input) CommandReceipt
+    }
+    class StockReversalService {
+        <<service>>
+        +reversalPreflight(user, id, kind) Object
+        +reverseReceipt(user, id, input, kind) CommandReceipt
+        +eligible(receipt, actor, session) Object
+        +getReversal(user, id) Object
+    }
+    class StockUtils {
+        <<utility>>
+        +guardLocations(ids, session) void
+        +locationAt(id, warehouseId, kinds, session) WarehouseLocation
+        +balanceAt(pointFields, source, qualityStatus, session) InventoryBalance
+        +beginStock(document, user, operation, input) StockTransaction
+        +receiveStock(target, item, portions, posting, actor, session, condition) void
+        +sourceContext(id, session) Object
+        +splitPortions(portions, amount, actorId) Object
+        +freeQuantity(balance, session) Decimal
+        +verifyCapacity(locations, session) void
+    }
+    class PurchaseOrder {
+        <<entity>>
+        +DocumentIdentity id
+        +WorkflowStatus workflowStatus
+    }
+    class PurchaseReceipt {
+        <<entity>>
+        +DocumentIdentity id
+        +String documentNo
+        +String documentKind
+        +WorkflowStatus workflowStatus
+        +DocumentIdentity purchaseOrderId
+        +DocumentIdentity arrivalId
+        +ObjectId supplierId
+        +Date receivedAt
+        +ObjectId stockTransactionId
+        +ObjectId postedBy
+        +Date postedAt
+        +List~PurchaseReceiptItem~ items
+    }
+    class StockReversal {
+        <<entity>>
+        +DocumentIdentity id
+        +String documentNo
+        +WorkflowStatus workflowStatus
+        +ObjectId originalTransactionId
+        +ObjectId stockTransactionId
+        +SourceReference sourceDocument
+    }
+    class StockTransaction {
+        <<entity>>
+        +ObjectId id
+        +String sourceType
+        +DocumentIdentity sourceId
+        +String operation
+        +ObjectId reversedTransactionId
+        +List~StockMovement~ movements
+    }
+    class InventoryBalance {
+        <<entity>>
+        +ObjectId id
+        +ObjectId holdingPointId
+        +ObjectId batchId
+        +String qualityStatus
+        +String ownerType
+        +ObjectId ownerId
+        +Decimal quantityBase
+        +List~Portion~ packagingPortions
+    }
+    class GoodsReceiptRouter {
+        <<router>>
+    }
+    class ReceiptRouter {
+        <<router>>
+    }
+    class GoodsReceiptController {
+        <<controller>>
+        +listUnified(req, res) void
+        +getUnified(req, res) void
+        +listTransfer(req, res) void
+        +listByKind(path) Handler
+        +getByKind(path) Handler
+    }
+    class PurchaseReceiptController {
+        <<controller>>
+        +listPurchaseReceipts(req, res) void
+        +getPurchaseReceipt(req, res) void
+        +postPurchaseReceipt(req, res) void
+        +cancelPurchaseReceipt(req, res) void
+        +changeReceiptDestinations(req, res) void
+        +getPurchaseReversalPreflight(req, res) void
+        +reversePurchaseReceipt(req, res) void
+    }
+    class GoodsReceiptService {
+        <<service>>
+        +listGoodsReceipts(user, query) Page
+        +getGoodsReceipt(user, id) Object
+        +listTransferReceipts(user, query) Page
+        +listReceiptsByKind(user, path, query) Page
+        +getReceiptByKind(user, path, id) Object
+    }
+    class StockMovement {
+        <<embedded>>
+        +ObjectId fromBalanceId
+        +ObjectId toBalanceId
+        +Decimal quantityBase
+    }
+    class PurchaseCore {
+        <<utility>>
+    }
+    class StockReversalController {
+        <<controller>>
+    }
+    class ReversalRouter {
+        <<router>>
+    }
+
+    PurchaseReceiptService ..> StockUtils
+    StockReversalService ..> StockUtils
+    PurchaseReceiptService ..> PurchaseOrder
+    PurchaseReceiptService ..> PurchaseReceipt
+    StockReversalService ..> PurchaseOrder
+    StockReversalService ..> StockReversal
+    StockReversalService ..> StockTransaction
+    StockUtils ..> StockTransaction
+    StockUtils ..> InventoryBalance
+    PurchaseReceipt "0..*" --> "1" PurchaseOrder
+    PurchaseReceipt "0..1" --> "0..1" StockTransaction
+    StockReversal "0..1" --> "1" StockTransaction : originalTransactionId
+    StockReversal "0..1" --> "0..1" StockTransaction : stockTransactionId
+    GoodsReceiptRouter ..> GoodsReceiptController
+    GoodsReceiptRouter ..> ReceiptRouter
+    ReceiptRouter ..> PurchaseReceiptController
+    GoodsReceiptController ..> GoodsReceiptService
+    GoodsReceiptService ..> PurchaseReadService
+    PurchaseReceiptController ..> PurchaseReadService
+    PurchaseReceiptController ..> PurchaseReceiptService
+    PurchaseReceiptController ..> StockReversalService
+    StockTransaction "1" *-- "0..*" StockMovement : movements[]
+    StockMovement "0..*" --> "0..1" InventoryBalance : fromBalanceId
+    StockMovement "0..*" --> "0..1" InventoryBalance : toBalanceId
+    PurchaseReceiptController ..> PurchaseCore
+    ReversalRouter ..> StockReversalController
+    StockReversalController ..> StockReversalService
+```
+
 Sơ đồ lớp này tập trung vào `PurchaseReceipt`, discriminator `PURCHASE` của `goods_receipts`, và các thành phần phục vụ đọc, đổi vị trí đích, hủy nháp, ghi tồn và đảo phiếu nhập mua. Các lớp dành riêng cho giữ hộ được mô tả ở trang 18. [File draw.io](WMSD_BF01_Diagrams.drawio), [model phiếu nhập][gr-model].
 
 | Đường trên hình | Cách đọc |
@@ -591,6 +1985,43 @@ Sơ đồ lớp này tập trung vào `PurchaseReceipt`, discriminator `PURCHASE
 | `StockTransaction` ◆ `StockMovement` → `InventoryBalance` | Giao dịch chứa danh sách `movements[]`. Mỗi biến động có thể tham chiếu số dư nguồn qua `fromBalanceId` và số dư đích qua `toBalanceId`. Xem trang 18 để đối chiếu bội số ở từng đầu nối. [Model giao dịch][transaction-model], [schema biến động][movement-model]. |
 
 ### 20 · 1.4.2.1 Change Purchase Receipt Destinations
+
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Warehouse Staff
+    participant Client as API client
+    participant Controller as Controller<br/>purchase-receipt.<br/>controller.js
+    participant Service as Service<br/>purchase-receipt.<br/>service.js
+    participant DB as MongoDB
+
+    Staff->>Client: Prepare new receiving locations and reason
+    Client->>Controller: PATCH /api/goods-receipts/purchase<br/>/:id/destinations
+    Controller->>Service: changeDestinations()
+    Service->>DB: Load draft receipt, source quality and locations
+    DB-->>Service: Receipt and location data
+    Service->>Service: Check DRAFT and version<br/>GOOD: RECEIVING<br/>Other: QUARANTINE
+    alt Draft and destinations valid
+        Service->>DB: Save destination changes
+        DB-->>Service: Saved
+        Service-->>Controller: updated destinations
+        Controller-->>Client: 200 OK
+        Client-->>Staff: Read updated destinations
+    else otherwise
+        Service-->>Controller: destination error
+        Controller-->>Client: Error response
+        Client-->>Staff: Read API error
+    end
+```
 
 Warehouse Staff gọi PATCH qua API client. Service đọc chất lượng của dòng INS nguồn để chọn `RECEIVING` cho `GOOD` hoặc `QUARANTINE` cho mã khác. Luồng xác nhận INS mua mới chỉ sinh dòng nhận sở hữu cho `GOOD/ACCEPT`, nên nhánh `QUARANTINE` mô tả điều kiện riêng của endpoint. Lệnh đổi đích của phiếu nháp, tăng version và lưu lý do trong audit. [Route PATCH][purchase-receipt-route], [điều kiện đổi đích][gr-dest], [xác nhận INS][inspection-confirm], [màn phiếu nhập][gr-fe].
 
@@ -618,6 +2049,43 @@ Warehouse Staff gọi PATCH qua API client. Service đọc chất lượng của
 
 ### 21 · 1.4.2.2 Cancel Purchase Receipt
 
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Warehouse Staff
+    participant UI as UI<br/>PurchaseReceipt<br/>Review.tsx
+    participant Controller as Controller<br/>purchase-receipt.<br/>controller.js
+    participant Utility as Utility<br/>purchase-core.js
+    participant DB as MongoDB
+
+    Staff->>UI: Cancel draft receipt with reason
+    UI->>Controller: POST /api/goods-receipts/purchase<br/>/:id/cancel
+    Controller->>Utility: cancelDraft(GR_PURCHASE)
+    Utility->>DB: Load purchase receipt and PO
+    DB-->>Utility: Receipt and PO versions
+    Utility->>Utility: Check DRAFT and both versions
+    alt Draft cancellable
+        Utility->>DB: Save receipt CANCELLED and bump PO version
+        DB-->>Utility: Saved
+        Utility-->>Controller: cancelled receipt
+        Controller-->>UI: 200 OK
+        UI-->>Staff: Show cancelled receipt
+    else otherwise
+        Utility-->>Controller: cancellation error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show cancellation error
+    end
+```
+
 **Khớp ở mức thiết kế.** `PurchaseReceiptReview.tsx` gửi `POST /purchase/:id/cancel`; controller chọn `cancelDraft(..., 'GR_PURCHASE', ...)`. Hình đọc cả PO vì hủy GR nháp bỏ lượng cam kết nhận ở phép tính PO. Nhánh hợp lệ kiểm version GR và PO, `DRAFT` và lý do, ghi `CANCELLED` rồi trả kết quả. Trong transaction thực tế, code cập nhật version PO trước lúc lưu GR. Không phát sinh giao dịch trừ hàng vì phiếu chưa post. [Hủy nháp][receiving-cancel], [validation hai version][rec-val], [tính lượng PO][po-qty], [màn GR][gr-fe].
 
 <details>
@@ -644,10 +2112,58 @@ Warehouse Staff gọi PATCH qua API client. Service đọc chất lượng của
 
 ### 22 · 1.4.2.3 Post Purchase Receipt (UC-40)
 
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Warehouse Staff
+    participant UI as UI<br/>PurchaseReceipt<br/>Review.tsx
+    participant Controller as Controller<br/>purchase-receipt.<br/>controller.js
+    participant Service as Service<br/>purchase-receipt.<br/>service.js
+    participant Utility as Utility<br/>custody-stock.js
+    participant DB as MongoDB
+
+    Staff->>UI: Post draft purchase receipt
+    UI->>Controller: POST /api/goods-receipts/purchase<br/>/:id/post
+    Controller->>Service: postReceipt()
+    Service->>DB: Load receipt, PO and line sources
+    DB-->>Service: Versions, headroom and sources
+    Service->>Service: Check versions, PO headroom, sources and locations
+    alt Posting checks pass
+        loop For each receipt line
+            alt Source is GOOD / ACCEPT inspection line
+                Service->>Service: Receive STORE stock at RECEIVING
+            else Source is accepted supplier custody
+                Service->>Utility: postOwnedCustody() moves SUPPLIER stock to STORE at RECEIVING
+            end
+        end
+        Service->>Service: Verify location capacity
+        Service->>DB: Save stock transaction and POSTED receipt
+        DB-->>Service: Stock transaction and receipt saved
+        Service->>DB: Recalculate and save PO as PARTIAL, COMPLETED or CLOSED
+        DB-->>Service: PO saved
+        Service-->>Controller: posted receipt and transaction
+        Controller-->>UI: 200 OK
+        UI-->>Staff: Show posted receipt and transaction
+    else otherwise
+        Service-->>Controller: posting error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show posting error
+    end
+```
+
 **Khớp ở mức thiết kế.** `POST /purchase/:id/post` đọc nháp, PO, lượng sẵn cho nhận, nguồn từng dòng và vị trí. `loop` là cần thiết vì một phiếu có nhiều dòng và mỗi dòng phải dùng đúng nguồn. `alt` trong vòng lặp thể hiện hai cách ghi tồn: từ INS `GOOD/ACCEPT` thì nhập `STORE` tại `RECEIVING`; dòng có `custodyBalanceId` gọi `postOwnedCustody()` để chuyển tồn `SUPPLIER` sang `STORE`. Mũi tên sang service giữ hộ có ý nghĩa riêng vì cần truy quyết định và lượng còn giữ của NCC. Sau các bước kiểm hàng, quy cách và sức chứa, transaction ghi giao dịch, GR `POSTED` và PO. PO thành `PARTIAL` nếu còn lượng chờ, `COMPLETED` nếu đã đủ, `CLOSED` nếu hết phần chờ có lượng đã chốt thiếu. Sau khi phiếu chuyển sang `POSTED`, service tính lại lượng PO trong cùng transaction để phép tính chứa lần nhập này. [Ghi nhập mua][gr-post], [đổi chủ tồn][custody-stock], [màn GR][gr-fe].
 
 <details>
-<summary>Xem 17 thông điệp trên hình theo thứ tự từ trên xuống</summary>
+<summary>Xem 19 thông điệp trên hình theo thứ tự từ trên xuống</summary>
 
 | Đầu gửi → đầu nhận | Nét nối | Nhãn trên hình |
 | --- | --- | --- |
@@ -675,6 +2191,63 @@ Warehouse Staff gọi PATCH qua API client. Service đọc chất lượng của
 
 ### 23 · 1.4.2.4 Reverse Purchase Receipt (UC-42)
 
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Warehouse Staff
+    participant UI as UI<br/>PurchaseReceipt<br/>ReverseModal.tsx
+    participant Controller as Controller<br/>purchase-receipt.<br/>controller.js
+    participant Service as Service<br/>stock-reversal.<br/>service.js
+    participant Utility as Utility<br/>custody-stock.js
+    participant DB as MongoDB
+
+    Staff->>UI: Check reversal eligibility
+    UI->>Controller: GET /api/goods-receipts/purchase<br/>/:id/reversal-preflight
+    Controller->>Service: reversalPreflight(GR_PURCHASE)
+    Service->>DB: Read receipt, dependencies and stock
+    DB-->>Service: Original transaction and blockers
+    Service->>Service: Check eligibility and available stock
+    Service-->>Controller: reversal eligibility
+    Controller-->>UI: 200 OK
+    UI-->>Staff: Show reversal eligibility
+    opt Eligible and staff confirm reversal
+        Staff->>UI: Confirm reversal with reason
+        UI->>Controller: POST /api/goods-receipts/purchase<br/>/:id/reverse
+        Controller->>Service: reverseReceipt(GR_PURCHASE)
+        Service->>DB: Load receipt, original movement and PO
+        DB-->>Service: Stock and both versions
+        Service->>Service: Recheck blockers, stock and versions
+        alt Reversal still eligible
+            loop For each original movement, in reverse order
+                Service->>Utility: transferCustodyStock() Use supplier balance for custody-origin lines
+            end
+            Service->>DB: Save stock transaction and REVERSED receipt
+            DB-->>Service: Stock transaction and receipt saved
+            opt PO is not CLOSED
+                Service->>Service: Recalculate PO as OPEN or PARTIAL
+            end
+            Service->>DB: Save POSTED reversal and PO version
+            DB-->>Service: Saved
+            Service-->>Controller: reversal and stock transaction
+            Controller-->>UI: 200 OK
+            UI-->>Staff: Show reversal and stock transaction
+        else otherwise
+            Service-->>Controller: reversal error
+            Controller-->>UI: Error response
+            UI-->>Staff: Show reversal error
+        end
+    end
+```
+
 Luồng đảo kiểm tra điều kiện trước khi ghi giao dịch bù. Mỗi biến động gốc được xử lý một lần.
 
 - `GET /reversal-preflight` đọc giao dịch gốc, kiểm phụ thuộc, tồn khả dụng và quy cách còn lại. Trả `200` kèm `eligible`; bị chặn nghiệp vụ có thể là `eligible: false`. `opt` dành cho thao tác xác nhận và gửi lý do qua modal. [Preflight][reverse-preflight], [guard đảo][reverse-eligible], [modal đảo nhập][gr-reverse-fe].
@@ -682,7 +2255,7 @@ Luồng đảo kiểm tra điều kiện trước khi ghi giao dịch bù. Mỗi
 - `opt` về PO đúng về kết quả. PO `CLOSED` giữ trạng thái; PO khác tính `OPEN`/`PARTIAL` theo phần thực nhận. Cả hai đều tăng version PO. Transaction lưu phiếu đảo `POSTED`, giao dịch bù và GR `REVERSED`. Lệnh mở lại là thao tác riêng tại trang 11. [Lệnh đảo][gr-reverse], [mở lại PO][po-reopen].
 
 <details>
-<summary>Xem 26 thông điệp trên hình theo thứ tự từ trên xuống</summary>
+<summary>Xem 27 thông điệp trên hình theo thứ tự từ trên xuống</summary>
 
 | Đầu gửi → đầu nhận | Nét nối | Nhãn trên hình |
 | --- | --- | --- |
@@ -718,6 +2291,43 @@ Luồng đảo kiểm tra điều kiện trước khi ghi giao dịch bù. Mỗi
 
 ### 24 · 1.4.2.5 Cancel Custody Receipt
 
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Warehouse Staff
+    participant UI as UI<br/>CustodyDetailPage.<br/>tsx
+    participant Controller as Controller<br/>custody.<br/>controller.js
+    participant Utility as Utility<br/>purchase-core.js
+    participant DB as MongoDB
+
+    Staff->>UI: Cancel draft custody receipt
+    UI->>Controller: POST /api/custody-receipts/:id/cancel
+    Controller->>Utility: cancelDraft(CUSTODY_RECEIPT)
+    Utility->>DB: Load supplier custody receipt
+    DB-->>Utility: Receipt and version
+    Utility->>Utility: Check DRAFT, supplier owner and version
+    alt Draft cancellable
+        Utility->>DB: Save custody receipt CANCELLED
+        DB-->>Utility: Saved
+        Utility-->>Controller: cancelled custody receipt
+        Controller-->>UI: 200 OK
+        UI-->>Staff: Show cancelled custody receipt
+    else otherwise
+        Utility-->>Controller: cancellation error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show cancellation error
+    end
+```
+
 **Khớp ở mức thiết kế.** `CustodyDetailPage.tsx` mở modal hủy rồi gọi `POST /api/custody-receipts/:id/cancel`. Controller chọn `CUSTODY_RECEIPT` để cùng dùng `cancelDraft()` nhưng kiểm owner `SUPPLIER`. `alt` thể hiện đã kiểm đúng version và nháp thì lưu `CANCELLED`. Payload có lý do bắt buộc và dấu vết người hủy/thời điểm. Nhánh này chỉ lưu phiếu, khác nhánh hủy GR mua còn tăng version PO vì có cam kết nhận. [Hủy nháp nhận mua][receiving-cancel], [validation giữ hộ][rec-val], [màn giữ hộ][custody-fe], [API giữ hộ][custody-api].
 
 <details>
@@ -743,6 +2353,44 @@ Luồng đảo kiểm tra điều kiện trước khi ghi giao dịch bù. Mỗi
 </details>
 
 ### 25 · 1.4.2.6 Post Custody Receipt (UC-50)
+
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Warehouse Staff
+    participant UI as UI<br/>CustodyDetailPage.<br/>tsx
+    participant Controller as Controller<br/>custody.<br/>controller.js
+    participant Service as Service<br/>custody.service.<br/>js
+    participant DB as MongoDB
+
+    Staff->>UI: Choose custody locations and post
+    UI->>Controller: POST /api/custody-receipts/:id/post
+    Controller->>Service: postCustodyReceipt()
+    Service->>DB: Load receipt, inspection lines and locations
+    DB-->>Service: Receipt sources and destinations
+    Service->>Service: Check draft, source, version and CUSTODY / QUARANTINE locations
+    alt Posting checks pass
+        Service->>Service: Receive supplier-owned stock and verify capacity
+        Service->>DB: Save custody stock transaction and POSTED receipt
+        DB-->>Service: Saved
+        Service-->>Controller: posted custody receipt and transaction
+        Controller-->>UI: 200 OK
+        UI-->>Staff: Show posted custody receipt and transaction
+    else otherwise
+        Service-->>Controller: posting error
+        Controller-->>UI: Error response
+        UI-->>Staff: Show posting error
+    end
+```
 
 **Khớp ở mức thiết kế.** Màn giữ hộ chọn đủ một vị trí cho từng dòng rồi gửi `POST /:id/post`. Service kiểm phiếu `DRAFT` thuộc NCC, version, nguồn kỳ kiểm `CONFIRMED` có quyết định `CUSTODY`, đúng NCC/lô/sản phẩm/lượng, cùng đích trong kho là `CUSTODY` hoặc `QUARANTINE`. Đường ghi tồn gộp trong một bước vì sơ đồ mô tả lúc post: service xử lý từng dòng, giữ chủ `SUPPLIER`, xác minh sức chứa, lưu movement và phiếu `POSTED`. PO chỉ tăng lượng thực nhận khi tồn được nhận sở hữu qua GR mua tương ứng. [Post giữ hộ][custody-post], [màn giữ hộ][custody-fe], [tính lượng PO][po-qty].
 
@@ -770,6 +2418,58 @@ Luồng đảo kiểm tra điều kiện trước khi ghi giao dịch bù. Mỗi
 </details>
 
 ### 26 · 1.4.2.7 Reverse Custody Receipt
+
+```mermaid
+---
+config:
+  theme: neutral
+  sequence:
+    wrap: true
+    width: 132
+    actorFontSize: 13
+    messageFontSize: 14
+    actorMargin: 35
+---
+sequenceDiagram
+    actor Staff as Warehouse Staff
+    participant UI as UI<br/>CustodyReverse<br/>Modal.tsx
+    participant Controller as Controller<br/>custody.<br/>controller.js
+    participant Service as Service<br/>stock-reversal.<br/>service.js
+    participant Utility as Utility<br/>custody-stock.js
+    participant DB as MongoDB
+
+    Staff->>UI: Check custody reversal eligibility
+    UI->>Controller: GET /api/custody-receipts<br/>/:id/reversal-preflight
+    Controller->>Service: reversalPreflight(CUSTODY_RECEIPT)
+    Service->>DB: Read custody receipt, dependencies and stock
+    DB-->>Service: Original transaction and blockers
+    Service->>Service: Check eligibility and free supplier stock
+    Service-->>Controller: reversal eligibility
+    Controller-->>UI: 200 OK
+    UI-->>Staff: Show reversal eligibility
+    opt Eligible and staff confirm reversal
+        Staff->>UI: Confirm reversal with reason
+        UI->>Controller: POST /api/custody-receipts/:id/reverse
+        Controller->>Service: reverseReceipt(CUSTODY_RECEIPT)
+        Service->>DB: Load custody receipt and original movement
+        DB-->>Service: Receipt version and supplier-held stock
+        Service->>Service: Recheck eligibility, location and free stock
+        alt Reversal still eligible
+            loop For each original movement, in reverse order
+                Service->>Utility: transferCustodyStock() Deduct supplier stock
+            end
+            Service->>DB: Save reversal and custody receipt REVERSED
+            DB-->>Service: Saved
+            Service-->>Controller: reversal and stock transaction
+            Controller-->>UI: 200 OK
+            UI-->>Staff: Show reversal and stock transaction
+        else otherwise
+            Service-->>Controller: reversal error
+            Controller-->>UI: Error response
+            UI-->>Staff: Show reversal error
+        end
+    end
+```
 
 **Khớp ở mức thiết kế.** `CustodyReverseModal.tsx` gọi preflight rồi `POST /reverse` khi đủ điều kiện và người dùng xác nhận lý do. `opt` phân biệt kiểm tra và ghi thật. Controller truyền `CUSTODY_RECEIPT` để chọn nhánh `SUPPLIER` của cùng lệnh đảo. Service rà phiếu còn `POSTED`, giao dịch gốc, hồ sơ xử lý giữ hộ phụ thuộc, vị trí, phiên bản, lượng tự do và quy cách. Mũi tên sang `transferCustodyStock()` mô tả thao tác trừ khỏi số dư NCC gốc với đích `null`, lặp theo các movement gốc theo thứ tự ngược. Phần cuối lưu giao dịch bù, phiếu đảo và đổi phiếu giữ hộ sang `REVERSED`. Luồng dùng version phiếu giữ hộ, không cập nhật PO. [Điều kiện đảo][reverse-eligible], [lệnh đảo][gr-reverse], [modal đảo giữ hộ][custody-reverse-fe], [API giữ hộ][custody-api].
 
