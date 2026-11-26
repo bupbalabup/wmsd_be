@@ -48,6 +48,11 @@ export async function nextDocumentFields(Model,type,warehouseId,session=currentT
  // so both fields are scanned; root documents still allocate from `_id` alone.
  const query=path?{$or:[{[path+'._id']:numberFilter},{[path+'.documentNo']:numberFilter}]}:{_id:numberFilter};
  const rows=await Model.collection.find(query,{session,projection}).toArray();
+ // Supplier acknowledgements share one printed number series across both shipment types.
+ if(type==='ACK'){
+  const releases=await Model.db.model('CustodyRelease').collection.find(query,{session,projection}).toArray();
+  rows.push(...releases);
+ }
  const codes=path?rows.flatMap(r=>(r[path]??[]).flatMap(v=>[v._id,v.documentNo])):rows.map(r=>r._id);
  // Retained operation receipts prevent reusing a deleted root document number.
  const operations=Model.db.collection('operation_records');

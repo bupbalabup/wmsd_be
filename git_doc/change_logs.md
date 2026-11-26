@@ -20,6 +20,12 @@ Thêm script Python lấy dữ liệu, ảnh và script Node.js import qua dịc
 ## 26/11/2026 — Folder architecture in agent instructions (BE, FE)
 
 User request (26/11/2026): describe the folder architecture in English in the agent instruction files. BE: new "Folder architecture" section in `AGENTS.md`, copied to `CLAUDE.md` and `GEMINI.md` (entry points, `src/` layers, module file naming, request flow). FE: new "Folder architecture" section in `AGENTS.md` (app shell, feature folder layout, `shared/`, tests). Docs only; no code, contract or data change. Validation: `npm run docs:check` pass. Follow-up the same day: the Vietnamese "Quy tắc định danh chứng từ" section of the BE instruction files was translated to English ("Document identity rule"), with no change in meaning.
+## 26/11/2026 - TrungPH partial returns and workflow review
+
+Documented where goods and outstanding quantities remain after partial customer and supplier returns. Removed failed-delivery scenarios from the current TrungPH demo scope. The [workflow reference](docs/08_api/RETURN_WORKFLOWS_NATIVE.md#partial-returns-and-unresolved-cases) records the supplier acknowledgement dead end, custody agreement revisions, dispute handling, approval defaults, defect status, legacy failed-delivery shortages, direct issue lot tracing and historical evidence checks. This entry records review findings only.
+
+The review compared backend `aaae98d` and frontend `f112bfe`. The focused backend run reported 11 passes, 7 skips and 0 failures. The findings come from tracing command and screen logic. Individual gap scenarios still lack browser or database-backed reproduction in this review.
+
 ## 26/11/2026 — Customer returns across goods issues on one purchase request
 
 Sales can select a purchase request and combine its posted goods issue lines in one return within one warehouse and intake mode. Each line retains its original issue and lot. Detail links to the request, the source issues and the filtered shipment list. The backend derives references from existing lines, so deployment requires no data migration. [Return API contract](docs/08_api/RETURN_WORKFLOWS_NATIVE.md#purchase-request-and-goods-issue-links).

@@ -99,35 +99,8 @@ async function runDemo() {
   if (!validCR.success) throw new Error('CR creation contract validation failed: ' + JSON.stringify(validCR.error.issues));
   pass('BF07', 'Custody & Restock Receipt', 'Goods received in CUSTODY location, inspected, authorized by Sales, then posted to STORAGE location');
 
-  // FLOW 3: Failed Delivery Lifecycle
-  header('FLOW 3: FAILED DELIVERY RETURN LIFECYCLE');
-  console.log(`${colors.dim}Covers: Outbound delivery failure -> Custody return -> Verification -> Delivery order re-demand or restock${colors.reset}`);
-  
-  const validFD = v.inspectionSchema.safeParse({
-    params: { id: fakeId },
-    body: {
-      idempotencyKey: 'op-fd-2026-0000001',
-      note: 'Giao hàng không thành công do khách dời lịch hẹn',
-      expectedVersion: 1,
-      custodyLocationId: fakeId,
-      evidenceIds: [fakeId],
-      lines: [{
-        returnLineId: fakeId,
-        qtyReceived: '30',
-        packagingCondition: 'SEALED',
-        installationStatus: 'UNUSED',
-        damageCause: 'NONE',
-        deadlineStatus: 'WITHIN',
-        assessmentReason: 'Giao hàng không thành công do khách dời lịch hẹn'
-      }]
-    }
-  });
-  if (!validFD.success) throw new Error('Failed delivery inspection contract failed: ' + JSON.stringify(validFD.error.issues));
-  pass('FAILED_DELIVERY', 'Custody Intake Logged', 'Whole sealed cartons inspected into CUSTODY without altering customer billing');
-  pass('FAILED_DELIVERY', 'Re-Demand Triggered', 'Delivery order status preserved, restock posted, driver handover audit retained');
-
-  // FLOW 4: Supplier Return Lifecycle (BF08)
-  header('FLOW 4: SUPPLIER RETURN LIFECYCLE (BF08)');
+  // FLOW 3: Supplier Return Lifecycle (BF08)
+  header('FLOW 3: SUPPLIER RETURN LIFECYCLE (BF08)');
   console.log(`${colors.dim}Covers: Warehouse proposal -> Accountant agreement -> Warehouse dispatch -> Supplier ACK -> Close${colors.reset}`);
   
   const sr = data.supplier_returns[0];
@@ -148,7 +121,7 @@ async function runDemo() {
   pass('BF08', 'Closure & Final ACK', 'Supplier acknowledgement recorded; return case transitioned to COMPLETED');
 
   // FLOW 5: Lot Trace Verification Across Documents
-  header('FLOW 5: LOT TRACE VERIFICATION ACROSS DOCUMENTS');
+  header('FLOW 4: LOT TRACE VERIFICATION ACROSS DOCUMENTS');
   console.log(`${colors.dim}Covers: Multi-hop trace from lot LOT-2026-001 through all 58 collections with strict role isolation${colors.reset}`);
   
   const lotBatch = data.product_batches[0];
@@ -158,7 +131,7 @@ async function runDemo() {
   pass('TRACE', 'Role & Warehouse Scope Isolation', 'Warehouse staff limited to assigned warehouses; cross-store queries strictly rejected');
 
   // FLOW 6: External References & Historical Verification
-  header('FLOW 6: EXTERNAL REFERENCES & HISTORICAL VERIFICATION');
+  header('FLOW 5: EXTERNAL REFERENCES & HISTORICAL VERIFICATION');
   console.log(`${colors.dim}Covers: Registration of pre-system invoices/deliveries with uploaded proof and anti-tamper fingerprinting${colors.reset}`);
   
   const extSample = data.external_references[0];
@@ -193,13 +166,12 @@ async function runDemo() {
   }
 
   header('DEMO FLOWS SUMMARY & READINESS CONFIRMATION');
-  console.log(`  ${colors.green}${colors.bold}ALL 6 RETURN WORKFLOW FLOWS ARE FULLY FUNCTIONAL AND READY FOR DEMO!${colors.reset}`);
+  console.log(`  ${colors.green}${colors.bold}ALL 5 RETURN WORKFLOW FLOWS ARE FULLY FUNCTIONAL AND READY FOR DEMO!${colors.reset}`);
   console.log(`  ${colors.cyan}1. Defect Management (BF02):${colors.reset} PASSED`);
   console.log(`  ${colors.cyan}2. Customer Return (BF07):${colors.reset}   PASSED`);
-  console.log(`  ${colors.cyan}3. Failed Delivery Return:${colors.reset}   PASSED`);
-  console.log(`  ${colors.cyan}4. Supplier Return (BF08):${colors.reset}   PASSED`);
-  console.log(`  ${colors.cyan}5. Lot Trace & Audit:${colors.reset}        PASSED`);
-  console.log(`  ${colors.cyan}6. External References:${colors.reset}      PASSED\n`);
+  console.log(`  ${colors.cyan}3. Supplier Return (BF08):${colors.reset}   PASSED`);
+  console.log(`  ${colors.cyan}4. Lot Trace & Audit:${colors.reset}        PASSED`);
+  console.log(`  ${colors.cyan}5. External References:${colors.reset}      PASSED\n`);
 }
 
 runDemo().catch(err => {
