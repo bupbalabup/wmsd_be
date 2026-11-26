@@ -2714,3 +2714,14 @@ Theo yêu cầu người dùng, gỡ Dockerfile của BE và cập nhật hướ
 - **Kiểm chứng:** FE `npm run typecheck` đạt. Bộ test tập trung vẫn ghi nhận 5 lỗi jsdom/Ant Design/fixture bắt buộc tên khách; không đánh dấu chúng là pass. Backend full-flow 8 → 4 → supplier 4 giữ nguyên bằng chứng trong test hiện hành.
 - **Tài liệu chính:** cập nhật `git_doc/docs/09_phat_trien/TRUNG_SALES_RETURNS_IMPLEMENTATION_PLAN.md` cùng mục này.
 
+## 26/11/2026 — Đồng bộ tài liệu luồng bán, trả khách và trả NCC (BE + FE)
+
+- **Lý do & phạm vi:** Đối chiếu tài liệu với `main` mới nhất của BE và FE sau khi hoàn tất demo và các sửa lỗi biểu mẫu. Cập nhật mô tả hiện hành; giữ quyết định 16–17/11 dưới dạng lịch sử có ngày rõ ràng. Không đổi code runtime, API, model, quyền, database hay migration.
+- **Tài liệu BE:** `git_doc/PROJECT_GUIDE.md`, `git_doc/README.md`, `git_doc/docs/08_api/GOODS_ISSUES.md`, `git_doc/docs/08_api/RETURN_WORKFLOWS_VERIFICATION.md`, `git_doc/docs/09_phat_trien/SIMPLIFIED_SALES_SETUP.md`.
+- **Tài liệu FE:** `context.md`, `DESIGN.md`, `docs/rtm.md`, `docs/ai-log.md` trong repository FE.
+- **Hợp đồng được đồng bộ:** Sales Order mới dùng lịch giao và giữ tồn FIFO; SALE độc lập dùng mã đơn ngoài, Sales gửi, Owner khác duyệt cùng phiếu, Kho chọn lô khi soạn và ghi xuất. Trả khách lấy phiếu xuất/lô nguồn và hạn mức còn lại; kiểm hàng không đổi tồn, chỉ phần Sales chấp nhận mới ghi nhập. Trả NCC ghi giảm tồn khi bàn giao; `ACK_SR` và đóng/đối chiếu không ghi sổ lần hai. Demo 8 → 4 → 4 dùng lô nguồn khác cho phần trả NCC.
+- **Tài liệu giao diện:** ghi nhận quy tắc cách tối thiểu 16px giữa cụm ghi chú/trường cuối và hàng nút; cập nhật RTM cho UC-71/72 và UC-79–92 theo phần đã triển khai, giữ trạng thái kiểm chứng `Partial` khi còn giới hạn.
+- **Pull request:** BE #40–#44 và FE #36–#39 được merge riêng từng file. Không có thay đổi dữ liệu hoặc triển khai production.
+- **Kiểm chứng:** BE `npm run docs:check` đạt với 1.235 liên kết nội bộ; `git diff --check` đạt. Không chạy FE tests hoặc kiểm tra trình duyệt cho các thay đổi tài liệu. Kết quả demo FE ngày 25/11 vẫn là 27/32, còn 5 lỗi tương tác jsdom/Ant Design; không có visual review cho acceptance run đó.
+- **Giới hạn CI:** Backend CI trên các PR tài liệu báo lỗi ở test/fixture hiện có (thiếu export `evidenceStorage` và kỳ vọng cũ rằng SALE phải có Sales Order). Các thay đổi ở đây chỉ là tài liệu; không sửa code hoặc test để che các lỗi đó.
+
