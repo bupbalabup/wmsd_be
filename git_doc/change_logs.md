@@ -1,3 +1,7 @@
+## 28/11/2026 - Unit Test Round 1 của HieuDT
+
+Đối chiếu 15 UC Iteration 1 với ba loại ca Normal, Abnormal và Boundary. Bổ sung kiểm tra service kho, vị trí, số dư, lệnh chuyển vị trí và yêu cầu chuyển kho bằng dữ liệu giả lập trong `test/hieudt-round1.test.js`. Bộ backend đạt 43/43 ca. Frontend đạt 6/6 ca kiểm tra hàm trình bày danh sách và chi tiết.
+
 ## 27/11/2026 - Sửa luồng khách trả và trả NCC
 
 Bộ chọn khách trả lọc phiếu xuất theo yêu cầu mua hàng. Khi chưa chọn yêu cầu, danh sách chỉ hiện các nguồn độc lập đủ điều kiện. Duyệt lại kiểm tra hạn mức theo lô. Phiếu nhiều dòng xét điều kiện duyệt theo từng dòng, và kiểm số lượng 0 không gửi quy cách bao bì. Lot Trace mở đúng chi tiết phiếu nhập khách trả.
