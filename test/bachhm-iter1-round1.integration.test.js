@@ -460,3 +460,107 @@ run('ITC-BH-157-AUTH | UC-157 | Owner tries to lock an account', async () => {
   assert.equal((await call('PATCH', '/users/' + worker._id + '/status', { as: owner, body: { isActive: false, reason: 'Owner khóa' } })).status, 403);
   assert.equal((await m.User.findById(worker._id)).isActive, true);
 });
+
+const planPayload = () => ({
+  idempotencyKey: key(), warehouseId: String(wa._id), title: 'BachHM monthly ' + key(),
+  frequency: 'MONTHLY', startDate: '2026-12-01T00:00:00.000Z',
+  assignedCounterIds: [String(worker._id)], scope: { locationIds: [String(bookA.loc._id)] },
+});
+async function addPlan() {
+  const body = planPayload();
+  const res = await call('POST', '/stocktake-plans', { as: owner, body });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  return { id: res.data.id, body };
+}
+async function addRole() {
+  const body = { code: 'BH_' + key().toUpperCase(), name: 'Stock reviewer', permissionCodes: ['stocktake:read'] };
+  const res = await call('POST', '/roles', { as: admin, body });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  return { id: res.data.id, body };
+}
+async function roleEvent(id) {
+  return m.AuditLog.findOne({ action: 'CREATE_ROLE', subjectId: { $in: [id, new mongoose.Types.ObjectId(id)] } }).orFail();
+}
+
+run('ITC-BH-141-BASE | UC-141 | Filter plans by title and warehouse', async () => {
+  const { id, body } = await addPlan();
+  const res = await call('GET', '/stocktake-plans?warehouseId=' + wa._id + '&q=' + encodeURIComponent(body.title), { as: owner });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.data.items.map(p => p.id), [id]);
+  assert.equal(res.data.total, 1);
+});
+run('ITC-BH-141-EMPTY | UC-141 | Search for an absent plan', async () => {
+  const res = await call('GET', '/stocktake-plans?q=' + key(), { as: owner });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.data.items, []);
+  assert.equal(res.data.total, 0);
+});
+run('ITC-BH-142-BASE | UC-142 | Read the plan and resolve its counter and location', async () => {
+  const { id } = await addPlan();
+  const res = await call('GET', '/stocktake-plans/' + id, { as: worker });
+  assert.equal(res.status, 200);
+  assert.equal(res.data.id, id);
+  assert.equal(res.data.workflowStatus, 'ACTIVE');
+  assert.deepEqual(res.data.lookups.counters.map(c => c.id), [String(worker._id)]);
+  assert.deepEqual(res.data.lookups.locations.map(l => l.id), [String(bookA.loc._id)]);
+});
+run('ITC-BH-142-MISSING | UC-142 | Look up an absent plan', async () => {
+  const res = await call('GET', '/stocktake-plans/KHKK-BA-261128-999999', { as: owner });
+  assert.equal(res.status, 404);
+});
+run('ITC-BH-143-BASE | UC-143 | Create an active monthly plan', async () => {
+  const { id, body } = await addPlan();
+  const saved = await m.StocktakePlan.findById(id).orFail();
+  assert.equal(saved.workflowStatus, 'ACTIVE');
+  assert.equal(saved.header.title, body.title);
+  assert.equal(saved.header.nextDueAt.toISOString(), body.startDate);
+  assert.equal(saved.header.generatedCount, 0);
+});
+run('ITC-BH-143-DATES | UC-143 | Reject end date before start', async () => {
+  const body = { ...planPayload(), endDate: '2026-11-01T00:00:00.000Z' };
+  const res = await call('POST', '/stocktake-plans', { as: owner, body });
+  assert.equal(res.status, 400);
+  assert.equal(await m.StocktakePlan.countDocuments({ 'header.title': body.title }), 0);
+});
+run('ITC-BH-158-BASE | UC-158 | List a newly created role and its permission', async () => {
+  const { id } = await addRole();
+  const res = await call('GET', '/roles', { as: admin });
+  assert.equal(res.status, 200);
+  const role = res.data.find(r => r.id === id);
+  assert.deepEqual(role.permissions, ['stocktake:read']);
+  assert.equal(role.userCount, 0);
+});
+run('ITC-BH-159-BASE | UC-159 | Persist the role and its permission', async () => {
+  const { id, body } = await addRole();
+  const saved = await m.Role.findById(id).populate('permissionIds').orFail();
+  assert.equal(saved.code, body.code);
+  assert.deepEqual(saved.permissionIds.map(p => p.code), body.permissionCodes);
+  assert.equal(saved.isSystemRole, false);
+});
+run('ITC-BH-159-DUP | UC-159 | Reject an existing role code', async () => {
+  const { body } = await addRole();
+  const res = await call('POST', '/roles', { as: admin, body });
+  assert.equal(res.status, 409);
+  assert.equal(await m.Role.countDocuments({ code: body.code }), 1);
+});
+run('ITC-BH-167-BASE | UC-167 | Filter audit history for the admin role creation', async () => {
+  const { id } = await addRole();
+  const event = await roleEvent(id);
+  const res = await call('GET', '/system/audit-logs?action=CREATE_ROLE&result=SUCCESS&actorId=' + admin._id, { as: admin });
+  assert.equal(res.status, 200);
+  assert.ok(res.data.items.some(e => e.id === String(event._id)));
+  assert.ok(res.data.items.every(e => e.action === 'CREATE_ROLE' && e.actor.id === String(admin._id) && e.result === 'SUCCESS'));
+});
+run('ITC-BH-168-BASE | UC-168 | Read the recorded role creation changes', async () => {
+  const { id, body } = await addRole();
+  const event = await roleEvent(id);
+  const res = await call('GET', '/system/audit-logs/' + event._id, { as: admin });
+  assert.equal(res.status, 200);
+  assert.equal(res.data.subjectId, id);
+  assert.equal(res.data.actor.id, String(admin._id));
+  assert.ok(res.data.changes.some(c => c.field === 'code' && c.after === body.code));
+});
+run('ITC-BH-168-MISSING | UC-168 | Look up an absent audit event', async () => {
+  const res = await call('GET', '/system/audit-logs/' + key(), { as: admin });
+  assert.equal(res.status, 404);
+});
