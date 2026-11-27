@@ -1,3 +1,11 @@
+## 27/11/2026 - Sửa luồng khách trả và trả NCC
+
+Bộ chọn khách trả lọc phiếu xuất theo yêu cầu mua hàng. Khi chưa chọn yêu cầu, danh sách chỉ hiện các nguồn độc lập đủ điều kiện. Duyệt lại kiểm tra hạn mức theo lô. Phiếu nhiều dòng xét điều kiện duyệt theo từng dòng, và kiểm số lượng 0 không gửi quy cách bao bì. Lot Trace mở đúng chi tiết phiếu nhập khách trả.
+
+Trả NCC kiểm số nguyên theo đơn vị gốc khi sản phẩm yêu cầu. Tiến độ đối chiếu dựa trên số lượng đã thỏa thuận, bàn giao và nhận phản hồi. Phiếu còn dòng chưa thỏa thuận vẫn có thể xử lý tiếp.
+
+Kiểm tra 45 ca frontend, 32 ca backend trả hàng, 2 bài tích hợp xuất bán và 8 ca lookup có MongoDB local. Cả ba luồng chạy đến hoàn tất qua API local. Kiểm tra kiểu và tài liệu đạt.
+
 ## 27/11/2026 - Mark all notifications as read
 
 Added **Đánh dấu tất cả đã đọc** to the notification bell at the user's request. The frontend refreshes the inbox and unread badge after the bulk operation. The [notification inbox contract](docs/08_api/NOTIFICATIONS.md) records the endpoint, permissions, and scope. The change uses the existing `readAt` field and requires no migration.
