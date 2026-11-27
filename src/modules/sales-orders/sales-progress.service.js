@@ -20,10 +20,10 @@ export const requestIssues = (order, session) =>
 export async function orderReferences(order, session) {
   const [issues, deliveries, requests] = await Promise.all([
     requestIssues(order, session),
-    m.DeliveryOrder.find({ 'header.salesOrderId': order._id }).select('documentNo workflowStatus').session(session).lean(),
+    m.DeliveryOrder.find({ 'header.salesOrderId': order._id }).select('documentNo workflowStatus header.scheduleId').session(session).lean(),
     m.WarehouseIssueRequest.find({ 'header.salesOrderId': order._id }).select('documentNo workflowStatus').session(session).lean(),
   ]);
-  const row = (type, label, path) => doc => ({ type, label, id: String(doc._id), documentNo: doc.documentNo, workflowStatus: doc.workflowStatus, path: `${path}/${encodeURIComponent(String(doc._id))}` });
+  const row = (type, label, path) => doc => ({ type, label, id: String(doc._id), documentNo: doc.documentNo, workflowStatus: doc.workflowStatus, scheduleFlow: Boolean(doc.header?.scheduleId), path: `${path}/${encodeURIComponent(String(doc._id))}` });
   return [
     ...issues.filter(doc => !CLOSED.includes(doc.workflowStatus)).map(row('sales_goods_issues', 'Phiếu xuất kho', '/goods-issues')),
     ...deliveries.filter(doc => !CLOSED.includes(doc.workflowStatus)).map(row('delivery_orders', 'Lệnh giao hàng', '/outbound-deliveries')),
@@ -31,8 +31,10 @@ export async function orderReferences(order, session) {
   ];
 }
 
+// Delivery orders made from the delivery schedule are not a blocker: the schedule service decides per delivery
+// (a paused DO can be reworked, a DO that is created, issued or handed over locks its own delivery).
 export async function assertNoReferences(order, session) {
-  const references = await orderReferences(order, session);
+  const references = (await orderReferences(order, session)).filter(r => !r.scheduleFlow);
   if (references.length) throw validationError(`Yêu cầu đã có chứng từ tham chiếu (${references.map(r => r.documentNo).join(', ')}), không sửa được`);
 }
 
