@@ -1,3 +1,7 @@
+## 28/11/2026 - Unit Test Round 1 của BachHM
+
+Người thực hiện: BachHM. Chia lại 38 UC của BachHM trong Project_Tracking thành Iteration 1/2/3 (13/13/12), Iteration 1 ưu tiên View và Create: UC-129, 130, 131, 141, 142, 143, 153, 154, 155, 158, 159, 167, 168. Thêm `test/bachhm-iter1-round1.test.js` gồm 41 ca Normal/Abnormal/Boundary (UTC-BH-001 đến UTC-BH-041) cho danh sách, chi tiết, tạo đợt kiểm kê và kế hoạch kiểm kê, tài khoản, vai trò và nhật ký kiểm toán. Dữ liệu MongoDB được giả lập, không cần database. Kết quả 41/41 đạt. Không sửa code nghiệp vụ. Trước đó không có test riêng của BachHM để xoá.
+
 ## 28/11/2026 - Unit Test Round 1 của HieuDT
 
 Đối chiếu 15 UC Iteration 1 với ba loại ca Normal, Abnormal và Boundary. Bổ sung kiểm tra service kho, vị trí, số dư, lệnh chuyển vị trí và yêu cầu chuyển kho bằng dữ liệu giả lập trong `test/hieudt-round1.test.js`. Bộ backend đạt 43/43 ca. Frontend đạt 6/6 ca kiểm tra hàm trình bày danh sách và chi tiết.
