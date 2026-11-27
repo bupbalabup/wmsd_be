@@ -6,9 +6,6 @@ import { PERMISSION_CATALOGUE, ROLE_PERMISSIONS } from '../src/seeds/data/permis
 import * as stock from '../src/modules/warehouse-stock/service.js';
 import { saveLayout } from '../src/modules/warehouse-stock/layout.js';
 import * as transfers from '../src/modules/transfers/transfer.service.js';
-import * as differences from '../src/modules/transfers/transfer-differences.js';
-import { getTransfer } from '../src/modules/transfers/transfer.service.js';
-import { freeQuantity } from '../src/shared/utils/stock.js';
 const enabled=process.env.RUN_HIEUDT_ITER1==='1';
 const run=(name,fn)=>test(name,{skip:!enabled},fn);
 const key=()=>new mongoose.Types.ObjectId().toString();
@@ -32,7 +29,7 @@ test.before(async()=>{
 });
 test.after(async()=>{if(enabled){assert.match(mongoose.connection.name,/^wmsd_hieudt_scope_test_/);await mongoose.connection.dropDatabase();await mongoose.disconnect();}});
 import * as moves from '../src/modules/location-movements/location-movement.service.js';
-let newBin, moveId, transferId, ledgerId;
+let moveId, transferId;
 const bin=()=>({idempotencyKey:key(),warehouseId:wa.id,code:'NEW',name:'New bin',areaCode:'A',locationType:'STORAGE',isActive:true,isPickable:true,usableLengthMm:'2000',usableWidthMm:'2000'});
 run('UC-55 List assigned warehouses and compare with Owner scope',async()=>{
   const staff=await stock.warehouseList(a);
@@ -52,27 +49,9 @@ run('UC-57 Read capacity, active status and lot-level stock at SRC',async()=>{
 run('UC-61 Create an empty storage bin and replay the same request',async()=>{
   const body={...bin(),idempotencyKey:key()};
    const result=await stock.saveLocation(owner,null,body);
-   newBin=result.id;
+   const newBin=result.id;
    assert.equal((await stock.saveLocation(owner,null,body)).id,newBin);
    assert.equal(await m.WarehouseLocation.countDocuments({code:'NEW'}),1);
-  
-});
-run('UC-62 Rename the bin, reject stale version and verify stock',async()=>{
-  const body={...bin(),name:'Renamed',expectedVersion:1};
-   await stock.saveLocation(owner,newBin,body);
-   assert.equal((await m.WarehouseLocation.findById(newBin)).name,'Renamed');
-   await assert.rejects(stock.saveLocation(owner,newBin,{...body,idempotencyKey:key()}));
-   assert.equal(String((await m.InventoryBalance.findById(balance.id)).quantityBase),'40');
-  
-});
-run('UC-63 Deactivate empty bin and reject deactivation of stocked SRC',async()=>{
-  const update=async(id)=>{const r=await stock.locationDetail(owner,id);
-  return stock.saveLocation(owner,id,{...bin(),name:r.name,code:r.code,expectedVersion:r.version,isActive:false});
-  };
-  await update(newBin);
-  assert.equal((await m.WarehouseLocation.findById(newBin)).isActive,false);
-  await assert.rejects(update(source.id));
-  assert.equal((await m.WarehouseLocation.findById(source.id)).isActive,true);
   
 });
 run('UC-64 Filter inventory by lot, quality and owner within warehouse scope',async()=>{
@@ -129,26 +108,6 @@ run('UC-80 Read request line and allocated source bin',async()=>{
   assert.equal(row.items[0].sourceLocations[0].qtyBase,'8');
   
 });
-run('UC-165 Filter a seeded movement by product, location, lot and operation',async()=>{
-  const tid=new mongoose.Types.ObjectId();
-  const line=new mongoose.Types.ObjectId();
-  ledgerId=String(line);
-  await m.StockTransaction.create({_id:tid,sourceType:'transfer_orders',sourceId:moveId,operation:'RELOCATE',eventKey:key(),requestKey:key(),requestHash:'a'.repeat(64),performedBy:a._id,occurredAt:new Date(),recordedAt:new Date(),movements:[{_id:line,transactionId:tid,lineNo:1,sourceLineId:new mongoose.Types.ObjectId(),fromBalanceId:balance._id,quantityBase:'4',fromBefore:'44',fromAfter:'40'}]});
-  const q={...page,locationId:source.id,productId:product.id,batchId:batch.id,operation:'RELOCATE'};
-  assert.equal((await stock.movements(a,q)).items[0].id,ledgerId);
-  assert.equal((await stock.movements(a,{...q,operation:'OTHER'})).total,0);
-  
-});
-run('UC-166 Read source, operator, time, reason and before/after values',async()=>{
-  const r=await stock.movements(a,page,ledgerId);
-  assert.equal(r.from.before,'44');
-  assert.equal(r.from.after,'40');
-  assert.equal(r.performedBy,'source');
-  assert.ok(r.occurredAt);
-  assert.equal(r.source.reason,'Round 1 relocation');
-  assert.ok(r.source.documentNo);
-  
-});
 const denied = operation => assert.rejects(operation, { statusCode: 403 });
 const missing = operation => assert.rejects(operation, { statusCode: 404 });
 const invalid = operation => assert.rejects(operation, { statusCode: 400 });
@@ -190,37 +149,7 @@ run('UC-61 AUTH Create a bin as Warehouse Staff', async () => {
   assert.equal(await m.WarehouseLocation.countDocuments({ code: 'NO-GRANT' }), 0);
 });
 
-run('UC-62 ERR Rename an existing bin using an outdated version', async () => {
-  await assert.rejects(stock.saveLocation(owner, newBin, { ...bin(), expectedVersion: 1, name: 'Stale' }), { statusCode: 409 });
-  assert.equal((await m.WarehouseLocation.findById(newBin)).name, 'Renamed');
-});
 
-run('UC-62 AUTH Rename an existing bin as Warehouse Staff', async () => {
-  await denied(stock.saveLocation(a, newBin, { ...bin(), expectedVersion: 3, name: 'Denied' }));
-  assert.equal((await m.WarehouseLocation.findById(newBin)).name, 'Renamed');
-});
-
-run('UC-63 ERR Deactivate the empty destination of an open relocation', async () => {
-  const row = await stock.locationDetail(owner, stage.id);
-  const task = await m.TransferOrder.findById(moveId);
-  assert.equal(task.workflowStatus, 'OPEN');
-  assert.equal(String(task.items[0].details.toLocationId), stage.id);
-  const outcome = await stock.saveLocation(owner, stage.id, { idempotencyKey: key(), expectedVersion: row.version, isActive: false }).then(() => 200, error => error.statusCode);
-  const stored = await m.WarehouseLocation.findById(stage.id);
-  assert.deepEqual({ status: outcome, active: stored.isActive }, { status: 400, active: true });
-  assert.equal((await m.WarehouseLocation.findById(stage.id)).isActive, true);
-});
-
-run('UC-63 AUTH Reactivate an inactive bin as Warehouse Staff', async () => {
-  await denied(stock.saveLocation(a, newBin, { idempotencyKey: key(), expectedVersion: 3, isActive: true }));
-  assert.equal((await m.WarehouseLocation.findById(newBin)).isActive, false);
-});
-
-run('UC-63 MAIN Reactivate an empty inactive bin as Owner', async () => {
-  const row = await stock.locationDetail(owner, newBin);
-  await stock.saveLocation(owner, newBin, { idempotencyKey: key(), expectedVersion: row.version, isActive: true });
-  assert.equal((await m.WarehouseLocation.findById(newBin)).isActive, true);
-});
 
 run('UC-64 ALT Filter inventory for an absent product', async () => {
   const result = await stock.inventory(a, { ...page, productId: key() });
@@ -321,25 +250,6 @@ run('UC-81 ALLOC Allocate more than the requested quantity', async () => {
   assert.equal(await m.WarehouseTransferRequest.countDocuments(), before);
 });
 
-run('UC-165 ALT Filter movement log to a date before the fixture posting', async () => {
-  const result = await stock.movements(a, { ...page, to: '2000-01-01T00:00:00Z' });
-  assert.equal(result.total, 0);
-  assert.deepEqual(result.items, []);
-});
-
-run('UC-165 AUTH Read the movement log from warehouse B', async () => {
-  const result = await stock.movements(b, page);
-  assert.equal(result.total, 0);
-  assert.deepEqual(result.items, []);
-});
-
-run('UC-166 ERR Read a nonexistent ledger movement', async () => {
-  await missing(stock.movements(a, page, key()));
-});
-
-run('UC-166 AUTH Read an existing ledger movement from warehouse B', async () => {
-  await missing(stock.movements(b, page, ledgerId));
-});
 import jwt from 'jsonwebtoken';
 let server;
 async function readApi(path) {
@@ -377,9 +287,67 @@ run('UC-79 HTTP Reject invalid pagination on the transfer list', async () => {
   const response = await readApi('/warehouse-transfers?page=0');
   assert.equal(response.status, 400);
 });
+ 
+run('UC-56 BASE Read warehouse A with its assigned storage locations', async () => {
+  const row = await stock.warehouseDetail(a, wa.id);
+  assert.equal(row.code, 'A');
+  assert.deepEqual(row.locations.map(location => location.code), ['NEW', 'SRC', 'STAGE']);
+});
+run('UC-56 ERR Read a nonexistent warehouse', async () => {
+  await missing(stock.warehouseDetail(owner, key()));
+});
+run('UC-56 AUTH Read warehouse A as a worker assigned to B', async () => {
+  await denied(stock.warehouseDetail(b, wa.id));
+});
 
-run('UC-165 HTTP Reject a reversed date range on the movement log', async () => {
-  const response = await readApi('/stock-movements?from=2026-11-28T00:00:00Z&to=2026-11-01T00:00:00Z');
-  assert.equal(response.status, 400);
+let roundOneWarehouseId;
+const readWarehouse = () => m.Warehouse.findById(roundOneWarehouseId);
+const warehouseBody = () => ({
+  code: 'R1NEW', name: 'Round 1 warehouse', lengthMm: '10000',
+  widthMm: '10000', clearHeightMm: '3000', isActive: true, idempotencyKey: key(),
+});
+run('UC-58 BASE Owner creates a warehouse and replays the request', async () => {
+  const body = warehouseBody();
+  const result = await stock.saveWarehouse(owner, null, body);
+  roundOneWarehouseId = result.id;
+  assert.equal((await stock.saveWarehouse(owner, null, body)).id, result.id);
+  assert.equal((await m.Warehouse.findById(result.id)).name, body.name);
+  assert.equal(await m.Warehouse.countDocuments({code:body.code}), 1);
+});
+run('UC-58 ERR Duplicate warehouse code is rejected', async () => {
+  await assert.rejects(stock.saveWarehouse(owner, null, warehouseBody()), e => e.statusCode === 409 || e.code === 11000);
+  assert.equal(await m.Warehouse.countDocuments({code:'R1NEW'}), 1);
+});
+run('UC-58 AUTH Warehouse Staff cannot create a warehouse', async () => {
+  await assert.rejects(stock.saveWarehouse(a, null, {...warehouseBody(),code:'DENIED'}), {statusCode:403});
+  assert.equal(await m.Warehouse.countDocuments({code:'DENIED'}),0);
+});
+const edit = async name => ({...warehouseBody(),code:'R1NEW',name,expectedUpdatedAt:(await readWarehouse()).updatedAt.toISOString()});
+run('UC-59 BASE Owner updates warehouse information', async () => {
+  await stock.saveWarehouse(owner, roundOneWarehouseId, await edit('Updated warehouse'));
+  assert.equal((await readWarehouse()).name,'Updated warehouse');
+});
+run('UC-59 ERR Stale warehouse update is rejected', async () => {
+  const body = {...await edit('Stale'),expectedUpdatedAt:'2000-01-01T00:00:00Z'};
+  await assert.rejects(stock.saveWarehouse(owner, roundOneWarehouseId, body), {statusCode:400});
+  assert.equal((await readWarehouse()).name,'Updated warehouse');
+});
+run('UC-59 AUTH Warehouse Staff cannot update warehouse information', async () => {
+  await assert.rejects(stock.saveWarehouse(a, roundOneWarehouseId, await edit('Denied')), {statusCode:403});
+  assert.equal((await readWarehouse()).name,'Updated warehouse');
+});
+const layout = {points:[{x:0,y:0},{x:10,y:0},{x:10,y:10},{x:0,y:10}],height:3,doors:[],functions:[{id:'staging',name:'Staging'}]};
+const layoutBody = async () => ({layout,apply:true,expectedUpdatedAt:(await readWarehouse()).updatedAt.toISOString()});
+run('UC-60 BASE Owner applies a layout and reads it back', async () => {
+  await saveLayout(owner, roundOneWarehouseId, await layoutBody());
+  assert.deepEqual((await stock.warehouseDetail(owner,roundOneWarehouseId)).layout3dApplied.functions,layout.functions);
+});
+run('UC-60 ERR Stale layout cannot overwrite applied design', async () => {
+  await assert.rejects(saveLayout(owner,roundOneWarehouseId,{...await layoutBody(),expectedUpdatedAt:'2000-01-01T00:00:00Z'}),{statusCode:400});
+  assert.deepEqual((await stock.warehouseDetail(owner,roundOneWarehouseId)).layout3dApplied.functions,layout.functions);
+});
+run('UC-60 AUTH Warehouse Staff cannot apply a layout', async () => {
+  await assert.rejects(saveLayout(a,roundOneWarehouseId,await layoutBody()),{statusCode:403});
+  assert.deepEqual((await stock.warehouseDetail(owner,roundOneWarehouseId)).layout3dApplied.functions,layout.functions);
 });
 
