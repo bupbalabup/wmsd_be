@@ -1,3 +1,9 @@
+## 27/11/2026 - Mark all notifications as read
+
+Added **Đánh dấu tất cả đã đọc** to the notification bell at the user's request. The frontend refreshes the inbox and unread badge after the bulk operation. The [notification inbox contract](docs/08_api/NOTIFICATIONS.md) records the endpoint, permissions, and scope. The change uses the existing `readAt` field and requires no migration.
+
+Both notification component tests passed. A local MongoDB integration test covered 16 eligible notifications, a repeated request, an existing read timestamp, and recipient, archive, warehouse, source, and permission exclusions. Browser checks with mocked API responses passed at 1440 px and 390 px, including keyboard operation, failure and retry, and a read-only account. Targeted lint passed. Repository lint and typecheck reported existing failures outside the notification files. The checkout lacks the UI check and cleanup scripts, so the browser and local server were closed directly.
+
 ## 27/11/2026 — BF-03 and BF-04 diagrams in Report 4
 
 Aligned the two class diagrams and four sequences in Report 4 sections II.3–4 with the current relocation, transfer, variance and completion services. BF-03 now shows per-trip postings and partial cancellation. BF-04 covers request edits and cancellation, draft dispatch cancellation and reservation release, per-receipt put-away, both RESOLVED outcomes, and a source-only transit loss. Updated the four BF-04 pages in the companion project’s WMSD_TOBE_BF03_BF04_UML.drawio. Documentation only. Rendered all six report diagrams and the four edited draw.io pages, checked XML references, and ran the relocation, transfer completion and pick-allocation unit tests (14 passed).
